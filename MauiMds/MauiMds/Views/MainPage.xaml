@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="MauiMds.Views.MainPage"
+             BackgroundColor="{AppThemeBinding Light=#E7E4DE, Dark=#232321}">
+    <Grid Padding="28"
+          RowDefinitions="Auto,*">
+        <Border Grid.Row="0"
+                BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2D2C2A}"
+                Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
+                StrokeThickness="1"
+                Padding="18,14"
+                Margin="0,0,0,18">
+            <Grid ColumnDefinitions="*,Auto"
+                  ColumnSpacing="16">
+                <VerticalStackLayout Spacing="4">
+                    <Label Text="{Binding FileName}"
+                           FontSize="22"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
+                    <Label Text="{Binding FilePath}"
+                           FontSize="13"
+                           LineBreakMode="MiddleTruncation"
+                           TextColor="{AppThemeBinding Light=#53504A, Dark=#B9B2A8}" />
+                </VerticalStackLayout>
+
+                <Border Grid.Column="1"
+                        BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
+                        StrokeThickness="0"
+                        Padding="12,8"
+                        VerticalOptions="Center">
+                    <Label Text="Markdown Viewer"
+                           FontSize="12"
+                           TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1"
+                BackgroundColor="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}"
+                Stroke="{AppThemeBinding Light=#D5CCBC, Dark=#45474B}"
+                StrokeThickness="1"
+                Padding="30,26"
+                StrokeShape="RoundRectangle 18">
+            <ScrollView>
+                <VerticalStackLayout x:Name="ContentStack"
+                                     Spacing="12" />
+            </ScrollView>
+        </Border>
+    </Grid>
+</ContentPage>

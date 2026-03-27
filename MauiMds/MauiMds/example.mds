@@ -1,0 +1,14 @@
+# MauiMds Example
+
+This sample document is loaded from a file that gets copied to the build output.
+
+## Try opening your own files
+
+Use `File > Open` to choose either:
+
+* `.mds` files
+* `.md` markdown files
+
+## Notes
+
+This viewer currently renders headings, paragraphs, and bullet lists.
