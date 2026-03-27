@@ -36,6 +36,33 @@ ScaffoldingReadMe.txt
 # NuGet Symbol Packages
 *.snupkg
 
+# User-specific files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE folders
+.vs/
+.vscode/
+.idea/
+
+# Rider
+*.sln.iml
+
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+Icon?
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
 # Others
 ~$*
 *~
