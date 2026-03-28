@@ -3,72 +3,230 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:markdown="clr-namespace:MauiMds.Markdown"
              x:Class="MauiMds.Views.MainPage"
+             x:Name="RootPage"
              BackgroundColor="{AppThemeBinding Light=#E7E4DE, Dark=#232321}">
     <Grid>
         <Grid Padding="28"
-              RowDefinitions="Auto,*">
-            <Border Grid.Row="0"
-                    BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2D2C2A}"
-                    Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
+              ColumnDefinitions="Auto,*">
+            <Border Grid.Column="0"
+                    WidthRequest="{Binding WorkspacePanelWidth}"
+                    IsVisible="{Binding IsWorkspacePanelVisible}"
+                    Margin="0,0,18,0"
+                    BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2A2B2D}"
+                    Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#45474B}"
                     StrokeThickness="1"
-                    Padding="18,14"
-                    Margin="0,0,0,18">
-                <Grid ColumnDefinitions="*,Auto,Auto"
-                      ColumnSpacing="16">
-                    <VerticalStackLayout Spacing="4">
-                        <Label x:Name="FileNameLabel"
-                               Text="{Binding FileName}"
-                               FontSize="22"
-                               FontAttributes="Bold"
-                               TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
-                        <Label x:Name="FilePathLabel"
-                               Text="{Binding FilePath}"
-                               FontSize="13"
-                               LineBreakMode="MiddleTruncation"
-                               TextColor="{AppThemeBinding Light=#53504A, Dark=#B9B2A8}" />
-                        <Border IsVisible="{Binding HasInlineError}"
-                                BackgroundColor="{AppThemeBinding Light=#FBE0DD, Dark=#432524}"
-                                StrokeThickness="0"
-                                Padding="12,8"
-                                Margin="0,8,0,0"
-                                StrokeShape="RoundRectangle 12">
-                            <Label Text="{Binding InlineErrorMessage}"
-                                   FontSize="12"
-                                   LineBreakMode="WordWrap"
-                                   TextColor="{AppThemeBinding Light=#7D2E28, Dark=#FFE7E4}" />
-                        </Border>
-                    </VerticalStackLayout>
-
-                    <Button Grid.Column="1"
-                            Text="Open"
-                            Command="{Binding OpenFileCommand}"
-                            VerticalOptions="Center"
-                            Padding="18,10"
+                    Padding="12"
+                    StrokeShape="RoundRectangle 18">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,*"
+                      RowSpacing="10">
+                    <Button Text="Open Folder"
+                            Command="{Binding OpenFolderCommand}"
+                            Padding="12,10"
                             BackgroundColor="{AppThemeBinding Light=#DDD3BF, Dark=#3F3D39}"
                             TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
 
-                    <Border Grid.Column="2"
-                            BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
-                            StrokeThickness="0"
-                            Padding="12,8"
-                            VerticalOptions="Center">
-                        <Label Text="Markdown Viewer"
-                               FontSize="12"
-                               TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
-                    </Border>
+                    <Entry Grid.Row="1"
+                           Placeholder="Search workspace"
+                           Text="{Binding WorkspaceSearchText}"
+                           ClearButtonVisibility="WhileEditing"
+                           BackgroundColor="{AppThemeBinding Light=#FBF8F2, Dark=#313234}"
+                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+
+                    <Label Grid.Row="2"
+                           Text="{Binding WorkspaceRootPath}"
+                           FontSize="11"
+                           LineBreakMode="HeadTruncation"
+                           TextColor="{AppThemeBinding Light=#5A544C, Dark=#BFB7AC}" />
+
+                    <Button Grid.Row="3"
+                            Text="Create MDS"
+                            Command="{Binding CreateMdsCommand}"
+                            Padding="12,10"
+                            BackgroundColor="{AppThemeBinding Light=#C9D7C5, Dark=#38453A}"
+                            TextColor="{AppThemeBinding Light=#152016, Dark=#EFF7EE}" />
+
+                    <CollectionView x:Name="WorkspaceCollectionView"
+                                    Grid.Row="4"
+                                    ItemsSource="{Binding WorkspaceItems}"
+                                    SelectionMode="None"
+                                    VerticalOptions="Fill">
+                        <CollectionView.EmptyView>
+                            <Label Text="Open a folder to browse markdown files."
+                                   FontSize="12"
+                                   HorizontalTextAlignment="Center"
+                                   VerticalTextAlignment="Center"
+                                   TextColor="{AppThemeBinding Light=#746C61, Dark=#B9B2A8}" />
+                        </CollectionView.EmptyView>
+
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="6,4"
+                                        Margin="0,1"
+                                        StrokeThickness="0"
+                                        BackgroundColor="Transparent"
+                                        StrokeShape="RoundRectangle 10">
+                                    <Border.Triggers>
+                                        <DataTrigger TargetType="Border"
+                                                     Binding="{Binding IsSelected}"
+                                                     Value="True">
+                                            <Setter Property="BackgroundColor"
+                                                    Value="{AppThemeBinding Light=#E8E0CF, Dark=#393835}" />
+                                        </DataTrigger>
+                                    </Border.Triggers>
+
+                                    <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto"
+                                          ColumnSpacing="6">
+                                        <BoxView WidthRequest="{Binding IndentWidth}"
+                                                 Opacity="0" />
+
+                                        <Button Grid.Column="1"
+                                                Text="{Binding ExpandGlyph}"
+                                                Command="{Binding Source={x:Reference RootPage}, Path=BindingContext.ToggleWorkspaceItemExpansionCommand}"
+                                                CommandParameter="{Binding .}"
+                                                WidthRequest="22"
+                                                HeightRequest="22"
+                                                Padding="0"
+                                                FontSize="11"
+                                                IsVisible="{Binding IsDirectory}"
+                                                BackgroundColor="Transparent"
+                                                TextColor="{AppThemeBinding Light=#615A51, Dark=#D7D0C5}" />
+
+                                        <Label Grid.Column="2"
+                                               Text="{Binding ItemGlyph}"
+                                               FontSize="9"
+                                               VerticalTextAlignment="Center"
+                                               TextColor="{AppThemeBinding Light=#7C756A, Dark=#AFA79B}" />
+
+                                        <Grid Grid.Column="3">
+                                            <Label Text="{Binding Name}"
+                                                   FontSize="12"
+                                                   VerticalTextAlignment="Center"
+                                                   TextColor="{AppThemeBinding Light=#1B1A18, Dark=#F3EDE2}">
+                                                <Label.Triggers>
+                                                    <DataTrigger TargetType="Label"
+                                                                 Binding="{Binding IsRenaming}"
+                                                                 Value="True">
+                                                        <Setter Property="IsVisible"
+                                                                Value="False" />
+                                                    </DataTrigger>
+                                                </Label.Triggers>
+                                            </Label>
+
+                                            <Entry Text="{Binding RenameText}"
+                                                   FontSize="12"
+                                                   IsVisible="False"
+                                                   ClearButtonVisibility="Never"
+                                                   Loaded="OnWorkspaceRenameEntryLoaded"
+                                                   Completed="OnWorkspaceRenameCompleted"
+                                                   Unfocused="OnWorkspaceRenameUnfocused">
+                                                <Entry.Triggers>
+                                                    <DataTrigger TargetType="Entry"
+                                                                 Binding="{Binding IsRenaming}"
+                                                                 Value="True">
+                                                        <Setter Property="IsVisible"
+                                                                Value="True" />
+                                                    </DataTrigger>
+                                                </Entry.Triggers>
+                                            </Entry>
+                                        </Grid>
+
+                                        <Button Grid.Column="4"
+                                                Text="R"
+                                                WidthRequest="22"
+                                                HeightRequest="22"
+                                                Padding="0"
+                                                FontSize="10"
+                                                Command="{Binding Source={x:Reference RootPage}, Path=BindingContext.BeginRenameWorkspaceItemCommand}"
+                                                CommandParameter="{Binding .}"
+                                                IsVisible="{Binding CanRename}"
+                                                BackgroundColor="Transparent"
+                                                TextColor="{AppThemeBinding Light=#6B6358, Dark=#D4CCBF}" />
+                                    </Grid>
+
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer Command="{Binding Source={x:Reference RootPage}, Path=BindingContext.SelectWorkspaceItemCommand}"
+                                                              CommandParameter="{Binding .}" />
+                                    </Border.GestureRecognizers>
+                                </Border>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
                 </Grid>
             </Border>
 
-            <Border Grid.Row="1"
-                    BackgroundColor="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}"
-                    Stroke="{AppThemeBinding Light=#D5CCBC, Dark=#45474B}"
-                    StrokeThickness="1"
-                    Padding="30,26"
-                    StrokeShape="RoundRectangle 18">
-                <markdown:MarkdownView x:Name="MarkdownViewer"
-                                       Blocks="{Binding ParsedBlocks}"
-                                       SourceFilePath="{Binding FilePath}" />
-            </Border>
+            <Grid Grid.Column="1"
+                  RowDefinitions="Auto,*">
+                <Border Grid.Row="0"
+                        BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2D2C2A}"
+                        Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
+                        StrokeThickness="1"
+                        Padding="18,14"
+                        Margin="0,0,0,18">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto"
+                          ColumnSpacing="16">
+                        <Button Text="{Binding WorkspaceToggleLabel}"
+                                Command="{Binding ToggleWorkspacePanelCommand}"
+                                VerticalOptions="Center"
+                                Padding="14,10"
+                                BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
+                                TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+
+                        <VerticalStackLayout Grid.Column="1"
+                                             Spacing="4">
+                            <Label x:Name="FileNameLabel"
+                                   Text="{Binding FileName}"
+                                   FontSize="22"
+                                   FontAttributes="Bold"
+                                   TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
+                            <Label x:Name="FilePathLabel"
+                                   Text="{Binding FilePath}"
+                                   FontSize="13"
+                                   LineBreakMode="MiddleTruncation"
+                                   TextColor="{AppThemeBinding Light=#53504A, Dark=#B9B2A8}" />
+                            <Border IsVisible="{Binding HasInlineError}"
+                                    BackgroundColor="{AppThemeBinding Light=#FBE0DD, Dark=#432524}"
+                                    StrokeThickness="0"
+                                    Padding="12,8"
+                                    Margin="0,8,0,0"
+                                    StrokeShape="RoundRectangle 12">
+                                <Label Text="{Binding InlineErrorMessage}"
+                                       FontSize="12"
+                                       LineBreakMode="WordWrap"
+                                       TextColor="{AppThemeBinding Light=#7D2E28, Dark=#FFE7E4}" />
+                            </Border>
+                        </VerticalStackLayout>
+
+                        <Button Grid.Column="2"
+                                Text="Open"
+                                Command="{Binding OpenFileCommand}"
+                                VerticalOptions="Center"
+                                Padding="18,10"
+                                BackgroundColor="{AppThemeBinding Light=#DDD3BF, Dark=#3F3D39}"
+                                TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+
+                        <Border Grid.Column="3"
+                                BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
+                                StrokeThickness="0"
+                                Padding="12,8"
+                                VerticalOptions="Center">
+                            <Label Text="Markdown Viewer"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1"
+                        BackgroundColor="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}"
+                        Stroke="{AppThemeBinding Light=#D5CCBC, Dark=#45474B}"
+                        StrokeThickness="1"
+                        Padding="30,26"
+                        StrokeShape="RoundRectangle 18">
+                    <markdown:MarkdownView x:Name="MarkdownViewer"
+                                           Blocks="{Binding ParsedBlocks}"
+                                           SourceFilePath="{Binding FilePath}" />
+                </Border>
+            </Grid>
         </Grid>
 
         <Grid VerticalOptions="End"

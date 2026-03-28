@@ -30,6 +30,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton(snackbarService);
 		builder.Services.AddSingleton<MdsParser>();
 		builder.Services.AddSingleton<IMarkdownDocumentService, MarkdownDocumentService>();
+		builder.Services.AddSingleton<IWorkspaceBrowserService, WorkspaceBrowserService>();
 		builder.Services.AddSingleton<MainViewModel>();
 		builder.Services.AddSingleton<Views.MainPage>();
 

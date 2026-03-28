@@ -71,6 +71,11 @@ public partial class MainPage : ContentPage
         {
             RefreshHeader(vm);
         }
+
+        if (e.PropertyName == nameof(MainViewModel.PendingRenameItem) && vm.PendingRenameItem is not null)
+        {
+            WorkspaceCollectionView.ScrollTo(vm.PendingRenameItem, position: ScrollToPosition.MakeVisible, animate: true);
+        }
     }
 
     private void OnSnackbarPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -428,4 +433,44 @@ public partial class MainPage : ContentPage
         Color DarkText,
         Color LightSubtleText,
         Color DarkSubtleText);
+
+    private async void OnWorkspaceRenameCompleted(object? sender, EventArgs e)
+    {
+        if (BindingContext is not MainViewModel vm || sender is not Entry entry || entry.BindingContext is not WorkspaceTreeItem item)
+        {
+            return;
+        }
+
+        await vm.CommitWorkspaceRenameAsync(item);
+    }
+
+    private async void OnWorkspaceRenameUnfocused(object? sender, FocusEventArgs e)
+    {
+        if (BindingContext is not MainViewModel vm || sender is not Entry entry || entry.BindingContext is not WorkspaceTreeItem item)
+        {
+            return;
+        }
+
+        await vm.CommitWorkspaceRenameAsync(item);
+    }
+
+    private void OnWorkspaceRenameEntryLoaded(object? sender, EventArgs e)
+    {
+        if (BindingContext is not MainViewModel vm || sender is not Entry entry || entry.BindingContext is not WorkspaceTreeItem item)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(vm.PendingRenameItem, item))
+        {
+            return;
+        }
+
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            entry.Focus();
+            entry.CursorPosition = 0;
+            entry.SelectionLength = entry.Text?.Length ?? 0;
+        });
+    }
 }
