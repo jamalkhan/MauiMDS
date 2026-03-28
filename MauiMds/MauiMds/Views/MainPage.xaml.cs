@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using MauiMds.Models;
 using MauiMds.ViewModels;
 using Microsoft.Extensions.Logging;
@@ -19,6 +20,8 @@ public partial class MainPage : ContentPage
         {
             InitializeComponent();
             BindingContext = vm;
+            vm.PropertyChanged += OnViewModelPropertyChanged;
+            vm.DocumentApplied += OnDocumentApplied;
             vm.ParsedBlocks.CollectionChanged += OnParsedBlocksChanged;
             Loaded += OnLoaded;
             _logger.LogInformation("MainPage initialized successfully.");
@@ -37,12 +40,42 @@ public partial class MainPage : ContentPage
         if (BindingContext is MainViewModel vm)
         {
             await vm.InitializeAsync();
+            RefreshHeader(vm);
             RenderMarkdown(vm.ParsedBlocks);
         }
         else
         {
             _logger.LogWarning("MainPage loaded without a MainViewModel binding context.");
         }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (BindingContext is not MainViewModel vm)
+        {
+            return;
+        }
+
+        if (e.PropertyName is nameof(MainViewModel.FilePath) or nameof(MainViewModel.FileName))
+        {
+            RefreshHeader(vm);
+        }
+    }
+
+    private void OnDocumentApplied(object? sender, MarkdownDocument document)
+    {
+        if (BindingContext is not MainViewModel vm)
+        {
+            return;
+        }
+
+        RefreshHeader(vm);
+        RenderMarkdown(vm.ParsedBlocks);
+        _logger.LogInformation(
+            "Document applied notification received. FileName: {FileName}, DisplayedFilePath: {DisplayedFilePath}, ContentChildren: {ContentChildren}",
+            document.FileName ?? vm.FileName,
+            vm.FilePath,
+            ContentStack.Children.Count);
     }
 
     private void OnParsedBlocksChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -92,6 +125,20 @@ public partial class MainPage : ContentPage
             ContentStack.Children.Add(label);
         }
 
-        _logger.LogInformation("Rendered markdown blocks to the UI.");
+        _logger.LogInformation(
+            "Rendered markdown blocks to the UI. ChildCount: {ChildCount}, FirstBlockPreview: {FirstBlockPreview}",
+            ContentStack.Children.Count,
+            blocks.FirstOrDefault()?.Content);
+    }
+
+    private void RefreshHeader(MainViewModel vm)
+    {
+        FileNameLabel.Text = vm.FileName;
+        FilePathLabel.Text = vm.FilePath;
+
+        _logger.LogInformation(
+            "Header refreshed. FileName: {FileName}, FilePath: {FilePath}",
+            FileNameLabel.Text,
+            FilePathLabel.Text);
     }
 }

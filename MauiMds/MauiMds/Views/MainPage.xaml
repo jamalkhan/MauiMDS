@@ -11,20 +11,30 @@
                 StrokeThickness="1"
                 Padding="18,14"
                 Margin="0,0,0,18">
-            <Grid ColumnDefinitions="*,Auto"
+            <Grid ColumnDefinitions="*,Auto,Auto"
                   ColumnSpacing="16">
                 <VerticalStackLayout Spacing="4">
-                    <Label Text="{Binding FileName}"
+                    <Label x:Name="FileNameLabel"
+                           Text="{Binding FileName}"
                            FontSize="22"
                            FontAttributes="Bold"
                            TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
-                    <Label Text="{Binding FilePath}"
+                    <Label x:Name="FilePathLabel"
+                           Text="{Binding FilePath}"
                            FontSize="13"
                            LineBreakMode="MiddleTruncation"
                            TextColor="{AppThemeBinding Light=#53504A, Dark=#B9B2A8}" />
                 </VerticalStackLayout>
 
-                <Border Grid.Column="1"
+                <Button Grid.Column="1"
+                        Text="Open"
+                        Command="{Binding OpenFileCommand}"
+                        VerticalOptions="Center"
+                        Padding="18,10"
+                        BackgroundColor="{AppThemeBinding Light=#DDD3BF, Dark=#3F3D39}"
+                        TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+
+                <Border Grid.Column="2"
                         BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
                         StrokeThickness="0"
                         Padding="12,8"

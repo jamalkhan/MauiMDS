@@ -12,6 +12,7 @@ namespace MauiMds.ViewModels;
 public class MainViewModel : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<MarkdownDocument>? DocumentApplied;
 
     private readonly IMarkdownDocumentService _documentService;
     private readonly ILogger<MainViewModel> _logger;
@@ -68,14 +69,17 @@ public class MainViewModel : INotifyPropertyChanged
             var document = await _documentService.LoadInitialDocumentAsync();
             if (document is not null)
             {
-                ApplyDocument(document);
+                await ApplyDocumentAsync(document);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load the initial markdown document.");
-            FilePath = "Unable to load example.mds";
-            ParsedBlocks.Clear();
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                FilePath = "Unable to load example.mds";
+                ParsedBlocks.Clear();
+            });
         }
     }
 
@@ -97,7 +101,7 @@ public class MainViewModel : INotifyPropertyChanged
                 return;
             }
 
-            ApplyDocument(document);
+            await ApplyDocumentAsync(document);
         }
         catch (Exception ex)
         {
@@ -110,18 +114,33 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void ApplyDocument(MarkdownDocument document)
+    private async Task ApplyDocumentAsync(MarkdownDocument document)
     {
-        _logger.LogInformation("Applying markdown document from {FilePath}. CharacterCount: {CharacterCount}", document.FilePath, document.Content.Length);
-        var blocks = _parser.Parse(document.Content);
-        ParsedBlocks.Clear();
-        foreach (var block in blocks)
-        {
-            ParsedBlocks.Add(block);
-        }
+        _logger.LogInformation(
+            "Applying markdown document. FileName: {FileName}, FilePath: {FilePath}, SizeKB: {SizeKb:F2}, LastModified: {LastModified}, CharacterCount: {CharacterCount}",
+            document.FileName ?? Path.GetFileName(document.FilePath),
+            document.FilePath,
+            (document.FileSizeBytes ?? 0) / 1024d,
+            document.LastModified,
+            document.Content.Length);
 
-        FilePath = document.FilePath;
-        _logger.LogInformation("Parsed markdown document into {BlockCount} blocks.", ParsedBlocks.Count);
+        var blocks = _parser.Parse(document.Content);
+
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            ParsedBlocks.Clear();
+            foreach (var block in blocks)
+            {
+                ParsedBlocks.Add(block);
+            }
+
+            FilePath = document.FilePath;
+            _logger.LogInformation(
+                "Applied markdown document to the UI. DisplayedFilePath: {DisplayedFilePath}, BlockCount: {BlockCount}",
+                FilePath,
+                ParsedBlocks.Count);
+            DocumentApplied?.Invoke(this, document);
+        });
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)

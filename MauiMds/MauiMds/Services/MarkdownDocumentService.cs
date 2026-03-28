@@ -24,10 +24,19 @@ public sealed class MarkdownDocumentService : IMarkdownDocumentService
             await using var stream = await FileSystem.Current.OpenAppPackageFileAsync(ExampleDocumentName);
             using var reader = new StreamReader(stream);
             var content = await reader.ReadToEndAsync();
+            var sizeInBytes = System.Text.Encoding.UTF8.GetByteCount(content);
+
+            _logger.LogInformation(
+                "Loaded bundled markdown document. FileName: {FileName}, SizeKB: {SizeKb:F2}, ContentLength: {ContentLength}",
+                ExampleDocumentName,
+                sizeInBytes / 1024d,
+                content.Length);
 
             return new MarkdownDocument
             {
                 FilePath = ExampleDocumentName,
+                FileName = ExampleDocumentName,
+                FileSizeBytes = sizeInBytes,
                 Content = content
             };
         }
@@ -42,10 +51,20 @@ public sealed class MarkdownDocumentService : IMarkdownDocumentService
     {
         _logger.LogInformation("Opening file picker for markdown documents.");
 
-        var result = await FilePicker.Default.PickAsync(new PickOptions
+        var options = new PickOptions
         {
             PickerTitle = "Open a Markdown or MDS file"
-        });
+        };
+
+        if (DeviceInfo.Current.Platform == DevicePlatform.WinUI)
+        {
+            options.FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+            {
+                { DevicePlatform.WinUI, [".md", ".mds"] }
+            });
+        }
+
+        var result = await FilePicker.Default.PickAsync(options);
 
         if (result is null)
         {
@@ -60,7 +79,19 @@ public sealed class MarkdownDocumentService : IMarkdownDocumentService
             throw new InvalidOperationException("Please choose a .mds or .md file.");
         }
 
-        _logger.LogInformation("Reading selected markdown document from {FullPath}", result.FullPath);
+        FileInfo? fileInfo = null;
+        if (!string.IsNullOrWhiteSpace(result.FullPath))
+        {
+            fileInfo = new FileInfo(result.FullPath);
+        }
+
+        _logger.LogInformation(
+            "Reading selected markdown document. FileName: {FileName}, FullPath: {FullPath}, SizeKB: {SizeKb:F2}, LastModified: {LastModified}",
+            result.FileName,
+            result.FullPath,
+            (fileInfo?.Length ?? 0) / 1024d,
+            fileInfo?.LastWriteTime);
+
         await using var stream = await result.OpenReadAsync();
         using var reader = new StreamReader(stream);
         var content = await reader.ReadToEndAsync();
@@ -68,6 +99,9 @@ public sealed class MarkdownDocumentService : IMarkdownDocumentService
         return new MarkdownDocument
         {
             FilePath = result.FullPath,
+            FileName = result.FileName,
+            FileSizeBytes = fileInfo?.Length,
+            LastModified = fileInfo?.LastWriteTime,
             Content = content
         };
     }
