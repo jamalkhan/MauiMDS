@@ -1,10 +1,8 @@
-using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using MauiMds.Models;
 using MauiMds.Services;
 using MauiMds.ViewModels;
-using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Views;
@@ -30,8 +28,6 @@ public partial class MainPage : ContentPage
             InitializeComponent();
             BindingContext = vm;
             vm.PropertyChanged += OnViewModelPropertyChanged;
-            vm.DocumentApplied += OnDocumentApplied;
-            vm.ParsedBlocks.CollectionChanged += OnParsedBlocksChanged;
             _snackbarService.PropertyChanged += OnSnackbarPropertyChanged;
             _snackbarService.History.CollectionChanged += OnSnackbarHistoryChanged;
             Loaded += OnLoaded;
@@ -53,7 +49,6 @@ public partial class MainPage : ContentPage
         {
             await vm.InitializeAsync();
             RefreshHeader(vm);
-            RenderMarkdown(vm.ParsedBlocks);
         }
         else
         {
@@ -75,30 +70,6 @@ public partial class MainPage : ContentPage
         if (e.PropertyName is nameof(MainViewModel.FilePath) or nameof(MainViewModel.FileName))
         {
             RefreshHeader(vm);
-        }
-    }
-
-    private void OnDocumentApplied(object? sender, MarkdownDocument document)
-    {
-        if (BindingContext is not MainViewModel vm)
-        {
-            return;
-        }
-
-        RefreshHeader(vm);
-        RenderMarkdown(vm.ParsedBlocks);
-        _logger.LogDebug(
-            "Document applied notification received. FileName: {FileName}, DisplayedFilePath: {DisplayedFilePath}, ContentChildren: {ContentChildren}",
-            document.FileName ?? vm.FileName,
-            vm.FilePath,
-            ContentStack.Children.Count);
-    }
-
-    private void OnParsedBlocksChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        if (BindingContext is MainViewModel vm)
-        {
-            RenderMarkdown(vm.ParsedBlocks);
         }
     }
 
@@ -159,287 +130,6 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void RenderMarkdown(ObservableCollection<MarkdownBlock> blocks)
-    {
-        _logger.LogDebug("Rendering markdown blocks. BlockCount: {BlockCount}", blocks.Count);
-        ContentStack.Children.Clear();
-
-        foreach (var block in blocks)
-        {
-            ContentStack.Children.Add(CreateMarkdownView(block));
-        }
-
-        _logger.LogDebug(
-            "Rendered markdown blocks to the UI. ChildCount: {ChildCount}, FirstBlockPreview: {FirstBlockPreview}",
-            ContentStack.Children.Count,
-            blocks.FirstOrDefault()?.Content);
-    }
-
-    private View CreateMarkdownView(MarkdownBlock block)
-    {
-        return block.Type switch
-        {
-            BlockType.Header => CreateHeaderView(block),
-            BlockType.Paragraph => CreateParagraphView(block.Content),
-            BlockType.BulletListItem => CreateBulletView(block.Content),
-            BlockType.BlockQuote => CreateBlockQuoteView(block.Content),
-            BlockType.CodeBlock => CreateCodeBlockView(block),
-            BlockType.Table => CreateTableView(block),
-            _ => CreateParagraphView(block.Content)
-        };
-    }
-
-    private Label CreateHeaderView(MarkdownBlock block)
-    {
-        var label = CreateBaseLabel();
-        label.Text = block.Content;
-        label.FontSize = block.HeaderLevel == 1 ? 32 : 24;
-        label.FontAttributes = FontAttributes.Bold;
-        label.Margin = new Thickness(0, block.HeaderLevel == 1 ? 4 : 16, 0, 8);
-        return label;
-    }
-
-    private Label CreateParagraphView(string content)
-    {
-        var label = CreateBaseLabel();
-        label.Text = content;
-        label.FontSize = 18;
-        return label;
-    }
-
-    private Label CreateBulletView(string content)
-    {
-        var label = CreateBaseLabel();
-        label.Text = $"• {content}";
-        label.FontSize = 18;
-        label.Margin = new Thickness(20, 0, 0, 4);
-        return label;
-    }
-
-    private View CreateBlockQuoteView(string content)
-    {
-        var quoteLabel = CreateBaseLabel();
-        quoteLabel.Text = content;
-        quoteLabel.FontSize = 17;
-        quoteLabel.Margin = new Thickness(0);
-        quoteLabel.LineBreakMode = LineBreakMode.WordWrap;
-
-        var accent = new BoxView
-        {
-            WidthRequest = 4,
-            CornerRadius = 2,
-            VerticalOptions = LayoutOptions.Fill
-        };
-        accent.SetAppThemeColor(BoxView.ColorProperty, Color.FromArgb("#A08E71"), Color.FromArgb("#C8B79D"));
-
-        var layout = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition(GridLength.Auto),
-                new ColumnDefinition(GridLength.Star)
-            },
-            ColumnSpacing = 14
-        };
-        layout.Children.Add(accent);
-        layout.Children.Add(quoteLabel);
-        Grid.SetColumn(quoteLabel, 1);
-
-        var border = new Border
-        {
-            Padding = new Thickness(16, 14),
-            Margin = new Thickness(0, 4, 0, 10),
-            StrokeThickness = 0,
-            Content = layout,
-            StrokeShape = new RoundRectangle
-            {
-                CornerRadius = new CornerRadius(16)
-            }
-        };
-        border.SetAppThemeColor(BackgroundColorProperty, Color.FromArgb("#EFE7D8"), Color.FromArgb("#343432"));
-
-        return border;
-    }
-
-    private View CreateCodeBlockView(MarkdownBlock block)
-    {
-        var codeLabel = new Label
-        {
-            Text = block.Content,
-            FontFamily = "Courier New",
-            FontSize = 15,
-            LineBreakMode = LineBreakMode.NoWrap,
-            Margin = new Thickness(0),
-            Padding = new Thickness(0)
-        };
-        codeLabel.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#1E1E1E"), Color.FromArgb("#F5F1E8"));
-
-        var stack = new VerticalStackLayout
-        {
-            Spacing = 8
-        };
-
-        if (!string.IsNullOrWhiteSpace(block.CodeLanguage))
-        {
-            var languageLabel = new Label
-            {
-                Text = block.CodeLanguage,
-                FontSize = 11,
-                FontAttributes = FontAttributes.Bold,
-                Margin = new Thickness(0)
-            };
-            languageLabel.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#7B735F"), Color.FromArgb("#CDBEA3"));
-            stack.Children.Add(languageLabel);
-        }
-
-        stack.Children.Add(new ScrollView
-        {
-            Orientation = ScrollOrientation.Both,
-            Content = codeLabel
-        });
-
-        var border = new Border
-        {
-            Padding = new Thickness(16, 14),
-            Margin = new Thickness(0, 4, 0, 12),
-            StrokeThickness = 1,
-            Content = stack,
-            StrokeShape = new RoundRectangle
-            {
-                CornerRadius = new CornerRadius(16)
-            }
-        };
-        border.SetAppThemeColor(BackgroundColorProperty, Color.FromArgb("#EAE3D6"), Color.FromArgb("#1E1F21"));
-        border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#CFC3AE"), Color.FromArgb("#4A4C52"));
-
-        return border;
-    }
-
-    private View CreateTableView(MarkdownBlock block)
-    {
-        var columnCount = Math.Max(
-            block.TableHeaders.Count,
-            block.TableRows.Count == 0 ? 0 : block.TableRows.Max(row => row.Count));
-
-        if (columnCount == 0)
-        {
-            return CreateParagraphView(block.Content);
-        }
-
-        var grid = new Grid
-        {
-            ColumnSpacing = 0,
-            RowSpacing = 0
-        };
-
-        for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
-        {
-            grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
-        }
-
-        grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        for (var rowIndex = 0; rowIndex < block.TableRows.Count; rowIndex++)
-        {
-            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        }
-
-        for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
-        {
-            var headerCell = CreateTableCell(
-                columnIndex < block.TableHeaders.Count ? block.TableHeaders[columnIndex] : string.Empty,
-                isHeader: true,
-                isLastColumn: columnIndex == columnCount - 1,
-                isLastRow: block.TableRows.Count == 0);
-            grid.Children.Add(headerCell);
-            Grid.SetColumn(headerCell, columnIndex);
-            Grid.SetRow(headerCell, 0);
-        }
-
-        for (var rowIndex = 0; rowIndex < block.TableRows.Count; rowIndex++)
-        {
-            var row = block.TableRows[rowIndex];
-            for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
-            {
-                var dataCell = CreateTableCell(
-                    columnIndex < row.Count ? row[columnIndex] : string.Empty,
-                    isHeader: false,
-                    isLastColumn: columnIndex == columnCount - 1,
-                    isLastRow: rowIndex == block.TableRows.Count - 1);
-                grid.Children.Add(dataCell);
-                Grid.SetColumn(dataCell, columnIndex);
-                Grid.SetRow(dataCell, rowIndex + 1);
-            }
-        }
-
-        var tableBorder = new Border
-        {
-            Padding = new Thickness(0),
-            StrokeThickness = 1,
-            Content = grid,
-            StrokeShape = new RoundRectangle
-            {
-                CornerRadius = new CornerRadius(14)
-            }
-        };
-        tableBorder.SetAppThemeColor(BackgroundColorProperty, Color.FromArgb("#F8F3E8"), Color.FromArgb("#2A2B2D"));
-        tableBorder.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#D8CEBB"), Color.FromArgb("#4A4B50"));
-
-        return new ScrollView
-        {
-            Orientation = ScrollOrientation.Horizontal,
-            Margin = new Thickness(0, 4, 0, 12),
-            Content = tableBorder
-        };
-    }
-
-    private Border CreateTableCell(string text, bool isHeader, bool isLastColumn, bool isLastRow)
-    {
-        var label = new Label
-        {
-            Text = text,
-            FontSize = isHeader ? 14 : 13,
-            FontAttributes = isHeader ? FontAttributes.Bold : FontAttributes.None,
-            LineBreakMode = LineBreakMode.WordWrap,
-            Margin = new Thickness(0)
-        };
-        label.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#1A1A1A"), Color.FromArgb("#F3EDE2"));
-
-        var border = new Border
-        {
-            Padding = new Thickness(12, 10),
-            Content = label,
-            StrokeShape = new Rectangle(),
-            StrokeThickness = 0
-        };
-
-        border.SetAppThemeColor(BackgroundColorProperty,
-            isHeader ? Color.FromArgb("#EDE4D4") : Color.FromArgb("#F8F3E8"),
-            isHeader ? Color.FromArgb("#35363A") : Color.FromArgb("#2A2B2D"));
-
-        border.StrokeThickness = 0;
-        border.Stroke = Brush.Transparent;
-
-        if (!isLastColumn || !isLastRow)
-        {
-            border.StrokeThickness = 1;
-            border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#D8CEBB"), Color.FromArgb("#4A4B50"));
-        }
-
-        return border;
-    }
-
-    private Label CreateBaseLabel()
-    {
-        var label = new Label
-        {
-            TextColor = Colors.Black,
-            Margin = new Thickness(0, 0, 0, 8)
-        };
-
-        label.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#161616"), Color.FromArgb("#F3EDE2"));
-        return label;
-    }
-
     private void RefreshHeader(MainViewModel vm)
     {
         FileNameLabel.Text = vm.FileName;
@@ -495,7 +185,7 @@ public partial class MainPage : ContentPage
         {
             StrokeThickness = 0,
             Padding = new Thickness(12),
-            StrokeShape = new RoundRectangle
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle
             {
                 CornerRadius = new CornerRadius(14)
             }
@@ -616,7 +306,7 @@ public partial class MainPage : ContentPage
     {
         var palette = GetPalette(level);
 
-        container.SetAppThemeColor(BackgroundColorProperty, palette.LightBackground, palette.DarkBackground);
+        container.SetAppThemeColor(VisualElement.BackgroundColorProperty, palette.LightBackground, palette.DarkBackground);
         accent.SetAppThemeColor(BoxView.ColorProperty, palette.LightAccent, palette.DarkAccent);
         levelLabel.SetAppThemeColor(Label.TextColorProperty, palette.LightAccent, palette.DarkAccent);
         categoryLabel.SetAppThemeColor(Label.TextColorProperty, palette.LightSubtleText, palette.DarkSubtleText);

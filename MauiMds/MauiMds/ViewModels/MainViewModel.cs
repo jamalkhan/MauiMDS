@@ -22,7 +22,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _filePath = string.Empty;
     private string _inlineErrorMessage = string.Empty;
 
-    public ObservableCollection<MarkdownBlock> ParsedBlocks { get; } = new();
+    public MarkdownBlockCollection ParsedBlocks { get; } = new();
 
     public ICommand OpenFileCommand { get; }
 
@@ -97,7 +97,7 @@ public class MainViewModel : INotifyPropertyChanged
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 FilePath = "Unable to load example.mds";
-                ParsedBlocks.Clear();
+                ParsedBlocks.ReplaceAll([]);
                 InlineErrorMessage = "The bundled example document could not be loaded.";
             });
         }
@@ -162,12 +162,7 @@ public class MainViewModel : INotifyPropertyChanged
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
             InlineErrorMessage = string.Empty;
-            ParsedBlocks.Clear();
-            foreach (var block in blocks)
-            {
-                ParsedBlocks.Add(block);
-            }
-
+            ParsedBlocks.ReplaceAll(blocks);
             FilePath = document.FilePath;
             _logger.LogDebug(
                 "Applied markdown document to the UI. DisplayedFilePath: {DisplayedFilePath}, BlockCount: {BlockCount}",

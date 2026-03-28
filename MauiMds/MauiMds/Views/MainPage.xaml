@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:markdown="clr-namespace:MauiMds.Markdown"
              x:Class="MauiMds.Views.MainPage"
              BackgroundColor="{AppThemeBinding Light=#E7E4DE, Dark=#232321}">
     <Grid>
@@ -64,10 +65,9 @@
                     StrokeThickness="1"
                     Padding="30,26"
                     StrokeShape="RoundRectangle 18">
-                <ScrollView>
-                    <VerticalStackLayout x:Name="ContentStack"
-                                         Spacing="12" />
-                </ScrollView>
+                <markdown:MarkdownView x:Name="MarkdownViewer"
+                                       Blocks="{Binding ParsedBlocks}"
+                                       SourceFilePath="{Binding FilePath}" />
             </Border>
         </Grid>
 
