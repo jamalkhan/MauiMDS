@@ -3,59 +3,208 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="MauiMds.Views.MainPage"
              BackgroundColor="{AppThemeBinding Light=#E7E4DE, Dark=#232321}">
-    <Grid Padding="28"
-          RowDefinitions="Auto,*">
-        <Border Grid.Row="0"
-                BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2D2C2A}"
-                Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
-                StrokeThickness="1"
-                Padding="18,14"
-                Margin="0,0,0,18">
-            <Grid ColumnDefinitions="*,Auto,Auto"
-                  ColumnSpacing="16">
-                <VerticalStackLayout Spacing="4">
-                    <Label x:Name="FileNameLabel"
-                           Text="{Binding FileName}"
-                           FontSize="22"
-                           FontAttributes="Bold"
-                           TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
-                    <Label x:Name="FilePathLabel"
-                           Text="{Binding FilePath}"
-                           FontSize="13"
-                           LineBreakMode="MiddleTruncation"
-                           TextColor="{AppThemeBinding Light=#53504A, Dark=#B9B2A8}" />
-                </VerticalStackLayout>
+    <Grid>
+        <Grid Padding="28"
+              RowDefinitions="Auto,*">
+            <Border Grid.Row="0"
+                    BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2D2C2A}"
+                    Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
+                    StrokeThickness="1"
+                    Padding="18,14"
+                    Margin="0,0,0,18">
+                <Grid ColumnDefinitions="*,Auto,Auto"
+                      ColumnSpacing="16">
+                    <VerticalStackLayout Spacing="4">
+                        <Label x:Name="FileNameLabel"
+                               Text="{Binding FileName}"
+                               FontSize="22"
+                               FontAttributes="Bold"
+                               TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
+                        <Label x:Name="FilePathLabel"
+                               Text="{Binding FilePath}"
+                               FontSize="13"
+                               LineBreakMode="MiddleTruncation"
+                               TextColor="{AppThemeBinding Light=#53504A, Dark=#B9B2A8}" />
+                        <Border IsVisible="{Binding HasInlineError}"
+                                BackgroundColor="{AppThemeBinding Light=#FBE0DD, Dark=#432524}"
+                                StrokeThickness="0"
+                                Padding="12,8"
+                                Margin="0,8,0,0"
+                                StrokeShape="RoundRectangle 12">
+                            <Label Text="{Binding InlineErrorMessage}"
+                                   FontSize="12"
+                                   LineBreakMode="WordWrap"
+                                   TextColor="{AppThemeBinding Light=#7D2E28, Dark=#FFE7E4}" />
+                        </Border>
+                    </VerticalStackLayout>
 
-                <Button Grid.Column="1"
-                        Text="Open"
-                        Command="{Binding OpenFileCommand}"
-                        VerticalOptions="Center"
-                        Padding="18,10"
-                        BackgroundColor="{AppThemeBinding Light=#DDD3BF, Dark=#3F3D39}"
-                        TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                    <Button Grid.Column="1"
+                            Text="Open"
+                            Command="{Binding OpenFileCommand}"
+                            VerticalOptions="Center"
+                            Padding="18,10"
+                            BackgroundColor="{AppThemeBinding Light=#DDD3BF, Dark=#3F3D39}"
+                            TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
 
-                <Border Grid.Column="2"
-                        BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
+                    <Border Grid.Column="2"
+                            BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
+                            StrokeThickness="0"
+                            Padding="12,8"
+                            VerticalOptions="Center">
+                        <Label Text="Markdown Viewer"
+                               FontSize="12"
+                               TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1"
+                    BackgroundColor="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}"
+                    Stroke="{AppThemeBinding Light=#D5CCBC, Dark=#45474B}"
+                    StrokeThickness="1"
+                    Padding="30,26"
+                    StrokeShape="RoundRectangle 18">
+                <ScrollView>
+                    <VerticalStackLayout x:Name="ContentStack"
+                                         Spacing="12" />
+                </ScrollView>
+            </Border>
+        </Grid>
+
+        <Grid VerticalOptions="End"
+              Margin="20,0,20,12"
+              RowDefinitions="Auto,Auto">
+            <Border x:Name="HistoryTrayBorder"
+                    Grid.Row="0"
+                    BackgroundColor="{AppThemeBinding Light=#FAF7F0, Dark=#262728}"
+                    Stroke="{AppThemeBinding Light=#D5CCBC, Dark=#4B4D50}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 20,20,0,0"
+                    Padding="16,14,16,10"
+                    HeightRequest="0"
+                    IsVisible="False">
+                <Grid RowDefinitions="Auto,*"
+                      RowSpacing="12">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Snackbar History"
+                               FontAttributes="Bold"
+                               FontSize="16"
+                               TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                        <Label x:Name="HistoryCountLabel"
+                               Grid.Column="1"
+                               FontSize="12"
+                               VerticalTextAlignment="Center"
+                               TextColor="{AppThemeBinding Light=#615A51, Dark=#BFB8AE}" />
+                    </Grid>
+
+                    <ScrollView Grid.Row="1">
+                        <VerticalStackLayout x:Name="SnackbarHistoryStack"
+                                             Spacing="10" />
+                    </ScrollView>
+                </Grid>
+
+                <Border.GestureRecognizers>
+                    <PanGestureRecognizer PanUpdated="OnTrayPanUpdated" />
+                </Border.GestureRecognizers>
+            </Border>
+
+            <Grid Grid.Row="1"
+                  RowDefinitions="Auto,Auto"
+                  RowSpacing="8">
+                <Border x:Name="SnackbarBorder"
+                        BackgroundColor="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}"
                         StrokeThickness="0"
-                        Padding="12,8"
-                        VerticalOptions="Center">
-                    <Label Text="Markdown Viewer"
-                           FontSize="12"
-                           TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
+                        Padding="14,12"
+                        IsVisible="False"
+                        StrokeShape="RoundRectangle 18">
+                    <Grid ColumnDefinitions="Auto,*,Auto"
+                          ColumnSpacing="12">
+                        <BoxView x:Name="SnackbarAccent"
+                                 WidthRequest="6"
+                                 HeightRequest="48"
+                                 VerticalOptions="Center"
+                                 CornerRadius="3" />
+
+                        <Grid Grid.Column="1"
+                              RowDefinitions="Auto,Auto,Auto"
+                              RowSpacing="2">
+                            <Grid ColumnDefinitions="Auto,*,Auto"
+                                  ColumnSpacing="10">
+                                <Label x:Name="SnackbarLevelLabel"
+                                       FontAttributes="Bold"
+                                       FontSize="12" />
+                                <Label x:Name="SnackbarCategoryLabel"
+                                       Grid.Column="1"
+                                       FontSize="12"
+                                       LineBreakMode="TailTruncation" />
+                                <Label x:Name="SnackbarTimeLabel"
+                                       Grid.Column="2"
+                                       FontSize="11" />
+                            </Grid>
+
+                            <Label x:Name="SnackbarMessageLabel"
+                                   Grid.Row="1"
+                                   FontSize="14"
+                                   LineBreakMode="WordWrap"
+                                   MaxLines="3" />
+
+                            <Label Grid.Row="2"
+                                   Text="Tap to open history"
+                                   FontSize="11"
+                                   TextColor="{AppThemeBinding Light=#6D655C, Dark=#B7AFA4}" />
+                        </Grid>
+
+                        <Button x:Name="SnackbarDismissButton"
+                                Grid.Column="2"
+                                Text="X"
+                                FontSize="12"
+                                FontAttributes="Bold"
+                                WidthRequest="32"
+                                HeightRequest="32"
+                                CornerRadius="16"
+                                Padding="0"
+                                VerticalOptions="Start"
+                                Clicked="OnSnackbarDismissClicked" />
+                    </Grid>
+
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnSnackbarTapped" />
+                    </Border.GestureRecognizers>
+                </Border>
+
+                <Border x:Name="TrayHandleBorder"
+                        Grid.Row="1"
+                        BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#303130}"
+                        Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#4A4C4D}"
+                        StrokeThickness="1"
+                        Padding="16,10"
+                        StrokeShape="RoundRectangle 18">
+                    <Grid ColumnDefinitions="Auto,*,Auto"
+                          ColumnSpacing="12">
+                        <BoxView WidthRequest="42"
+                                 HeightRequest="4"
+                                 VerticalOptions="Center"
+                                 HorizontalOptions="Start"
+                                 CornerRadius="2"
+                                 Color="{AppThemeBinding Light=#A99D8C, Dark=#787268}" />
+                        <Label Grid.Column="1"
+                               Text="Snackbar"
+                               FontAttributes="Bold"
+                               FontSize="13"
+                               TextColor="{AppThemeBinding Light=#2A2926, Dark=#EDE6DB}" />
+                        <Label x:Name="TrayStateLabel"
+                               Grid.Column="2"
+                               FontSize="12"
+                               VerticalTextAlignment="Center"
+                               TextColor="{AppThemeBinding Light=#5A544C, Dark=#BFB7AC}" />
+                    </Grid>
+
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnTrayHandleTapped" />
+                        <PanGestureRecognizer PanUpdated="OnTrayPanUpdated" />
+                    </Border.GestureRecognizers>
                 </Border>
             </Grid>
-        </Border>
-
-        <Border Grid.Row="1"
-                BackgroundColor="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}"
-                Stroke="{AppThemeBinding Light=#D5CCBC, Dark=#45474B}"
-                StrokeThickness="1"
-                Padding="30,26"
-                StrokeShape="RoundRectangle 18">
-            <ScrollView>
-                <VerticalStackLayout x:Name="ContentStack"
-                                     Spacing="12" />
-            </ScrollView>
-        </Border>
+        </Grid>
     </Grid>
 </ContentPage>

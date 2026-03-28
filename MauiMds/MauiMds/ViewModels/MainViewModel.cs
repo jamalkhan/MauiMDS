@@ -20,6 +20,7 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isInitialized;
     private bool _isOpeningDocument;
     private string _filePath = string.Empty;
+    private string _inlineErrorMessage = string.Empty;
 
     public ObservableCollection<MarkdownBlock> ParsedBlocks { get; } = new();
 
@@ -42,6 +43,24 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     public string FileName => string.IsNullOrWhiteSpace(FilePath) ? "No file loaded" : Path.GetFileName(FilePath);
+
+    public string InlineErrorMessage
+    {
+        get => _inlineErrorMessage;
+        private set
+        {
+            if (_inlineErrorMessage == value)
+            {
+                return;
+            }
+
+            _inlineErrorMessage = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasInlineError));
+        }
+    }
+
+    public bool HasInlineError => !string.IsNullOrWhiteSpace(InlineErrorMessage);
 
     public MainViewModel(
         MdsParser parser,
@@ -79,6 +98,7 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 FilePath = "Unable to load example.mds";
                 ParsedBlocks.Clear();
+                InlineErrorMessage = "The bundled example document could not be loaded.";
             });
         }
     }
@@ -98,14 +118,27 @@ public class MainViewModel : INotifyPropertyChanged
             var document = await _documentService.PickDocumentAsync();
             if (document is null)
             {
+                await ClearInlineError();
                 return;
             }
 
             await ApplyDocumentAsync(document);
         }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "The selected file could not be opened because it is not a supported markdown format.");
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                InlineErrorMessage = ex.Message;
+            });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to open the selected markdown document.");
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                InlineErrorMessage = "The selected file could not be opened.";
+            });
         }
         finally
         {
@@ -116,7 +149,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     private async Task ApplyDocumentAsync(MarkdownDocument document)
     {
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Applying markdown document. FileName: {FileName}, FilePath: {FilePath}, SizeKB: {SizeKb:F2}, LastModified: {LastModified}, CharacterCount: {CharacterCount}",
             document.FileName ?? Path.GetFileName(document.FilePath),
             document.FilePath,
@@ -128,6 +161,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
+            InlineErrorMessage = string.Empty;
             ParsedBlocks.Clear();
             foreach (var block in blocks)
             {
@@ -135,17 +169,30 @@ public class MainViewModel : INotifyPropertyChanged
             }
 
             FilePath = document.FilePath;
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Applied markdown document to the UI. DisplayedFilePath: {DisplayedFilePath}, BlockCount: {BlockCount}",
                 FilePath,
                 ParsedBlocks.Count);
             DocumentApplied?.Invoke(this, document);
         });
+
+        _logger.LogInformation(
+            "Loaded markdown document successfully. FileName: {FileName}, BlockCount: {BlockCount}",
+            document.FileName ?? Path.GetFileName(document.FilePath),
+            blocks.Count);
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         _logger.LogDebug("Property changed: {PropertyName}", propertyName);
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private Task ClearInlineError()
+    {
+        return MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            InlineErrorMessage = string.Empty;
+        });
     }
 }

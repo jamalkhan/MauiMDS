@@ -11,6 +11,7 @@ public static class MauiProgram
 	public static MauiApp CreateMauiApp()
 	{
 		var builder = MauiApp.CreateBuilder();
+        var snackbarService = new SnackbarService();
 
 		builder
 			.UseMauiApp<App>()
@@ -23,8 +24,10 @@ public static class MauiProgram
 		builder.Logging.ClearProviders();
 		builder.Logging.AddDebug();
 		builder.Logging.AddProvider(new FileLoggerProvider(LogPaths.AppLogFilePath, LogLevel.Debug));
+        builder.Logging.AddProvider(new SnackbarLoggerProvider(snackbarService, LogLevel.Information));
 
 		// Register our services for Dependency Injection
+		builder.Services.AddSingleton(snackbarService);
 		builder.Services.AddSingleton<MdsParser>();
 		builder.Services.AddSingleton<IMarkdownDocumentService, MarkdownDocumentService>();
 		builder.Services.AddSingleton<MainViewModel>();
