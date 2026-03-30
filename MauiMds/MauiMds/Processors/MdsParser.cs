@@ -26,7 +26,16 @@ public class MdsParser
             .Replace('\r', '\n')
             .Split('\n');
 
-        lines = StripFrontMatter(lines);
+        var frontMatter = ExtractFrontMatter(ref lines);
+        if (!string.IsNullOrWhiteSpace(frontMatter))
+        {
+            blocks.Add(new MarkdownBlock
+            {
+                Type = BlockType.FrontMatter,
+                Content = frontMatter
+            });
+        }
+
         var footnotes = ExtractFootnotes(lines);
 
         MarkdownBlock? currentParagraph = null;
@@ -276,22 +285,31 @@ public class MdsParser
         return blocks;
     }
 
-    private static string[] StripFrontMatter(string[] lines)
+    private static string? ExtractFrontMatter(ref string[] lines)
     {
-        if (lines.Length < 3 || !string.Equals(lines[0].Trim(), "---", StringComparison.Ordinal))
+        if (lines.Length < 3)
         {
-            return lines;
+            return null;
+        }
+
+        var openingDelimiter = lines[0].Trim();
+        if (!string.Equals(openingDelimiter, "---", StringComparison.Ordinal) &&
+            !string.Equals(openingDelimiter, "+++", StringComparison.Ordinal))
+        {
+            return null;
         }
 
         for (var index = 1; index < lines.Length; index++)
         {
-            if (string.Equals(lines[index].Trim(), "---", StringComparison.Ordinal))
+            if (string.Equals(lines[index].Trim(), openingDelimiter, StringComparison.Ordinal))
             {
-                return lines[(index + 1)..];
+                var frontMatterLines = lines[1..index];
+                lines = lines[(index + 1)..];
+                return string.Join(Environment.NewLine, frontMatterLines).Trim();
             }
         }
 
-        return lines;
+        return null;
     }
 
     private static bool IsTableHeader(string[] lines, int index)

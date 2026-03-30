@@ -11,11 +11,13 @@ namespace MauiMds.ViewModels;
 
 public class MainViewModel : INotifyPropertyChanged
 {
-    private static readonly TimeSpan ParseDebounceDelay = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan ViewerParseDebounceDelay = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan EditorParseDebounceDelay = TimeSpan.FromMilliseconds(900);
     private static readonly TimeSpan ExternalChangeDebounceDelay = TimeSpan.FromMilliseconds(400);
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<MarkdownDocument>? DocumentApplied;
+    public event EventHandler<EditorActionRequestedEventArgs>? EditorActionRequested;
 
     private readonly IMarkdownDocumentService _documentService;
     private readonly IWorkspaceBrowserService _workspaceBrowserService;
@@ -87,6 +89,15 @@ public class MainViewModel : INotifyPropertyChanged
         ToggleWorkspaceItemExpansionCommand = new Command<WorkspaceTreeItem>(ToggleWorkspaceItemExpansion);
         BeginRenameWorkspaceItemCommand = new Command<WorkspaceTreeItem>(BeginRenameWorkspaceItem);
         CreateMdsCommand = new Command(async () => await CreateMdsAsync(), () => HasWorkspaceRoot);
+        UndoCommand = new Command(() => RequestEditorAction(EditorActionType.Undo));
+        RedoCommand = new Command(() => RequestEditorAction(EditorActionType.Redo));
+        CutCommand = new Command(() => RequestEditorAction(EditorActionType.Cut));
+        CopyCommand = new Command(() => RequestEditorAction(EditorActionType.Copy));
+        PasteCommand = new Command(() => RequestEditorAction(EditorActionType.Paste));
+        FindCommand = new Command(() => RequestEditorAction(EditorActionType.Find));
+        FormatHeader1Command = new Command(() => RequestEditorAction(EditorActionType.Header1));
+        FormatHeader2Command = new Command(() => RequestEditorAction(EditorActionType.Header2));
+        FormatHeader3Command = new Command(() => RequestEditorAction(EditorActionType.Header3));
     }
 
     public MarkdownBlockCollection ParsedBlocks { get; }
@@ -108,6 +119,15 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand ToggleWorkspaceItemExpansionCommand { get; }
     public ICommand BeginRenameWorkspaceItemCommand { get; }
     public ICommand CreateMdsCommand { get; }
+    public ICommand UndoCommand { get; }
+    public ICommand RedoCommand { get; }
+    public ICommand CutCommand { get; }
+    public ICommand CopyCommand { get; }
+    public ICommand PasteCommand { get; }
+    public ICommand FindCommand { get; }
+    public ICommand FormatHeader1Command { get; }
+    public ICommand FormatHeader2Command { get; }
+    public ICommand FormatHeader3Command { get; }
 
     public string FilePath
     {
@@ -147,8 +167,8 @@ public class MainViewModel : INotifyPropertyChanged
     public string CurrentViewLabel => SelectedViewMode switch
     {
         EditorViewMode.Viewer => "Read-Only Viewer",
-        EditorViewMode.TextEditor => "Markdown Editor",
-        _ => "Rich Text Editor (Stub)"
+        EditorViewMode.TextEditor => "Plaintext Markdown Editor",
+        _ => "Rich Text Editor (Plaintext Stub)"
     };
 
     public string EditorText
@@ -196,6 +216,11 @@ public class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsEditorMode));
             OnPropertyChanged(nameof(CurrentViewLabel));
             OnPropertyChanged(nameof(StatusText));
+
+            if (_isInitialized && !string.IsNullOrWhiteSpace(_document.Content))
+            {
+                ScheduleParse();
+            }
         }
     }
 
@@ -707,7 +732,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             try
             {
-                await Task.Delay(ParseDebounceDelay, token);
+                await Task.Delay(IsViewerMode ? ViewerParseDebounceDelay : EditorParseDebounceDelay, token);
                 token.ThrowIfCancellationRequested();
                 await ParseAndApplyPreviewAsync(_document.Content);
             }
@@ -855,6 +880,14 @@ public class MainViewModel : INotifyPropertyChanged
     private void ToggleWorkspacePanel()
     {
         IsWorkspacePanelVisible = !IsWorkspacePanelVisible;
+    }
+
+    private void RequestEditorAction(EditorActionType actionType)
+    {
+        EditorActionRequested?.Invoke(this, new EditorActionRequestedEventArgs
+        {
+            ActionType = actionType
+        });
     }
 
     private async Task OpenFolderAsync()

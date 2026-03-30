@@ -1,4 +1,5 @@
 ﻿using MauiMds.Logging;
+using MauiMds.Models;
 using MauiMds.ViewModels;
 using MauiMds.Views;
 using Microsoft.Extensions.Logging;
@@ -68,34 +69,73 @@ public partial class App : Application
         }
 
         var fileMenu = new MenuBarItem { Text = "File" };
-        fileMenu.Add(CreateMenuItem("New", viewModel.NewDocumentCommand));
-        fileMenu.Add(CreateMenuItem("Open", viewModel.OpenFileCommand));
-        fileMenu.Add(CreateMenuItem("Save", viewModel.SaveCommand));
-        fileMenu.Add(CreateMenuItem("Save As", viewModel.SaveAsCommand));
+        fileMenu.Add(CreateMenuItem("New", viewModel.NewDocumentCommand, key: "N", primaryModifier: true));
+        fileMenu.Add(CreateMenuItem("Open", viewModel.OpenFileCommand, key: "O", primaryModifier: true));
+        fileMenu.Add(CreateMenuItem("Save", viewModel.SaveCommand, key: "S", primaryModifier: true));
+        fileMenu.Add(CreateMenuItem("Save As", viewModel.SaveAsCommand, key: "S", primaryModifier: true, includeShift: true));
         fileMenu.Add(CreateMenuItem("Revert", viewModel.RevertCommand));
-        fileMenu.Add(CreateMenuItem("Close", viewModel.CloseDocumentCommand));
+        fileMenu.Add(CreateMenuItem("Close", viewModel.CloseDocumentCommand, key: "W", primaryModifier: true));
+
+        var editMenu = new MenuBarItem { Text = "Edit" };
+        editMenu.Add(CreateMenuItem("Undo", viewModel.UndoCommand, key: "Z", primaryModifier: true));
+        editMenu.Add(CreateMenuItem("Redo", viewModel.RedoCommand, key: "Z", primaryModifier: true, includeShift: true));
+        editMenu.Add(CreateMenuItem("Cut", viewModel.CutCommand, key: "X", primaryModifier: true));
+        editMenu.Add(CreateMenuItem("Copy", viewModel.CopyCommand, key: "C", primaryModifier: true));
+        editMenu.Add(CreateMenuItem("Paste", viewModel.PasteCommand, key: "V", primaryModifier: true));
+        editMenu.Add(CreateMenuItem("Find", viewModel.FindCommand, key: "F", primaryModifier: true));
+
+        var formatMenu = new MenuBarItem { Text = "Format" };
+        formatMenu.Add(CreateMenuItem("Header 1", viewModel.FormatHeader1Command, key: "1", primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("Header 2", viewModel.FormatHeader2Command, key: "2", primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("Header 3", viewModel.FormatHeader3Command, key: "3", primaryModifier: true));
 
         var viewMenu = new MenuBarItem { Text = "View" };
-        viewMenu.Add(CreateMenuItem("Read-Only Viewer", viewModel.SetViewModeCommand, Models.EditorViewMode.Viewer));
-        viewMenu.Add(CreateMenuItem("Markdown Editor", viewModel.SetViewModeCommand, Models.EditorViewMode.TextEditor));
-        viewMenu.Add(CreateMenuItem("Rich Text Editor", viewModel.SetViewModeCommand, Models.EditorViewMode.RichTextEditor));
+        viewMenu.Add(CreateMenuItem("Read-Only Viewer", viewModel.SetViewModeCommand, EditorViewMode.Viewer));
+        viewMenu.Add(CreateMenuItem("Markdown Editor", viewModel.SetViewModeCommand, EditorViewMode.TextEditor));
+        viewMenu.Add(CreateMenuItem("Rich Text Editor", viewModel.SetViewModeCommand, EditorViewMode.RichTextEditor));
 
         var toolsMenu = new MenuBarItem { Text = "Tools" };
         toolsMenu.Add(CreateMenuItem("Preferences", viewModel.ShowPreferencesCommand));
 
         rootPage.MenuBarItems.Add(fileMenu);
+        rootPage.MenuBarItems.Add(editMenu);
+        rootPage.MenuBarItems.Add(formatMenu);
         rootPage.MenuBarItems.Add(viewMenu);
         rootPage.MenuBarItems.Add(toolsMenu);
-        _logger.LogInformation("Attached File, View, and Tools menus to the root navigation page.");
+        _logger.LogInformation("Attached File, Edit, Format, View, and Tools menus to the root navigation page.");
     }
 
-    private static MenuFlyoutItem CreateMenuItem(string text, ICommand command, object? commandParameter = null)
+    private static MenuFlyoutItem CreateMenuItem(string text, ICommand command, object? commandParameter = null, string? key = null, bool primaryModifier = false, bool includeShift = false)
     {
-        return new MenuFlyoutItem
+        var item = new MenuFlyoutItem
         {
             Text = text,
             Command = command,
             CommandParameter = commandParameter
         };
+
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            var modifiers = KeyboardAcceleratorModifiers.None;
+            if (primaryModifier)
+            {
+                modifiers |= DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst
+                    ? KeyboardAcceleratorModifiers.Cmd
+                    : KeyboardAcceleratorModifiers.Ctrl;
+            }
+
+            if (includeShift)
+            {
+                modifiers |= KeyboardAcceleratorModifiers.Shift;
+            }
+
+            item.KeyboardAccelerators.Add(new KeyboardAccelerator
+            {
+                Key = key,
+                Modifiers = modifiers
+            });
+        }
+
+        return item;
     }
 }

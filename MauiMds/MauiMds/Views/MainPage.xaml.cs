@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
+using MauiMds.Controls;
 using MauiMds.Models;
 using MauiMds.Services;
 using MauiMds.ViewModels;
@@ -28,6 +29,7 @@ public partial class MainPage : ContentPage
             InitializeComponent();
             BindingContext = vm;
             vm.PropertyChanged += OnViewModelPropertyChanged;
+            vm.EditorActionRequested += OnEditorActionRequested;
             _snackbarService.PropertyChanged += OnSnackbarPropertyChanged;
             _snackbarService.History.CollectionChanged += OnSnackbarHistoryChanged;
             Loaded += OnLoaded;
@@ -58,6 +60,47 @@ public partial class MainPage : ContentPage
         RefreshTrayState();
         RefreshSnackbar();
         RenderSnackbarHistory();
+    }
+
+    private async void OnEditorActionRequested(object? sender, EditorActionRequestedEventArgs e)
+    {
+        var editor = GetActiveEditor();
+        if (editor is null)
+        {
+            _logger.LogDebug("Editor action ignored because no editable surface is active. Action: {ActionType}", e.ActionType);
+            return;
+        }
+
+        switch (e.ActionType)
+        {
+            case EditorActionType.Undo:
+                editor.Undo();
+                break;
+            case EditorActionType.Redo:
+                editor.Redo();
+                break;
+            case EditorActionType.Cut:
+                await editor.CutSelectionAsync();
+                break;
+            case EditorActionType.Copy:
+                await editor.CopySelectionAsync();
+                break;
+            case EditorActionType.Paste:
+                await editor.PasteAsync();
+                break;
+            case EditorActionType.Find:
+                await HandleFindAsync(editor);
+                break;
+            case EditorActionType.Header1:
+                editor.ApplyHeaderPrefix(1);
+                break;
+            case EditorActionType.Header2:
+                editor.ApplyHeaderPrefix(2);
+                break;
+            case EditorActionType.Header3:
+                editor.ApplyHeaderPrefix(3);
+                break;
+        }
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -144,6 +187,30 @@ public partial class MainPage : ContentPage
             "Header refreshed. FileName: {FileName}, FilePath: {FilePath}",
             FileNameLabel.Text,
             FilePathLabel.Text);
+    }
+
+    private MarkdownSyntaxEditorView? GetActiveEditor()
+    {
+        if (BindingContext is not MainViewModel vm)
+        {
+            return null;
+        }
+
+        return vm.IsEditorMode ? MarkdownTextEditor : null;
+    }
+
+    private async Task HandleFindAsync(MarkdownSyntaxEditorView editor)
+    {
+        var query = await DisplayPromptAsync("Find", "Find text in the current document:", "Find", "Cancel", maxLength: 200);
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return;
+        }
+
+        if (!editor.FindNext(query))
+        {
+            await DisplayAlertAsync("Find", $"No matches found for \"{query}\".", "OK");
+        }
     }
 
     private void RefreshSnackbar()

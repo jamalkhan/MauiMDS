@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:MauiMds.Controls"
              xmlns:markdown="clr-namespace:MauiMds.Markdown"
              xmlns:models="clr-namespace:MauiMds.Models"
              x:Class="MauiMds.Views.MainPage"
@@ -228,7 +229,7 @@
                         </Grid>
 
                         <Grid Grid.Row="1"
-                              ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto"
+                              ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               ColumnSpacing="10">
                             <Button Text="Viewer"
                                     Command="{Binding SetViewModeCommand}"
@@ -296,6 +297,18 @@
                                     Text="Close"
                                     Command="{Binding CloseDocumentCommand}"
                                     Padding="14,8" />
+                            <Button Grid.Column="8"
+                                    Text="Undo"
+                                    Command="{Binding UndoCommand}"
+                                    Padding="14,8" />
+                            <Button Grid.Column="9"
+                                    Text="Redo"
+                                    Command="{Binding RedoCommand}"
+                                    Padding="14,8" />
+                            <Button Grid.Column="10"
+                                    Text="Find"
+                                    Command="{Binding FindCommand}"
+                                    Padding="14,8" />
                         </Grid>
                     </Grid>
                 </Border>
@@ -353,38 +366,23 @@
                                                Blocks="{Binding ParsedBlocks}"
                                                SourceFilePath="{Binding FilePath}" />
 
-                        <Editor x:Name="MarkdownTextEditor"
-                                IsVisible="{Binding IsTextEditorMode}"
-                                Text="{Binding EditorText, Mode=TwoWay}"
-                                AutoSize="TextChanges"
-                                FontFamily="Courier New"
-                                FontSize="15"
-                                Placeholder="Edit Markdown here..."
-                                BackgroundColor="{AppThemeBinding Light=#FFFDF9, Dark=#303134}"
-                                TextColor="{AppThemeBinding Light=#111111, Dark=#F6F0E8}" />
+                        <controls:MarkdownSyntaxEditorView x:Name="MarkdownTextEditor"
+                                                           IsVisible="{Binding IsEditorMode}"
+                                                           Text="{Binding EditorText, Mode=TwoWay}"
+                                                           Placeholder="Edit Markdown here..."
+                                                           IsSyntaxHighlightingEnabled="False" />
 
-                        <Grid IsVisible="{Binding IsRichTextEditorMode}"
-                              RowDefinitions="Auto,*"
-                              RowSpacing="12">
-                            <Border BackgroundColor="{AppThemeBinding Light=#EFE6D6, Dark=#3A3632}"
-                                    StrokeThickness="0"
-                                    Padding="12,10"
-                                    StrokeShape="RoundRectangle 12">
+                        <Border IsVisible="{Binding IsRichTextEditorMode}"
+                                BackgroundColor="{AppThemeBinding Light=#EFE6D6, Dark=#3A3632}"
+                                StrokeThickness="0"
+                                Padding="12,10"
+                                Margin="0,0,0,12"
+                                VerticalOptions="Start"
+                                StrokeShape="RoundRectangle 12">
                                 <Label Text="Rich text mode is currently stubbed with a plaintext editor. Markdown parsing stays active behind the scenes."
                                        FontSize="12"
                                        TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
-                            </Border>
-
-                            <Editor Grid.Row="1"
-                                    x:Name="RichTextStubEditor"
-                                    Text="{Binding EditorText, Mode=TwoWay}"
-                                    AutoSize="TextChanges"
-                                    FontFamily="Courier New"
-                                    FontSize="15"
-                                    Placeholder="Rich text editor stub..."
-                                    BackgroundColor="{AppThemeBinding Light=#FFFDF9, Dark=#303134}"
-                                    TextColor="{AppThemeBinding Light=#111111, Dark=#F6F0E8}" />
-                        </Grid>
+                        </Border>
                     </Grid>
                 </Border>
             </Grid>

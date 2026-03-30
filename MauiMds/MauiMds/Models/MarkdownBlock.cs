@@ -2,6 +2,7 @@ namespace MauiMds.Models;
 
 public enum BlockType
 {
+    FrontMatter,
     Header,
     Paragraph,
     BulletListItem,

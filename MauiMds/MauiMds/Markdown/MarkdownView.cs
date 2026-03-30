@@ -31,6 +31,7 @@ public sealed class MarkdownView : ContentView
         _inlineFormatter = new MarkdownInlineFormatter();
         _renderer = new MarkdownRenderer(
         [
+            new FrontMatterBlockRenderer(),
             new HeaderBlockRenderer(),
             new ParagraphBlockRenderer(),
             new ListBlockRenderer(),
