@@ -234,6 +234,89 @@ public sealed class MarkdownDocumentService : IMarkdownDocumentService
 #endif
     }
 
+    public string? TryCreatePersistentAccessBookmark(string filePath)
+    {
+#if MACCATALYST
+        if (!_securityScopedUrls.TryGetValue(filePath, out var url))
+        {
+            url = NSUrl.CreateFileUrl(filePath, null);
+            if (url is null)
+            {
+                return null;
+            }
+
+            TrackSecurityScopedUrl(filePath, url);
+        }
+
+        var bookmarkData = url.CreateBookmarkData(
+            NSUrlBookmarkCreationOptions.WithSecurityScope,
+            [],
+            null,
+            out var error);
+
+        if (error is not null || bookmarkData is null)
+        {
+            _logger.LogWarning("Failed to create persistent access bookmark for file {FilePath}. Error: {Error}", filePath, error?.LocalizedDescription);
+            return null;
+        }
+
+        return Convert.ToBase64String(bookmarkData.ToArray());
+#else
+        return null;
+#endif
+    }
+
+    public bool TryRestorePersistentAccessFromBookmark(string bookmark, out string? restoredPath, out bool isStale)
+    {
+#if MACCATALYST
+        restoredPath = null;
+        isStale = false;
+
+        if (string.IsNullOrWhiteSpace(bookmark))
+        {
+            return false;
+        }
+
+        try
+        {
+            var bookmarkBytes = Convert.FromBase64String(bookmark);
+            using var bookmarkData = NSData.FromArray(bookmarkBytes);
+            var resolvedUrl = NSUrl.FromBookmarkData(
+                bookmarkData,
+                NSUrlBookmarkResolutionOptions.WithSecurityScope,
+                null,
+                out isStale,
+                out var error);
+
+            if (error is not null || resolvedUrl is null)
+            {
+                _logger.LogWarning("Failed to restore persistent file access bookmark. Error: {Error}", error?.LocalizedDescription);
+                return false;
+            }
+
+            restoredPath = resolvedUrl.Path;
+            if (string.IsNullOrWhiteSpace(restoredPath))
+            {
+                return false;
+            }
+
+            TrackSecurityScopedUrl(restoredPath, resolvedUrl);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to decode or resolve persistent file access bookmark.");
+            restoredPath = null;
+            isStale = false;
+            return false;
+        }
+#else
+        restoredPath = null;
+        isStale = false;
+        return false;
+#endif
+    }
+
     private static string EnsureValidFileName(string? fileName, bool allowEmpty)
     {
         var trimmed = (fileName ?? string.Empty).Trim();

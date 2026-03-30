@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Logging;
@@ -7,14 +8,16 @@ public sealed class FileLoggerProvider : ILoggerProvider
 {
     private readonly string _logFilePath;
     private readonly LogLevel _minimumLevel;
+    private readonly long _maxFileSizeBytes;
     private readonly ConcurrentDictionary<string, FileLogger> _loggers = new();
     private readonly object _writeLock = new();
     private bool _disposed;
 
-    public FileLoggerProvider(string logFilePath, LogLevel minimumLevel = LogLevel.Information)
+    public FileLoggerProvider(string logFilePath, LogLevel minimumLevel = LogLevel.Information, long maxFileSizeBytes = 2 * 1024 * 1024)
     {
         _logFilePath = logFilePath;
         _minimumLevel = minimumLevel;
+        _maxFileSizeBytes = Math.Max(256 * 1024, maxFileSizeBytes);
 
         var directory = Path.GetDirectoryName(_logFilePath);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -26,7 +29,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
     public ILogger CreateLogger(string categoryName)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return _loggers.GetOrAdd(categoryName, name => new FileLogger(name, _logFilePath, _minimumLevel, _writeLock));
+        return _loggers.GetOrAdd(categoryName, name => new FileLogger(name, _logFilePath, _minimumLevel, _maxFileSizeBytes, _writeLock));
     }
 
     public void Dispose()
@@ -41,13 +44,15 @@ internal sealed class FileLogger : ILogger
     private readonly string _categoryName;
     private readonly string _logFilePath;
     private readonly LogLevel _minimumLevel;
+    private readonly long _maxFileSizeBytes;
     private readonly object _writeLock;
 
-    public FileLogger(string categoryName, string logFilePath, LogLevel minimumLevel, object writeLock)
+    public FileLogger(string categoryName, string logFilePath, LogLevel minimumLevel, long maxFileSizeBytes, object writeLock)
     {
         _categoryName = categoryName;
         _logFilePath = logFilePath;
         _minimumLevel = minimumLevel;
+        _maxFileSizeBytes = maxFileSizeBytes;
         _writeLock = writeLock;
     }
 
@@ -82,8 +87,34 @@ internal sealed class FileLogger : ILogger
 
         lock (_writeLock)
         {
+            TrimLogFileIfNeeded();
             File.AppendAllText(_logFilePath, line + Environment.NewLine);
         }
+    }
+
+    private void TrimLogFileIfNeeded()
+    {
+        var fileInfo = new FileInfo(_logFilePath);
+        if (!fileInfo.Exists || fileInfo.Length < _maxFileSizeBytes)
+        {
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        var retainedBytes = Math.Max(_maxFileSizeBytes / 2, 128 * 1024);
+        using var stream = new FileStream(_logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var bytesToRead = (int)Math.Min(retainedBytes, stream.Length);
+        stream.Seek(-bytesToRead, SeekOrigin.End);
+        var buffer = new byte[bytesToRead];
+        _ = stream.Read(buffer, 0, bytesToRead);
+
+        var firstNewLine = Array.IndexOf(buffer, (byte)'\n');
+        var trimmedBuffer = firstNewLine >= 0 && firstNewLine + 1 < buffer.Length
+            ? buffer[(firstNewLine + 1)..]
+            : buffer;
+
+        File.WriteAllBytes(_logFilePath, trimmedBuffer);
+        Debug.WriteLine($"Trimmed log file {_logFilePath} to {trimmedBuffer.Length} bytes in {stopwatch.ElapsedMilliseconds} ms.");
     }
 
     private sealed class NullScope : IDisposable

@@ -43,14 +43,14 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private async void OnLoaded(object? sender, EventArgs e)
+    private void OnLoaded(object? sender, EventArgs e)
     {
         _logger.LogInformation("MainPage loaded.");
 
         if (BindingContext is MainViewModel vm)
         {
-            await vm.InitializeAsync();
             RefreshHeader(vm);
+            _ = InitializeViewModelAsync(vm);
         }
         else
         {
@@ -60,6 +60,12 @@ public partial class MainPage : ContentPage
         RefreshTrayState();
         RefreshSnackbar();
         RenderSnackbarHistory();
+    }
+
+    private async Task InitializeViewModelAsync(MainViewModel vm)
+    {
+        await vm.InitializeAsync();
+        RefreshHeader(vm);
     }
 
     private async void OnEditorActionRequested(object? sender, EditorActionRequestedEventArgs e)

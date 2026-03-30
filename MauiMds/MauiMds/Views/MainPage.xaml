@@ -321,7 +321,7 @@
                         Margin="0,0,0,12"
                         IsVisible="{Binding IsPreferencesVisible}">
                     <Grid ColumnDefinitions="*,Auto"
-                          RowDefinitions="Auto,Auto,Auto"
+                          RowDefinitions="Auto,Auto,Auto,Auto"
                           ColumnSpacing="12"
                           RowSpacing="12">
                         <Label Text="Preferences"
@@ -344,6 +344,20 @@
                         </HorizontalStackLayout>
 
                         <HorizontalStackLayout Grid.Row="2"
+                                               Spacing="12">
+                            <Label Text="Max Log Size (MB)"
+                                   VerticalTextAlignment="Center"
+                                   TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                            <Entry WidthRequest="90"
+                                   Keyboard="Numeric"
+                                   Text="{Binding PreferencesMaxLogFileSizeMbText}" />
+                            <Label Text="Default is 2 MB"
+                                   VerticalTextAlignment="Center"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                        </HorizontalStackLayout>
+
+                        <HorizontalStackLayout Grid.Row="3"
                                                Grid.ColumnSpan="2"
                                                Spacing="10">
                             <Button Text="Save Preferences"
@@ -363,6 +377,7 @@
                     <Grid>
                         <markdown:MarkdownView x:Name="MarkdownViewer"
                                                IsVisible="{Binding IsViewerMode}"
+                                               IsRenderingEnabled="{Binding IsViewerMode}"
                                                Blocks="{Binding ParsedBlocks}"
                                                SourceFilePath="{Binding FilePath}" />
 

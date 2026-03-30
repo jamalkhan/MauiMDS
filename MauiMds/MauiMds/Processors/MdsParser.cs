@@ -1,15 +1,11 @@
+using System.Text;
 using MauiMds.Models;
 using Microsoft.Extensions.Logging;
-using System.Text.RegularExpressions;
 
 namespace MauiMds.Processors;
 
 public class MdsParser
 {
-    private static readonly Regex OrderedListPattern = new(@"^(?<number>\d+)\.\s+(?<content>.+)$", RegexOptions.Compiled);
-    private static readonly Regex TaskListPattern = new(@"^[-*]\s+\[(?<state>[ xX])\]\s+(?<content>.+)$", RegexOptions.Compiled);
-    private static readonly Regex ImagePattern = new(@"^!\[(?<alt>.*?)\]\((?<src>.+?)\)$", RegexOptions.Compiled);
-    private static readonly Regex FootnoteDefinitionPattern = new(@"^\[\^(?<id>[^\]]+)\]:\s*(?<content>.*)$", RegexOptions.Compiled);
     private readonly ILogger<MdsParser> _logger;
 
     public MdsParser(ILogger<MdsParser> logger)
@@ -20,14 +16,15 @@ public class MdsParser
     public List<MarkdownBlock> Parse(string content)
     {
         _logger.LogInformation("Starting markdown parse. CharacterCount: {CharacterCount}", content.Length);
-        var blocks = new List<MarkdownBlock>();
-        var lines = content
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Split('\n');
 
-        var frontMatter = ExtractFrontMatter(ref lines);
-        if (!string.IsNullOrWhiteSpace(frontMatter))
+        var normalizedContent = NormalizeNewLines(content);
+        var lines = normalizedContent.Split('\n');
+        var blocks = new List<MarkdownBlock>(Math.Max(8, lines.Length / 2));
+        var footnotes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var currentParagraph = new StringBuilder();
+
+        var index = 0;
+        if (TryExtractFrontMatter(lines, ref index, out var frontMatter))
         {
             blocks.Add(new MarkdownBlock
             {
@@ -36,289 +33,484 @@ public class MdsParser
             });
         }
 
-        var footnotes = ExtractFootnotes(lines);
-
-        MarkdownBlock? currentParagraph = null;
-
-        void FlushParagraph()
-        {
-            if (currentParagraph is null)
-            {
-                return;
-            }
-
-            blocks.Add(currentParagraph);
-            currentParagraph = null;
-        }
-
-        for (var index = 0; index < lines.Length; index++)
+        while (index < lines.Length)
         {
             var line = lines[index];
-            if (line is null)
-            {
-                continue;
-            }
-
             var trimmedLine = line.Trim();
 
-            if (string.IsNullOrWhiteSpace(trimmedLine))
+            if (trimmedLine.Length == 0)
             {
-                FlushParagraph();
+                FlushParagraph(blocks, currentParagraph);
+                index++;
                 continue;
             }
 
-            if (trimmedLine.StartsWith("```", StringComparison.Ordinal))
+            if (TryExtractFootnote(lines, ref index, trimmedLine, footnotes))
             {
-                FlushParagraph();
+                FlushParagraph(blocks, currentParagraph);
+                continue;
+            }
 
-                var codeLines = new List<string>();
-                var codeLanguage = trimmedLine[3..].Trim();
-
-                while (++index < lines.Length)
-                {
-                    var codeLine = lines[index];
-                    if (codeLine.Trim().StartsWith("```", StringComparison.Ordinal))
-                    {
-                        break;
-                    }
-
-                    codeLines.Add(codeLine);
-                }
-
-                blocks.Add(new MarkdownBlock
-                {
-                    Type = BlockType.CodeBlock,
-                    CodeLanguage = codeLanguage,
-                    Content = string.Join(Environment.NewLine, codeLines)
-                });
+            if (IsCodeFence(trimmedLine))
+            {
+                FlushParagraph(blocks, currentParagraph);
+                blocks.Add(ParseCodeBlock(lines, ref index, trimmedLine));
                 continue;
             }
 
             if (IsTableHeader(lines, index))
             {
-                FlushParagraph();
-
-                var headers = ParseTableCells(lines[index]);
-                var alignments = ParseTableAlignments(lines[index + 1]);
-                var rows = new List<List<string>>();
-                index += 2;
-
-                while (index < lines.Length)
-                {
-                    var tableLine = lines[index];
-                    if (string.IsNullOrWhiteSpace(tableLine) || !LooksLikeTableRow(tableLine))
-                    {
-                        index--;
-                        break;
-                    }
-
-                    rows.Add(ParseTableCells(tableLine));
-                    index++;
-                }
-
-                blocks.Add(new MarkdownBlock
-                {
-                    Type = BlockType.Table,
-                    TableHeaders = headers,
-                    TableRows = rows,
-                    TableAlignments = alignments
-                });
+                FlushParagraph(blocks, currentParagraph);
+                blocks.Add(ParseTable(lines, ref index));
                 continue;
             }
 
-            if (trimmedLine.StartsWith(">", StringComparison.Ordinal))
+            if (trimmedLine[0] == '>')
             {
-                FlushParagraph();
-                var quoteLines = new List<string>();
-                var maxQuoteLevel = 1;
-
-                while (index < lines.Length)
-                {
-                    var quoteSourceLine = lines[index];
-                    if (quoteSourceLine is null)
-                    {
-                        index++;
-                        continue;
-                    }
-
-                    var quoteLine = quoteSourceLine.Trim();
-                    if (string.IsNullOrWhiteSpace(quoteLine))
-                    {
-                        quoteLines.Add(string.Empty);
-                        index++;
-                        continue;
-                    }
-
-                    if (!quoteLine.StartsWith(">", StringComparison.Ordinal))
-                    {
-                        index--;
-                        break;
-                    }
-
-                    var quoteLevel = 0;
-                    var quoteContent = quoteLine;
-                    while (quoteContent.StartsWith(">", StringComparison.Ordinal))
-                    {
-                        quoteLevel++;
-                        quoteContent = quoteContent[1..].TrimStart();
-                    }
-
-                    maxQuoteLevel = Math.Max(maxQuoteLevel, quoteLevel);
-                    quoteLines.Add(quoteContent);
-                    index++;
-                }
-
-                blocks.Add(new MarkdownBlock
-                {
-                    Type = BlockType.BlockQuote,
-                    Content = string.Join(Environment.NewLine, quoteLines),
-                    QuoteLevel = maxQuoteLevel
-                });
+                FlushParagraph(blocks, currentParagraph);
+                blocks.Add(ParseBlockQuote(lines, ref index));
                 continue;
             }
 
             if (IsHorizontalRule(trimmedLine))
             {
-                FlushParagraph();
-                blocks.Add(new MarkdownBlock
-                {
-                    Type = BlockType.HorizontalRule
-                });
+                FlushParagraph(blocks, currentParagraph);
+                blocks.Add(new MarkdownBlock { Type = BlockType.HorizontalRule });
+                index++;
                 continue;
             }
 
-            if (trimmedLine.StartsWith("#", StringComparison.Ordinal))
+            if (TryParseHeader(trimmedLine, out var headerBlock))
             {
-                FlushParagraph();
-
-                var level = 0;
-                while (level < trimmedLine.Length && trimmedLine[level] == '#')
-                {
-                    level++;
-                }
-
-                var text = trimmedLine[level..].Trim();
-                blocks.Add(new MarkdownBlock
-                {
-                    Type = BlockType.Header,
-                    HeaderLevel = Math.Min(level, 6),
-                    Content = text
-                });
+                FlushParagraph(blocks, currentParagraph);
+                blocks.Add(headerBlock);
+                index++;
                 continue;
             }
 
-            var imageMatch = ImagePattern.Match(trimmedLine);
-            if (imageMatch.Success)
+            if (TryParseImage(trimmedLine, out var imageBlock))
             {
-                FlushParagraph();
-
-                blocks.Add(new MarkdownBlock
-                {
-                    Type = BlockType.Image,
-                    ImageAltText = imageMatch.Groups["alt"].Value,
-                    ImageSource = imageMatch.Groups["src"].Value
-                });
+                FlushParagraph(blocks, currentParagraph);
+                blocks.Add(imageBlock);
+                index++;
                 continue;
             }
 
             var listLevel = GetListLevel(line);
 
-            var taskListMatch = TaskListPattern.Match(trimmedLine);
-            if (taskListMatch.Success)
+            if (TryParseTaskList(trimmedLine, listLevel, out var taskBlock))
             {
-                FlushParagraph();
-                blocks.Add(new MarkdownBlock
-                {
-                    Type = BlockType.TaskListItem,
-                    Content = taskListMatch.Groups["content"].Value.Trim(),
-                    IsChecked = !string.Equals(taskListMatch.Groups["state"].Value, " ", StringComparison.Ordinal),
-                    ListLevel = listLevel
-                });
+                FlushParagraph(blocks, currentParagraph);
+                blocks.Add(taskBlock);
+                index++;
                 continue;
             }
 
-            var orderedListMatch = OrderedListPattern.Match(trimmedLine);
-            if (orderedListMatch.Success)
+            if (TryParseOrderedList(trimmedLine, listLevel, out var orderedBlock))
             {
-                FlushParagraph();
-                blocks.Add(new MarkdownBlock
-                {
-                    Type = BlockType.OrderedListItem,
-                    Content = orderedListMatch.Groups["content"].Value.Trim(),
-                    OrderedNumber = int.Parse(orderedListMatch.Groups["number"].Value),
-                    ListLevel = listLevel
-                });
+                FlushParagraph(blocks, currentParagraph);
+                blocks.Add(orderedBlock);
+                index++;
                 continue;
             }
 
-            if (trimmedLine.StartsWith("* ", StringComparison.Ordinal) || trimmedLine.StartsWith("- ", StringComparison.Ordinal))
+            if (TryParseBulletList(trimmedLine, listLevel, out var bulletBlock))
             {
-                FlushParagraph();
-
-                blocks.Add(new MarkdownBlock
-                {
-                    Type = BlockType.BulletListItem,
-                    Content = trimmedLine[2..].Trim(),
-                    ListLevel = listLevel
-                });
+                FlushParagraph(blocks, currentParagraph);
+                blocks.Add(bulletBlock);
+                index++;
                 continue;
             }
 
-            if (currentParagraph == null)
-            {
-                currentParagraph = new MarkdownBlock
-                {
-                    Type = BlockType.Paragraph,
-                    Content = trimmedLine
-                };
-            }
-            else
-            {
-                currentParagraph.Content += " " + trimmedLine;
-            }
+            AppendParagraphLine(currentParagraph, trimmedLine);
+            index++;
         }
 
-        FlushParagraph();
+        FlushParagraph(blocks, currentParagraph);
         AppendFootnotes(blocks, footnotes);
 
         _logger.LogInformation("Completed markdown parse. LineCount: {LineCount}, BlockCount: {BlockCount}", lines.Length, blocks.Count);
         return blocks;
     }
 
-    private static string? ExtractFrontMatter(ref string[] lines)
+    private static string NormalizeNewLines(string content)
     {
+        return content.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+    }
+
+    private static bool TryExtractFrontMatter(string[] lines, ref int index, out string frontMatter)
+    {
+        frontMatter = string.Empty;
         if (lines.Length < 3)
         {
-            return null;
+            return false;
         }
 
-        var openingDelimiter = lines[0].Trim();
-        if (!string.Equals(openingDelimiter, "---", StringComparison.Ordinal) &&
-            !string.Equals(openingDelimiter, "+++", StringComparison.Ordinal))
+        var delimiter = lines[0].Trim();
+        if (!string.Equals(delimiter, "---", StringComparison.Ordinal) &&
+            !string.Equals(delimiter, "+++", StringComparison.Ordinal))
         {
-            return null;
+            return false;
         }
 
-        for (var index = 1; index < lines.Length; index++)
+        var builder = new StringBuilder();
+        for (var scanIndex = 1; scanIndex < lines.Length; scanIndex++)
         {
-            if (string.Equals(lines[index].Trim(), openingDelimiter, StringComparison.Ordinal))
+            if (string.Equals(lines[scanIndex].Trim(), delimiter, StringComparison.Ordinal))
             {
-                var frontMatterLines = lines[1..index];
-                lines = lines[(index + 1)..];
-                return string.Join(Environment.NewLine, frontMatterLines).Trim();
+                frontMatter = builder.ToString().Trim();
+                index = scanIndex + 1;
+                return true;
             }
+
+            if (builder.Length > 0)
+            {
+                builder.Append(Environment.NewLine);
+            }
+
+            builder.Append(lines[scanIndex]);
         }
 
-        return null;
+        return false;
+    }
+
+    private static void FlushParagraph(List<MarkdownBlock> blocks, StringBuilder paragraphBuilder)
+    {
+        if (paragraphBuilder.Length == 0)
+        {
+            return;
+        }
+
+        blocks.Add(new MarkdownBlock
+        {
+            Type = BlockType.Paragraph,
+            Content = paragraphBuilder.ToString()
+        });
+
+        paragraphBuilder.Clear();
+    }
+
+    private static void AppendParagraphLine(StringBuilder paragraphBuilder, string line)
+    {
+        if (paragraphBuilder.Length > 0)
+        {
+            paragraphBuilder.Append(' ');
+        }
+
+        paragraphBuilder.Append(line);
+    }
+
+    private static bool TryExtractFootnote(string[] lines, ref int index, string trimmedLine, Dictionary<string, string> footnotes)
+    {
+        if (!trimmedLine.StartsWith("[^", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var closingBracket = trimmedLine.IndexOf("]:", StringComparison.Ordinal);
+        if (closingBracket <= 2)
+        {
+            return false;
+        }
+
+        var footnoteId = trimmedLine[2..closingBracket];
+        var noteBuilder = new StringBuilder();
+        var initialContent = trimmedLine[(closingBracket + 2)..].Trim();
+        noteBuilder.Append(initialContent);
+
+        index++;
+        while (index < lines.Length)
+        {
+            var continuationLine = lines[index];
+
+            if (string.IsNullOrWhiteSpace(continuationLine))
+            {
+                noteBuilder.Append(Environment.NewLine);
+                index++;
+                continue;
+            }
+
+            if (!continuationLine.StartsWith("    ", StringComparison.Ordinal) &&
+                !continuationLine.StartsWith('\t'))
+            {
+                break;
+            }
+
+            if (noteBuilder.Length > 0)
+            {
+                noteBuilder.Append(Environment.NewLine);
+            }
+
+            noteBuilder.Append(continuationLine.Trim());
+            index++;
+        }
+
+        footnotes[footnoteId] = noteBuilder.ToString().Trim();
+        return true;
+    }
+
+    private static bool IsCodeFence(string trimmedLine)
+    {
+        return trimmedLine.StartsWith("```", StringComparison.Ordinal);
+    }
+
+    private static MarkdownBlock ParseCodeBlock(string[] lines, ref int index, string openingFenceLine)
+    {
+        var language = openingFenceLine.Length > 3 ? openingFenceLine[3..].Trim() : string.Empty;
+        var builder = new StringBuilder();
+        index++;
+
+        while (index < lines.Length)
+        {
+            var currentLine = lines[index];
+            if (currentLine.TrimStart().StartsWith("```", StringComparison.Ordinal))
+            {
+                index++;
+                break;
+            }
+
+            if (builder.Length > 0)
+            {
+                builder.Append(Environment.NewLine);
+            }
+
+            builder.Append(currentLine);
+            index++;
+        }
+
+        return new MarkdownBlock
+        {
+            Type = BlockType.CodeBlock,
+            CodeLanguage = language,
+            Content = builder.ToString()
+        };
     }
 
     private static bool IsTableHeader(string[] lines, int index)
     {
-        return index + 1 < lines.Length
-            && lines[index] is not null
-            && lines[index + 1] is not null
-            && LooksLikeTableRow(lines[index])
-            && IsTableDividerRow(lines[index + 1]);
+        return index + 1 < lines.Length &&
+               LooksLikeTableRow(lines[index]) &&
+               IsTableDividerRow(lines[index + 1]);
+    }
+
+    private static MarkdownBlock ParseTable(string[] lines, ref int index)
+    {
+        var headers = ParseTableCells(lines[index]);
+        var alignments = ParseTableAlignments(lines[index + 1]);
+        var rows = new List<List<string>>();
+
+        index += 2;
+        while (index < lines.Length)
+        {
+            var line = lines[index];
+            if (string.IsNullOrWhiteSpace(line) || !LooksLikeTableRow(line))
+            {
+                break;
+            }
+
+            rows.Add(ParseTableCells(line));
+            index++;
+        }
+
+        return new MarkdownBlock
+        {
+            Type = BlockType.Table,
+            TableHeaders = headers,
+            TableRows = rows,
+            TableAlignments = alignments
+        };
+    }
+
+    private static MarkdownBlock ParseBlockQuote(string[] lines, ref int index)
+    {
+        var quoteBuilder = new StringBuilder();
+        var maxQuoteLevel = 1;
+
+        while (index < lines.Length)
+        {
+            var sourceLine = lines[index];
+            var trimmedLine = sourceLine.Trim();
+
+            if (trimmedLine.Length == 0)
+            {
+                if (quoteBuilder.Length > 0)
+                {
+                    quoteBuilder.Append(Environment.NewLine);
+                }
+
+                index++;
+                continue;
+            }
+
+            if (trimmedLine[0] != '>')
+            {
+                break;
+            }
+
+            var quoteLevel = 0;
+            var contentStart = 0;
+            while (contentStart < trimmedLine.Length && trimmedLine[contentStart] == '>')
+            {
+                quoteLevel++;
+                contentStart++;
+            }
+
+            while (contentStart < trimmedLine.Length && trimmedLine[contentStart] == ' ')
+            {
+                contentStart++;
+            }
+
+            maxQuoteLevel = Math.Max(maxQuoteLevel, quoteLevel);
+            if (quoteBuilder.Length > 0)
+            {
+                quoteBuilder.Append(Environment.NewLine);
+            }
+
+            quoteBuilder.Append(trimmedLine[contentStart..]);
+            index++;
+        }
+
+        return new MarkdownBlock
+        {
+            Type = BlockType.BlockQuote,
+            Content = quoteBuilder.ToString(),
+            QuoteLevel = maxQuoteLevel
+        };
+    }
+
+    private static bool TryParseHeader(string trimmedLine, out MarkdownBlock block)
+    {
+        block = null!;
+        if (trimmedLine[0] != '#')
+        {
+            return false;
+        }
+
+        var level = 0;
+        while (level < trimmedLine.Length && trimmedLine[level] == '#')
+        {
+            level++;
+        }
+
+        if (level >= trimmedLine.Length || trimmedLine[level] != ' ')
+        {
+            return false;
+        }
+
+        block = new MarkdownBlock
+        {
+            Type = BlockType.Header,
+            HeaderLevel = Math.Min(level, 6),
+            Content = trimmedLine[(level + 1)..].Trim()
+        };
+
+        return true;
+    }
+
+    private static bool TryParseImage(string trimmedLine, out MarkdownBlock block)
+    {
+        block = null!;
+        if (!trimmedLine.StartsWith("![", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var altEnd = trimmedLine.IndexOf("](", StringComparison.Ordinal);
+        if (altEnd < 2 || !trimmedLine.EndsWith(')'))
+        {
+            return false;
+        }
+
+        block = new MarkdownBlock
+        {
+            Type = BlockType.Image,
+            ImageAltText = trimmedLine[2..altEnd],
+            ImageSource = trimmedLine[(altEnd + 2)..^1]
+        };
+
+        return true;
+    }
+
+    private static bool TryParseTaskList(string trimmedLine, int listLevel, out MarkdownBlock block)
+    {
+        block = null!;
+        if (trimmedLine.Length < 6)
+        {
+            return false;
+        }
+
+        if ((trimmedLine[0] != '-' && trimmedLine[0] != '*') ||
+            trimmedLine[1] != ' ' ||
+            trimmedLine[2] != '[' ||
+            trimmedLine[4] != ']' ||
+            trimmedLine[5] != ' ')
+        {
+            return false;
+        }
+
+        var state = trimmedLine[3];
+        if (state != ' ' && state != 'x' && state != 'X')
+        {
+            return false;
+        }
+
+        block = new MarkdownBlock
+        {
+            Type = BlockType.TaskListItem,
+            Content = trimmedLine[6..].Trim(),
+            IsChecked = state != ' ',
+            ListLevel = listLevel
+        };
+
+        return true;
+    }
+
+    private static bool TryParseOrderedList(string trimmedLine, int listLevel, out MarkdownBlock block)
+    {
+        block = null!;
+        var digitEnd = 0;
+        while (digitEnd < trimmedLine.Length && char.IsAsciiDigit(trimmedLine[digitEnd]))
+        {
+            digitEnd++;
+        }
+
+        if (digitEnd == 0 || digitEnd + 1 >= trimmedLine.Length || trimmedLine[digitEnd] != '.' || trimmedLine[digitEnd + 1] != ' ')
+        {
+            return false;
+        }
+
+        if (!int.TryParse(trimmedLine[..digitEnd], out var number))
+        {
+            return false;
+        }
+
+        block = new MarkdownBlock
+        {
+            Type = BlockType.OrderedListItem,
+            Content = trimmedLine[(digitEnd + 2)..].Trim(),
+            OrderedNumber = number,
+            ListLevel = listLevel
+        };
+
+        return true;
+    }
+
+    private static bool TryParseBulletList(string trimmedLine, int listLevel, out MarkdownBlock block)
+    {
+        block = null!;
+        if (trimmedLine.Length < 3 || (trimmedLine[0] != '*' && trimmedLine[0] != '-') || trimmedLine[1] != ' ')
+        {
+            return false;
+        }
+
+        block = new MarkdownBlock
+        {
+            Type = BlockType.BulletListItem,
+            Content = trimmedLine[2..].Trim(),
+            ListLevel = listLevel
+        };
+
+        return true;
     }
 
     private static bool LooksLikeTableRow(string line)
@@ -328,17 +520,45 @@ public class MdsParser
 
     private static bool IsHorizontalRule(string line)
     {
-        var normalized = line.Replace(" ", string.Empty, StringComparison.Ordinal);
-        return normalized.Length >= 3 &&
-               (normalized.All(ch => ch == '-') ||
-                normalized.All(ch => ch == '*') ||
-                normalized.All(ch => ch == '_'));
+        var marker = '\0';
+        var count = 0;
+
+        for (var index = 0; index < line.Length; index++)
+        {
+            var ch = line[index];
+            if (ch == ' ')
+            {
+                continue;
+            }
+
+            if (marker == '\0')
+            {
+                marker = ch;
+                if (marker != '-' && marker != '*' && marker != '_')
+                {
+                    return false;
+                }
+            }
+            else if (ch != marker)
+            {
+                return false;
+            }
+
+            count++;
+        }
+
+        return count >= 3;
     }
 
     private static int GetListLevel(string line)
     {
-        var leadingSpaces = line.TakeWhile(ch => ch == ' ').Count();
-        return leadingSpaces / 2;
+        var spaces = 0;
+        while (spaces < line.Length && line[spaces] == ' ')
+        {
+            spaces++;
+        }
+
+        return spaces / 2;
     }
 
     private static bool IsTableDividerRow(string line)
@@ -349,109 +569,78 @@ public class MdsParser
             return false;
         }
 
-        return cells.All(cell =>
+        foreach (var cell in cells)
         {
             var trimmed = cell.Trim();
-            return trimmed.Length >= 3 && trimmed.All(ch => ch == '-' || ch == ':');
-        });
+            if (trimmed.Length < 3)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < trimmed.Length; index++)
+            {
+                var ch = trimmed[index];
+                if (ch != '-' && ch != ':')
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     private static List<string> ParseTableCells(string line)
     {
         var trimmedLine = line.Trim();
-        if (trimmedLine.StartsWith('|'))
+        var startIndex = trimmedLine.StartsWith('|') ? 1 : 0;
+        var endIndex = trimmedLine.EndsWith('|') ? trimmedLine.Length - 1 : trimmedLine.Length;
+        var cells = new List<string>();
+        var currentCell = new StringBuilder();
+
+        for (var index = startIndex; index < endIndex; index++)
         {
-            trimmedLine = trimmedLine[1..];
+            var ch = trimmedLine[index];
+            if (ch == '|')
+            {
+                cells.Add(currentCell.ToString().Trim());
+                currentCell.Clear();
+                continue;
+            }
+
+            currentCell.Append(ch);
         }
 
-        if (trimmedLine.EndsWith('|'))
-        {
-            trimmedLine = trimmedLine[..^1];
-        }
-
-        return trimmedLine
-            .Split('|')
-            .Select(cell => cell.Trim())
-            .ToList();
+        cells.Add(currentCell.ToString().Trim());
+        return cells;
     }
 
     private static List<MarkdownAlignment> ParseTableAlignments(string dividerRow)
     {
-        return ParseTableCells(dividerRow)
-            .Select(cell =>
-            {
-                var trimmed = cell.Trim();
-                var startsWithColon = trimmed.StartsWith(':');
-                var endsWithColon = trimmed.EndsWith(':');
+        var cells = ParseTableCells(dividerRow);
+        var alignments = new List<MarkdownAlignment>(cells.Count);
 
-                if (startsWithColon && endsWithColon)
-                {
-                    return MarkdownAlignment.Center;
-                }
-
-                if (endsWithColon)
-                {
-                    return MarkdownAlignment.Right;
-                }
-
-                return MarkdownAlignment.Left;
-            })
-            .ToList();
-    }
-
-    private static Dictionary<string, string> ExtractFootnotes(string[] lines)
-    {
-        var footnotes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        for (var index = 0; index < lines.Length; index++)
+        foreach (var cell in cells)
         {
-            var line = lines[index];
-            if (line is null)
+            var trimmed = cell.Trim();
+            var startsWithColon = trimmed.StartsWith(':');
+            var endsWithColon = trimmed.EndsWith(':');
+
+            if (startsWithColon && endsWithColon)
             {
-                continue;
+                alignments.Add(MarkdownAlignment.Center);
             }
-
-            var match = FootnoteDefinitionPattern.Match(line.Trim());
-            if (!match.Success)
+            else if (endsWithColon)
             {
-                continue;
+                alignments.Add(MarkdownAlignment.Right);
             }
-
-            var noteLines = new List<string> { match.Groups["content"].Value.Trim() };
-            lines[index] = null!;
-
-            while (index + 1 < lines.Length)
+            else
             {
-                var continuationLine = lines[index + 1];
-                if (continuationLine is null)
-                {
-                    index++;
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(continuationLine))
-                {
-                    lines[index + 1] = null!;
-                    noteLines.Add(string.Empty);
-                    index++;
-                    continue;
-                }
-
-                if (!continuationLine.StartsWith("    ", StringComparison.Ordinal) &&
-                    !continuationLine.StartsWith('\t'))
-                {
-                    break;
-                }
-
-                lines[index + 1] = null!;
-                noteLines.Add(continuationLine.Trim());
-                index++;
+                alignments.Add(MarkdownAlignment.Left);
             }
-
-            footnotes[match.Groups["id"].Value] = string.Join(Environment.NewLine, noteLines).Trim();
         }
 
-        return footnotes;
+        return alignments;
     }
 
     private static void AppendFootnotes(List<MarkdownBlock> blocks, Dictionary<string, string> footnotes)

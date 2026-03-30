@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using MauiMds.Models;
@@ -27,7 +26,7 @@ public sealed class SnackbarService : INotifyPropertyChanged, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public ObservableCollection<SnackbarMessage> History { get; } = new();
+    public SnackbarHistoryCollection History { get; } = new();
 
     public TimeSpan DisplayDuration { get; set; } = DefaultDisplayDuration;
 

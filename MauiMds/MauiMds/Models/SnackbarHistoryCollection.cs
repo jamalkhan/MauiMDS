@@ -4,15 +4,15 @@ using System.ComponentModel;
 
 namespace MauiMds.Models;
 
-public sealed class MarkdownBlockCollection : ObservableCollection<MarkdownBlock>
+public sealed class SnackbarHistoryCollection : ObservableCollection<SnackbarMessage>
 {
-    public void ReplaceAll(IEnumerable<MarkdownBlock> blocks)
+    public void ReplaceAll(IEnumerable<SnackbarMessage> messages)
     {
         Items.Clear();
 
-        foreach (var block in blocks)
+        foreach (var message in messages)
         {
-            Items.Add(block);
+            Items.Add(message);
         }
 
         OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));

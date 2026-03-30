@@ -1,30 +1,66 @@
+using System.Text.Json;
+using MauiMds.Logging;
 using MauiMds.Models;
 
 namespace MauiMds.Services;
 
 public sealed class EditorPreferencesService : IEditorPreferencesService
 {
-    private const string AutoSaveEnabledKey = "editor.autosave.enabled";
-    private const string AutoSaveDelaySecondsKey = "editor.autosave.delay-seconds";
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true
+    };
 
     public EditorPreferences Load()
     {
-        var delay = Preferences.Default.Get(AutoSaveDelaySecondsKey, 30);
-        if (delay < 5)
+        try
         {
-            delay = 5;
-        }
+            if (!File.Exists(LogPaths.PreferencesFilePath))
+            {
+                return CreateDefaultPreferences();
+            }
 
-        return new EditorPreferences
+            var json = File.ReadAllText(LogPaths.PreferencesFilePath);
+            var preferences = JsonSerializer.Deserialize<EditorPreferences>(json, JsonOptions) ?? CreateDefaultPreferences();
+            return new EditorPreferences
+            {
+                AutoSaveEnabled = preferences.AutoSaveEnabled,
+                AutoSaveDelaySeconds = Math.Max(5, preferences.AutoSaveDelaySeconds),
+                MaxLogFileSizeMb = Math.Max(1, preferences.MaxLogFileSizeMb)
+            };
+        }
+        catch
         {
-            AutoSaveEnabled = Preferences.Default.Get(AutoSaveEnabledKey, true),
-            AutoSaveDelaySeconds = delay
-        };
+            return CreateDefaultPreferences();
+        }
     }
 
     public void Save(EditorPreferences preferences)
     {
-        Preferences.Default.Set(AutoSaveEnabledKey, preferences.AutoSaveEnabled);
-        Preferences.Default.Set(AutoSaveDelaySecondsKey, Math.Max(5, preferences.AutoSaveDelaySeconds));
+        var directory = Path.GetDirectoryName(LogPaths.PreferencesFilePath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var normalized = new EditorPreferences
+        {
+            AutoSaveEnabled = preferences.AutoSaveEnabled,
+            AutoSaveDelaySeconds = Math.Max(5, preferences.AutoSaveDelaySeconds),
+            MaxLogFileSizeMb = Math.Max(1, preferences.MaxLogFileSizeMb)
+        };
+
+        var json = JsonSerializer.Serialize(normalized, JsonOptions);
+        File.WriteAllText(LogPaths.PreferencesFilePath, json);
+    }
+
+    private static EditorPreferences CreateDefaultPreferences()
+    {
+        return new EditorPreferences
+        {
+            AutoSaveEnabled = true,
+            AutoSaveDelaySeconds = 30,
+            MaxLogFileSizeMb = 2
+        };
     }
 }

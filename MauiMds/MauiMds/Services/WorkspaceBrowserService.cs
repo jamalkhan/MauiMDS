@@ -153,6 +153,84 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
         return Task.FromResult(targetPath);
     }
 
+    public string? TryCreatePersistentAccessBookmark(string folderPath)
+    {
+#if MACCATALYST
+        if (_currentWorkspaceAccess?.Url is null || !string.Equals(_currentWorkspaceAccess.Url.Path, folderPath, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var bookmarkData = _currentWorkspaceAccess.Url.CreateBookmarkData(
+            NSUrlBookmarkCreationOptions.WithSecurityScope,
+            [],
+            null,
+            out var error);
+
+        if (error is not null || bookmarkData is null)
+        {
+            _logger.LogWarning("Failed to create persistent access bookmark for workspace {FolderPath}. Error: {Error}", folderPath, error?.LocalizedDescription);
+            return null;
+        }
+
+        return Convert.ToBase64String(bookmarkData.ToArray());
+#else
+        return null;
+#endif
+    }
+
+    public bool TryRestorePersistentAccessFromBookmark(string bookmark, out string? restoredPath, out bool isStale)
+    {
+#if MACCATALYST
+        restoredPath = null;
+        isStale = false;
+
+        if (string.IsNullOrWhiteSpace(bookmark))
+        {
+            return false;
+        }
+
+        try
+        {
+            var bookmarkBytes = Convert.FromBase64String(bookmark);
+            using var bookmarkData = NSData.FromArray(bookmarkBytes);
+            var resolvedUrl = NSUrl.FromBookmarkData(
+                bookmarkData,
+                NSUrlBookmarkResolutionOptions.WithSecurityScope,
+                null,
+                out isStale,
+                out var error);
+
+            if (error is not null || resolvedUrl is null)
+            {
+                _logger.LogWarning("Failed to restore persistent workspace access bookmark. Error: {Error}", error?.LocalizedDescription);
+                return false;
+            }
+
+            restoredPath = resolvedUrl.Path;
+            if (string.IsNullOrWhiteSpace(restoredPath))
+            {
+                return false;
+            }
+
+            _currentWorkspaceAccess?.Dispose();
+            _currentWorkspaceAccess = new SecurityScopedResourceAccess(resolvedUrl);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to decode or resolve persistent workspace access bookmark.");
+            restoredPath = null;
+            isStale = false;
+            return false;
+        }
+#else
+        restoredPath = null;
+        isStale = false;
+        return false;
+#endif
+    }
+
     private static List<WorkspaceNodeInfo> BuildChildren(DirectoryInfo directory, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -245,11 +323,13 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
 
     private sealed class SecurityScopedResourceAccess : IDisposable
     {
+        public NSUrl Url { get; }
         private readonly NSUrl _url;
         private readonly bool _hasAccess;
 
         public SecurityScopedResourceAccess(NSUrl url)
         {
+            Url = url;
             _url = url;
             _hasAccess = _url.StartAccessingSecurityScopedResource();
         }

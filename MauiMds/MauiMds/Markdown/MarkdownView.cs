@@ -1,5 +1,4 @@
-using System.Collections.ObjectModel;
-using System.Collections.Specialized;
+using System.Diagnostics;
 using MauiMds.Models;
 using Microsoft.Extensions.Logging;
 
@@ -7,11 +6,14 @@ namespace MauiMds.Markdown;
 
 public sealed class MarkdownView : ContentView
 {
+    private const int InitialRenderBatchSize = 6;
+    private const int IncrementalRenderBatchSize = 4;
+
     public static readonly BindableProperty BlocksProperty = BindableProperty.Create(
         nameof(Blocks),
-        typeof(ObservableCollection<MarkdownBlock>),
+        typeof(IReadOnlyList<MarkdownBlock>),
         typeof(MarkdownView),
-        default(ObservableCollection<MarkdownBlock>),
+        default(IReadOnlyList<MarkdownBlock>),
         propertyChanged: OnBlocksChanged);
 
     public static readonly BindableProperty SourceFilePathProperty = BindableProperty.Create(
@@ -21,10 +23,20 @@ public sealed class MarkdownView : ContentView
         string.Empty,
         propertyChanged: OnSourceFilePathChanged);
 
+    public static readonly BindableProperty IsRenderingEnabledProperty = BindableProperty.Create(
+        nameof(IsRenderingEnabled),
+        typeof(bool),
+        typeof(MarkdownView),
+        true,
+        propertyChanged: OnIsRenderingEnabledChanged);
+
     private readonly VerticalStackLayout _contentStack;
     private readonly MarkdownRenderer _renderer;
     private readonly MarkdownInlineFormatter _inlineFormatter;
     private ILogger<MarkdownView>? _logger;
+    private CancellationTokenSource? _renderCancellationSource;
+    private bool _hasPendingRender;
+    private int _renderVersion;
 
     public MarkdownView()
     {
@@ -56,9 +68,9 @@ public sealed class MarkdownView : ContentView
         HandlerChanged += OnHandlerChanged;
     }
 
-    public ObservableCollection<MarkdownBlock>? Blocks
+    public IReadOnlyList<MarkdownBlock>? Blocks
     {
-        get => (ObservableCollection<MarkdownBlock>?)GetValue(BlocksProperty);
+        get => (IReadOnlyList<MarkdownBlock>?)GetValue(BlocksProperty);
         set => SetValue(BlocksProperty, value);
     }
 
@@ -68,41 +80,84 @@ public sealed class MarkdownView : ContentView
         set => SetValue(SourceFilePathProperty, value);
     }
 
+    public bool IsRenderingEnabled
+    {
+        get => (bool)GetValue(IsRenderingEnabledProperty);
+        set => SetValue(IsRenderingEnabledProperty, value);
+    }
+
     private static void OnBlocksChanged(BindableObject bindable, object? oldValue, object? newValue)
     {
         var view = (MarkdownView)bindable;
 
-        if (oldValue is ObservableCollection<MarkdownBlock> oldCollection)
-        {
-            oldCollection.CollectionChanged -= view.OnBlocksCollectionChanged;
-        }
-
-        if (newValue is ObservableCollection<MarkdownBlock> newCollection)
-        {
-            newCollection.CollectionChanged += view.OnBlocksCollectionChanged;
-        }
-
-        view.RenderMarkdown();
+        view.RequestRender("blocks property changed");
     }
 
     private static void OnSourceFilePathChanged(BindableObject bindable, object? oldValue, object? newValue)
     {
-        ((MarkdownView)bindable).RenderMarkdown();
+        ((MarkdownView)bindable).RequestRender("source file path changed");
     }
 
-    private void OnBlocksCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    private static void OnIsRenderingEnabledChanged(BindableObject bindable, object? oldValue, object? newValue)
     {
-        _logger?.LogInformation(
-            "MarkdownView observed block collection change. Action: {Action}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
-            e.Action,
-            Blocks?.Count ?? 0,
-            SourceFilePath);
+        var view = (MarkdownView)bindable;
+        var isEnabled = (bool)(newValue ?? true);
 
-        RenderMarkdown();
+        if (isEnabled)
+        {
+            view._logger?.LogInformation(
+                "MarkdownView rendering enabled. PendingRender: {PendingRender}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+                view._hasPendingRender,
+                view.Blocks?.Count ?? 0,
+                view.SourceFilePath);
+
+            view.RequestRender("rendering enabled");
+            return;
+        }
+
+        view._logger?.LogInformation(
+            "MarkdownView rendering disabled. BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+            view.Blocks?.Count ?? 0,
+            view.SourceFilePath);
     }
 
-    private void RenderMarkdown()
+    private void RequestRender(string reason)
     {
+        if (!IsRenderingEnabled)
+        {
+            _hasPendingRender = true;
+            _logger?.LogInformation(
+                "MarkdownView render deferred. Reason: {Reason}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+                reason,
+                Blocks?.Count ?? 0,
+                SourceFilePath);
+            return;
+        }
+
+        _hasPendingRender = false;
+        _renderCancellationSource?.Cancel();
+        _renderCancellationSource?.Dispose();
+        _renderCancellationSource = new CancellationTokenSource();
+        var token = _renderCancellationSource.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(1, token);
+                token.ThrowIfCancellationRequested();
+                await MainThread.InvokeOnMainThreadAsync(async () => await RenderMarkdownCoreAsync(token));
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, token);
+    }
+
+    private async Task RenderMarkdownCoreAsync(CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var renderVersion = Interlocked.Increment(ref _renderVersion);
         _logger?.LogInformation(
             "MarkdownView rendering started. BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
             Blocks?.Count ?? 0,
@@ -116,13 +171,58 @@ public sealed class MarkdownView : ContentView
             return;
         }
 
+        if (Blocks.Count == 0)
+        {
+            CompleteRender(stopwatch);
+            return;
+        }
+
         var context = new MarkdownRenderContext
         {
             SourceFilePath = SourceFilePath,
             InlineFormatter = _inlineFormatter
         };
 
-        for (var index = 0; index < Blocks.Count; index++)
+        var initialBatchEnd = Math.Min(Blocks.Count, InitialRenderBatchSize);
+        RenderRange(0, initialBatchEnd, context);
+        _contentStack.InvalidateMeasure();
+        InvalidateMeasure();
+
+        var index = initialBatchEnd;
+        while (index < Blocks.Count)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await Task.Yield();
+
+            if (renderVersion != _renderVersion || !IsRenderingEnabled)
+            {
+                _logger?.LogInformation(
+                    "MarkdownView incremental render canceled. RenderVersion: {RenderVersion}, CurrentVersion: {CurrentVersion}, SourceFilePath: {SourceFilePath}",
+                    renderVersion,
+                    _renderVersion,
+                    SourceFilePath);
+                return;
+            }
+
+            var batchEnd = Math.Min(Blocks.Count, index + IncrementalRenderBatchSize);
+            RenderRange(index, batchEnd, context);
+            _contentStack.InvalidateMeasure();
+            InvalidateMeasure();
+            index = batchEnd;
+        }
+
+        CompleteRender(stopwatch);
+    }
+
+    private void RenderRange(int startIndex, int endIndex, MarkdownRenderContext context)
+    {
+        if (Blocks is null)
+        {
+            return;
+        }
+
+        for (var index = startIndex; index < endIndex; index++)
         {
             var block = Blocks[index];
 
@@ -146,14 +246,15 @@ public sealed class MarkdownView : ContentView
                 _contentStack.Children.Add(CreateFallbackBlockView(block, index));
             }
         }
+    }
 
-        _contentStack.InvalidateMeasure();
-        InvalidateMeasure();
-
+    private void CompleteRender(Stopwatch stopwatch)
+    {
         _logger?.LogInformation(
-            "MarkdownView rendering completed. RenderedChildCount: {RenderedChildCount}, SourceFilePath: {SourceFilePath}",
+            "MarkdownView rendering completed. RenderedChildCount: {RenderedChildCount}, SourceFilePath: {SourceFilePath}, ElapsedMs: {ElapsedMs}",
             _contentStack.Children.Count,
-            SourceFilePath);
+            SourceFilePath,
+            stopwatch.ElapsedMilliseconds);
     }
 
     private void OnHandlerChanged(object? sender, EventArgs e)
