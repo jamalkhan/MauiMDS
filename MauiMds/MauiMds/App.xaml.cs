@@ -2,6 +2,7 @@
 using MauiMds.ViewModels;
 using MauiMds.Views;
 using Microsoft.Extensions.Logging;
+using System.Windows.Input;
 
 namespace MauiMds;
 
@@ -67,13 +68,34 @@ public partial class App : Application
         }
 
         var fileMenu = new MenuBarItem { Text = "File" };
-        fileMenu.Add(new MenuFlyoutItem
-        {
-            Text = "Open",
-            Command = viewModel.OpenFileCommand
-        });
+        fileMenu.Add(CreateMenuItem("New", viewModel.NewDocumentCommand));
+        fileMenu.Add(CreateMenuItem("Open", viewModel.OpenFileCommand));
+        fileMenu.Add(CreateMenuItem("Save", viewModel.SaveCommand));
+        fileMenu.Add(CreateMenuItem("Save As", viewModel.SaveAsCommand));
+        fileMenu.Add(CreateMenuItem("Revert", viewModel.RevertCommand));
+        fileMenu.Add(CreateMenuItem("Close", viewModel.CloseDocumentCommand));
+
+        var viewMenu = new MenuBarItem { Text = "View" };
+        viewMenu.Add(CreateMenuItem("Read-Only Viewer", viewModel.SetViewModeCommand, Models.EditorViewMode.Viewer));
+        viewMenu.Add(CreateMenuItem("Markdown Editor", viewModel.SetViewModeCommand, Models.EditorViewMode.TextEditor));
+        viewMenu.Add(CreateMenuItem("Rich Text Editor", viewModel.SetViewModeCommand, Models.EditorViewMode.RichTextEditor));
+
+        var toolsMenu = new MenuBarItem { Text = "Tools" };
+        toolsMenu.Add(CreateMenuItem("Preferences", viewModel.ShowPreferencesCommand));
 
         rootPage.MenuBarItems.Add(fileMenu);
-        _logger.LogInformation("Attached File menu to the root navigation page.");
+        rootPage.MenuBarItems.Add(viewMenu);
+        rootPage.MenuBarItems.Add(toolsMenu);
+        _logger.LogInformation("Attached File, View, and Tools menus to the root navigation page.");
+    }
+
+    private static MenuFlyoutItem CreateMenuItem(string text, ICommand command, object? commandParameter = null)
+    {
+        return new MenuFlyoutItem
+        {
+            Text = text,
+            Command = command,
+            CommandParameter = commandParameter
+        };
     }
 }

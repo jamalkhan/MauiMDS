@@ -29,6 +29,8 @@ public static class MauiProgram
 		// Register our services for Dependency Injection
 		builder.Services.AddSingleton(snackbarService);
 		builder.Services.AddSingleton<MdsParser>();
+		builder.Services.AddSingleton<IEditorPreferencesService, EditorPreferencesService>();
+		builder.Services.AddSingleton<IDocumentWatchService, DocumentWatchService>();
 		builder.Services.AddSingleton<IMarkdownDocumentService, MarkdownDocumentService>();
 		builder.Services.AddSingleton<IWorkspaceBrowserService, WorkspaceBrowserService>();
 		builder.Services.AddSingleton<MainViewModel>();

@@ -91,15 +91,27 @@ public sealed class MarkdownView : ContentView
 
     private void OnBlocksCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        _logger?.LogInformation(
+            "MarkdownView observed block collection change. Action: {Action}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+            e.Action,
+            Blocks?.Count ?? 0,
+            SourceFilePath);
+
         RenderMarkdown();
     }
 
     private void RenderMarkdown()
     {
+        _logger?.LogInformation(
+            "MarkdownView rendering started. BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+            Blocks?.Count ?? 0,
+            SourceFilePath);
+
         _contentStack.Children.Clear();
 
         if (Blocks is null)
         {
+            _logger?.LogWarning("MarkdownView render skipped because Blocks is null.");
             return;
         }
 
@@ -133,6 +145,14 @@ public sealed class MarkdownView : ContentView
                 _contentStack.Children.Add(CreateFallbackBlockView(block, index));
             }
         }
+
+        _contentStack.InvalidateMeasure();
+        InvalidateMeasure();
+
+        _logger?.LogInformation(
+            "MarkdownView rendering completed. RenderedChildCount: {RenderedChildCount}, SourceFilePath: {SourceFilePath}",
+            _contentStack.Children.Count,
+            SourceFilePath);
     }
 
     private void OnHandlerChanged(object? sender, EventArgs e)

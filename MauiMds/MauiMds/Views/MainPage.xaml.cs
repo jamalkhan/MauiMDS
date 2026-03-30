@@ -67,7 +67,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        if (e.PropertyName is nameof(MainViewModel.FilePath) or nameof(MainViewModel.FileName))
+        if (e.PropertyName is nameof(MainViewModel.FilePath) or nameof(MainViewModel.FileName) or nameof(MainViewModel.HeaderPathDisplay))
         {
             RefreshHeader(vm);
         }
@@ -138,7 +138,7 @@ public partial class MainPage : ContentPage
     private void RefreshHeader(MainViewModel vm)
     {
         FileNameLabel.Text = vm.FileName;
-        FilePathLabel.Text = vm.FilePath;
+        FilePathLabel.Text = vm.HeaderPathDisplay;
 
         _logger.LogDebug(
             "Header refreshed. FileName: {FileName}, FilePath: {FilePath}",

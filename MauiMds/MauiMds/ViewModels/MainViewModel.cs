@@ -11,29 +11,97 @@ namespace MauiMds.ViewModels;
 
 public class MainViewModel : INotifyPropertyChanged
 {
+    private static readonly TimeSpan ParseDebounceDelay = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan ExternalChangeDebounceDelay = TimeSpan.FromMilliseconds(400);
+
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<MarkdownDocument>? DocumentApplied;
 
     private readonly IMarkdownDocumentService _documentService;
     private readonly IWorkspaceBrowserService _workspaceBrowserService;
+    private readonly IEditorPreferencesService _preferencesService;
+    private readonly IDocumentWatchService _documentWatchService;
     private readonly ILogger<MainViewModel> _logger;
     private readonly MdsParser _parser;
     private readonly List<WorkspaceTreeItem> _workspaceRootItems = [];
+
+    private EditorDocumentState _document = new();
+    private EditorViewMode _selectedViewMode = EditorViewMode.Viewer;
+    private EditorPreferences _preferences;
+
     private bool _isInitialized;
     private bool _isOpeningDocument;
+    private bool _isSavingDocument;
     private bool _isWorkspacePanelVisible;
-    private string _filePath = string.Empty;
+    private bool _isPreferencesVisible;
+    private bool _isLoadingDocument;
+    private string _editorText = string.Empty;
     private string _inlineErrorMessage = string.Empty;
     private string _workspaceRootPath = string.Empty;
     private string _workspaceSearchText = string.Empty;
+    private string _preferencesAutoSaveDelaySecondsText = "30";
+    private bool _preferencesAutoSaveEnabled = true;
     private WorkspaceTreeItem? _selectedWorkspaceItem;
     private WorkspaceTreeItem? _pendingRenameItem;
     private CancellationTokenSource? _workspaceSearchCancellationSource;
+    private CancellationTokenSource? _parseCancellationSource;
+    private CancellationTokenSource? _autosaveCancellationSource;
+    private DateTimeOffset _lastSaveUtc;
 
-    public MarkdownBlockCollection ParsedBlocks { get; } = new();
-    public ObservableCollection<WorkspaceTreeItem> WorkspaceItems { get; } = [];
+    public MainViewModel(
+        MdsParser parser,
+        IMarkdownDocumentService documentService,
+        IWorkspaceBrowserService workspaceBrowserService,
+        IEditorPreferencesService preferencesService,
+        IDocumentWatchService documentWatchService,
+        ILogger<MainViewModel> logger)
+    {
+        _parser = parser;
+        _documentService = documentService;
+        _workspaceBrowserService = workspaceBrowserService;
+        _preferencesService = preferencesService;
+        _documentWatchService = documentWatchService;
+        _logger = logger;
+        _preferences = _preferencesService.Load();
+        _preferencesAutoSaveEnabled = _preferences.AutoSaveEnabled;
+        _preferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
+
+        _documentWatchService.DocumentChanged += OnWatchedDocumentChanged;
+
+        ParsedBlocks = new MarkdownBlockCollection();
+        WorkspaceItems = new ObservableCollection<WorkspaceTreeItem>();
+
+        OpenFileCommand = new Command(async () => await OpenFileAsync(), () => !IsBusy);
+        NewDocumentCommand = new Command(async () => await NewDocumentAsync(), () => !IsBusy);
+        SaveCommand = new Command(async () => await SaveDocumentAsync(), () => !IsBusy);
+        SaveAsCommand = new Command(async () => await SaveDocumentAsAsync(), () => !IsBusy);
+        RevertCommand = new Command(async () => await RevertDocumentAsync(), () => !IsBusy);
+        CloseDocumentCommand = new Command(async () => await CloseDocumentAsync(), () => !IsBusy);
+        ShowPreferencesCommand = new Command(ShowPreferences);
+        SavePreferencesCommand = new Command(async () => await SavePreferencesAsync());
+        CancelPreferencesCommand = new Command(CancelPreferences);
+        SetViewModeCommand = new Command<EditorViewMode>(SetViewMode);
+        ToggleWorkspacePanelCommand = new Command(ToggleWorkspacePanel);
+        OpenFolderCommand = new Command(async () => await OpenFolderAsync());
+        SelectWorkspaceItemCommand = new Command<WorkspaceTreeItem>(async item => await SelectWorkspaceItemAsync(item));
+        ToggleWorkspaceItemExpansionCommand = new Command<WorkspaceTreeItem>(ToggleWorkspaceItemExpansion);
+        BeginRenameWorkspaceItemCommand = new Command<WorkspaceTreeItem>(BeginRenameWorkspaceItem);
+        CreateMdsCommand = new Command(async () => await CreateMdsAsync(), () => HasWorkspaceRoot);
+    }
+
+    public MarkdownBlockCollection ParsedBlocks { get; }
+    public ObservableCollection<WorkspaceTreeItem> WorkspaceItems { get; }
 
     public ICommand OpenFileCommand { get; }
+    public ICommand NewDocumentCommand { get; }
+    public ICommand SaveCommand { get; }
+    public ICommand SaveAsCommand { get; }
+    public ICommand RevertCommand { get; }
+    public ICommand CloseDocumentCommand { get; }
+    public ICommand ShowPreferencesCommand { get; }
+    public ICommand SavePreferencesCommand { get; }
+    public ICommand CancelPreferencesCommand { get; }
+    public ICommand SetViewModeCommand { get; }
     public ICommand ToggleWorkspacePanelCommand { get; }
     public ICommand OpenFolderCommand { get; }
     public ICommand SelectWorkspaceItemCommand { get; }
@@ -43,21 +111,103 @@ public class MainViewModel : INotifyPropertyChanged
 
     public string FilePath
     {
-        get => _filePath;
+        get => _document.FilePath;
         private set
         {
-            if (_filePath == value)
+            if (_document.FilePath == value)
             {
                 return;
             }
 
-            _filePath = value;
+            _document.FilePath = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(FileName));
+            OnPropertyChanged(nameof(HasFilePath));
+            OnPropertyChanged(nameof(HeaderPathDisplay));
         }
     }
 
-    public string FileName => string.IsNullOrWhiteSpace(FilePath) ? "No file loaded" : Path.GetFileName(FilePath);
+    public string FileName
+    {
+        get => _document.FileName;
+        private set
+        {
+            if (_document.FileName == value)
+            {
+                return;
+            }
+
+            _document.FileName = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool HasFilePath => !string.IsNullOrWhiteSpace(FilePath);
+    public string HeaderPathDisplay => IsUntitled ? "Unsaved document" : FilePath;
+    public string CurrentViewLabel => SelectedViewMode switch
+    {
+        EditorViewMode.Viewer => "Read-Only Viewer",
+        EditorViewMode.TextEditor => "Markdown Editor",
+        _ => "Rich Text Editor (Stub)"
+    };
+
+    public string EditorText
+    {
+        get => _editorText;
+        set
+        {
+            if (_editorText == value)
+            {
+                return;
+            }
+
+            _editorText = value;
+            OnPropertyChanged();
+
+            if (_isLoadingDocument)
+            {
+                return;
+            }
+
+            _document.Content = value;
+            _document.IsDirty = !string.Equals(_document.Content, _document.OriginalContent, StringComparison.Ordinal);
+            OnPropertyChanged(nameof(IsDirty));
+            OnPropertyChanged(nameof(StatusText));
+            ScheduleParse();
+            ScheduleAutoSave();
+        }
+    }
+
+    public EditorViewMode SelectedViewMode
+    {
+        get => _selectedViewMode;
+        private set
+        {
+            if (_selectedViewMode == value)
+            {
+                return;
+            }
+
+            _selectedViewMode = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsViewerMode));
+            OnPropertyChanged(nameof(IsTextEditorMode));
+            OnPropertyChanged(nameof(IsRichTextEditorMode));
+            OnPropertyChanged(nameof(IsEditorMode));
+            OnPropertyChanged(nameof(CurrentViewLabel));
+            OnPropertyChanged(nameof(StatusText));
+        }
+    }
+
+    public bool IsViewerMode => SelectedViewMode == EditorViewMode.Viewer;
+    public bool IsTextEditorMode => SelectedViewMode == EditorViewMode.TextEditor;
+    public bool IsRichTextEditorMode => SelectedViewMode == EditorViewMode.RichTextEditor;
+    public bool IsEditorMode => SelectedViewMode != EditorViewMode.Viewer;
+
+    public bool IsBusy => _isOpeningDocument || _isSavingDocument;
+    public bool IsDirty => _document.IsDirty;
+    public bool IsUntitled => _document.IsUntitled;
+    public string StatusText => BuildStatusText();
 
     public bool IsWorkspacePanelVisible
     {
@@ -77,7 +227,6 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     public double WorkspacePanelWidth => IsWorkspacePanelVisible ? 150 : 0;
-
     public string WorkspaceToggleLabel => IsWorkspacePanelVisible ? "Hide Explorer" : "Show Explorer";
 
     public string WorkspaceRootPath
@@ -147,24 +296,49 @@ public class MainViewModel : INotifyPropertyChanged
 
     public bool HasInlineError => !string.IsNullOrWhiteSpace(InlineErrorMessage);
 
-    public MainViewModel(
-        MdsParser parser,
-        IMarkdownDocumentService documentService,
-        IWorkspaceBrowserService workspaceBrowserService,
-        ILogger<MainViewModel> logger)
+    public bool IsPreferencesVisible
     {
-        _parser = parser;
-        _documentService = documentService;
-        _workspaceBrowserService = workspaceBrowserService;
-        _logger = logger;
-        _logger.LogInformation("MainViewModel created.");
-        OpenFileCommand = new Command(async () => await OpenFileAsync(), () => !_isOpeningDocument);
-        ToggleWorkspacePanelCommand = new Command(ToggleWorkspacePanel);
-        OpenFolderCommand = new Command(async () => await OpenFolderAsync());
-        SelectWorkspaceItemCommand = new Command<WorkspaceTreeItem>(async item => await SelectWorkspaceItemAsync(item));
-        ToggleWorkspaceItemExpansionCommand = new Command<WorkspaceTreeItem>(ToggleWorkspaceItemExpansion);
-        BeginRenameWorkspaceItemCommand = new Command<WorkspaceTreeItem>(BeginRenameWorkspaceItem);
-        CreateMdsCommand = new Command(async () => await CreateMdsAsync(), () => HasWorkspaceRoot);
+        get => _isPreferencesVisible;
+        private set
+        {
+            if (_isPreferencesVisible == value)
+            {
+                return;
+            }
+
+            _isPreferencesVisible = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool PreferencesAutoSaveEnabled
+    {
+        get => _preferencesAutoSaveEnabled;
+        set
+        {
+            if (_preferencesAutoSaveEnabled == value)
+            {
+                return;
+            }
+
+            _preferencesAutoSaveEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string PreferencesAutoSaveDelaySecondsText
+    {
+        get => _preferencesAutoSaveDelaySecondsText;
+        set
+        {
+            if (_preferencesAutoSaveDelaySecondsText == value)
+            {
+                return;
+            }
+
+            _preferencesAutoSaveDelaySecondsText = value;
+            OnPropertyChanged();
+        }
     }
 
     public async Task InitializeAsync()
@@ -175,117 +349,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         _isInitialized = true;
-
-        try
-        {
-            var document = await _documentService.LoadInitialDocumentAsync();
-            if (document is not null)
-            {
-                await ApplyDocumentAsync(document);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to load the initial markdown document.");
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                FilePath = "Unable to load example.mds";
-                ParsedBlocks.ReplaceAll([]);
-                InlineErrorMessage = "The bundled example document could not be loaded.";
-            });
-        }
-    }
-
-    private async Task OpenFileAsync()
-    {
-        if (_isOpeningDocument)
-        {
-            return;
-        }
-
-        _isOpeningDocument = true;
-        (OpenFileCommand as Command)?.ChangeCanExecute();
-
-        try
-        {
-            var document = await _documentService.PickDocumentAsync();
-            if (document is null)
-            {
-                await ClearInlineError();
-                return;
-            }
-
-            await ApplyDocumentAsync(document);
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "The selected file could not be opened because it is not a supported markdown format.");
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                InlineErrorMessage = ex.Message;
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to open the selected markdown document.");
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                InlineErrorMessage = "The selected file could not be opened.";
-            });
-        }
-        finally
-        {
-            _isOpeningDocument = false;
-            (OpenFileCommand as Command)?.ChangeCanExecute();
-        }
-    }
-
-    private async Task ApplyDocumentAsync(MarkdownDocument document)
-    {
-        _logger.LogDebug(
-            "Applying markdown document. FileName: {FileName}, FilePath: {FilePath}, SizeKB: {SizeKb:F2}, LastModified: {LastModified}, CharacterCount: {CharacterCount}",
-            document.FileName ?? Path.GetFileName(document.FilePath),
-            document.FilePath,
-            (document.FileSizeBytes ?? 0) / 1024d,
-            document.LastModified,
-            document.Content.Length);
-
-        var blocks = _parser.Parse(document.Content);
-
-        await MainThread.InvokeOnMainThreadAsync(() =>
-        {
-            InlineErrorMessage = string.Empty;
-            ParsedBlocks.ReplaceAll(blocks);
-            FilePath = document.FilePath;
-            _logger.LogDebug(
-                "Applied markdown document to the UI. DisplayedFilePath: {DisplayedFilePath}, BlockCount: {BlockCount}",
-                FilePath,
-                ParsedBlocks.Count);
-            DocumentApplied?.Invoke(this, document);
-        });
-
-        _logger.LogInformation(
-            "Loaded markdown document successfully. FileName: {FileName}, BlockCount: {BlockCount}",
-            document.FileName ?? Path.GetFileName(document.FilePath),
-            blocks.Count);
-    }
-
-    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        _logger.LogDebug("Property changed: {PropertyName}", propertyName);
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        if (propertyName == nameof(HasWorkspaceRoot))
-        {
-            (CreateMdsCommand as Command)?.ChangeCanExecute();
-        }
-    }
-
-    private Task ClearInlineError()
-    {
-        return MainThread.InvokeOnMainThreadAsync(() =>
-        {
-            InlineErrorMessage = string.Empty;
-        });
+        await LoadDocumentIntoStateAsync(await _documentService.LoadInitialDocumentAsync() ?? await _documentService.CreateUntitledDocumentAsync());
     }
 
     public async Task CommitWorkspaceRenameAsync(WorkspaceTreeItem? item)
@@ -307,20 +371,19 @@ public class MainViewModel : INotifyPropertyChanged
 
             if (string.Equals(FilePath, item.FullPath, StringComparison.Ordinal))
             {
-                var renamedDocument = await _workspaceBrowserService.LoadDocumentAsync(updatedPath);
-                await ApplyDocumentAsync(renamedDocument);
+                var renamedDocument = await _documentService.LoadDocumentAsync(updatedPath);
+                await LoadDocumentIntoStateAsync(renamedDocument);
             }
 
             await LoadWorkspaceAsync(WorkspaceRootPath, selectedPath: updatedPath);
-            await ClearInlineError();
+            await ClearInlineErrorAsync();
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Workspace file rename failed.");
+            await ReportErrorAsync("Workspace file rename failed.", ex, ex is InvalidOperationException ? ex.Message : "The file could not be renamed.");
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 item.IsRenaming = true;
-                InlineErrorMessage = ex.Message;
                 PendingRenameItem = item;
             });
         }
@@ -341,6 +404,454 @@ public class MainViewModel : INotifyPropertyChanged
         });
     }
 
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+        if (propertyName is nameof(HasWorkspaceRoot) or nameof(IsBusy) or nameof(IsDirty) or nameof(IsUntitled))
+        {
+            RefreshCommandStates();
+        }
+    }
+
+    private async Task OpenFileAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        _isOpeningDocument = true;
+        OnPropertyChanged(nameof(IsBusy));
+
+        try
+        {
+            await SaveIfNeededAsync();
+            var document = await _documentService.PickDocumentAsync();
+            if (document is null)
+            {
+                await ClearInlineErrorAsync();
+                return;
+            }
+
+            await LoadDocumentIntoStateAsync(document);
+        }
+        catch (Exception ex)
+        {
+            await ReportErrorAsync("Failed to open the selected markdown document.", ex, ex is InvalidOperationException ? ex.Message : "The selected file could not be opened.");
+        }
+        finally
+        {
+            _isOpeningDocument = false;
+            OnPropertyChanged(nameof(IsBusy));
+        }
+    }
+
+    private async Task NewDocumentAsync()
+    {
+        try
+        {
+            await SaveIfNeededAsync();
+            var untitled = await _documentService.CreateUntitledDocumentAsync();
+            await LoadDocumentIntoStateAsync(untitled);
+        }
+        catch (Exception ex)
+        {
+            await ReportErrorAsync("Failed to create a new document.", ex, "A new document could not be created.");
+        }
+    }
+
+    private async Task SaveDocumentAsync()
+    {
+        await SaveCurrentDocumentInternalAsync(forceSaveAs: false);
+    }
+
+    private async Task SaveDocumentAsAsync()
+    {
+        await SaveCurrentDocumentInternalAsync(forceSaveAs: true);
+    }
+
+    private async Task RevertDocumentAsync()
+    {
+        try
+        {
+            if (_document.IsUntitled || string.IsNullOrWhiteSpace(_document.FilePath))
+            {
+                await LoadDocumentIntoStateAsync(await _documentService.CreateUntitledDocumentAsync());
+                return;
+            }
+
+            var reverted = await _documentService.LoadDocumentAsync(_document.FilePath);
+            await LoadDocumentIntoStateAsync(reverted);
+            await ClearInlineErrorAsync();
+        }
+        catch (Exception ex)
+        {
+            await ReportErrorAsync("Failed to revert the current document.", ex, "The document could not be reverted.");
+        }
+    }
+
+    private async Task CloseDocumentAsync()
+    {
+        try
+        {
+            await SaveIfNeededAsync();
+            _documentWatchService.Stop();
+            await LoadDocumentIntoStateAsync(await _documentService.CreateUntitledDocumentAsync());
+        }
+        catch (Exception ex)
+        {
+            await ReportErrorAsync("Failed to close the current document.", ex, "The document could not be closed.");
+        }
+    }
+
+    private void ShowPreferences()
+    {
+        PreferencesAutoSaveEnabled = _preferences.AutoSaveEnabled;
+        PreferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
+        IsPreferencesVisible = true;
+    }
+
+    private async Task SavePreferencesAsync()
+    {
+        if (!int.TryParse(PreferencesAutoSaveDelaySecondsText, out var delaySeconds) || delaySeconds < 5)
+        {
+            await ReportErrorAsync("Invalid autosave preference.", null, "Autosave delay must be at least 5 seconds.");
+            return;
+        }
+
+        _preferences = new EditorPreferences
+        {
+            AutoSaveEnabled = PreferencesAutoSaveEnabled,
+            AutoSaveDelaySeconds = delaySeconds
+        };
+
+        _preferencesService.Save(_preferences);
+        IsPreferencesVisible = false;
+        OnPropertyChanged(nameof(StatusText));
+        ScheduleAutoSave();
+        await ClearInlineErrorAsync();
+    }
+
+    private void CancelPreferences()
+    {
+        IsPreferencesVisible = false;
+    }
+
+    private void SetViewMode(EditorViewMode mode)
+    {
+        SelectedViewMode = mode;
+    }
+
+    private async Task SaveIfNeededAsync()
+    {
+        if (!_document.IsDirty)
+        {
+            return;
+        }
+
+        await SaveCurrentDocumentInternalAsync(forceSaveAs: false);
+    }
+
+    private async Task SaveCurrentDocumentInternalAsync(bool forceSaveAs)
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        _isSavingDocument = true;
+        OnPropertyChanged(nameof(IsBusy));
+
+        try
+        {
+            var result = forceSaveAs
+                ? await _documentService.SaveAsAsync(_document)
+                : await _documentService.SaveAsync(_document);
+
+            if (result is null)
+            {
+                return;
+            }
+
+            ApplySaveResult(result);
+            await ClearInlineErrorAsync();
+        }
+        catch (Exception ex)
+        {
+            await ReportErrorAsync("Failed to save the current document.", ex, BuildSaveFailureMessage(ex));
+        }
+        finally
+        {
+            _isSavingDocument = false;
+            OnPropertyChanged(nameof(IsBusy));
+        }
+    }
+
+    private void ApplySaveResult(SaveDocumentResult result)
+    {
+        FilePath = result.FilePath;
+        FileName = result.FileName;
+        _document.IsUntitled = false;
+        _document.IsDirty = false;
+        _document.OriginalContent = _document.Content;
+        _document.FileSizeBytes = result.FileSizeBytes;
+        _document.LastModified = result.LastModified;
+        _lastSaveUtc = DateTimeOffset.UtcNow;
+
+        OnPropertyChanged(nameof(IsUntitled));
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(StatusText));
+        OnPropertyChanged(nameof(HeaderPathDisplay));
+
+        _documentWatchService.Watch(result.FilePath);
+    }
+
+    private async Task LoadDocumentIntoStateAsync(MarkdownDocument document)
+    {
+        _isLoadingDocument = true;
+
+        try
+        {
+            _document = new EditorDocumentState
+            {
+                FilePath = document.IsUntitled ? string.Empty : document.FilePath,
+                FileName = document.FileName ?? Path.GetFileName(document.FilePath),
+                Content = document.Content,
+                OriginalContent = document.Content,
+                IsUntitled = document.IsUntitled || !Path.IsPathRooted(document.FilePath),
+                IsDirty = false,
+                FileSizeBytes = document.FileSizeBytes,
+                LastModified = document.LastModified,
+                EncodingName = document.EncodingName,
+                NewLine = document.NewLine
+            };
+
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                FilePath = _document.FilePath;
+                FileName = _document.FileName;
+                EditorText = _document.Content;
+                InlineErrorMessage = string.Empty;
+                OnPropertyChanged(nameof(IsDirty));
+                OnPropertyChanged(nameof(IsUntitled));
+                OnPropertyChanged(nameof(StatusText));
+                OnPropertyChanged(nameof(HeaderPathDisplay));
+            });
+
+            if (_document.IsUntitled || string.IsNullOrWhiteSpace(_document.FilePath))
+            {
+                _documentWatchService.Stop();
+            }
+            else
+            {
+                _documentWatchService.Watch(_document.FilePath);
+            }
+
+            await ParseAndApplyPreviewAsync(_document.Content);
+        }
+        finally
+        {
+            _isLoadingDocument = false;
+        }
+    }
+
+    private async Task ParseAndApplyPreviewAsync(string text)
+    {
+        IReadOnlyList<MarkdownBlock> blocks;
+        try
+        {
+            blocks = _parser.Parse(text);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Markdown parsing failed. Falling back to plaintext paragraph rendering.");
+            blocks = [new MarkdownBlock { Type = BlockType.Paragraph, Content = text }];
+
+            if (SelectedViewMode == EditorViewMode.RichTextEditor)
+            {
+                SelectedViewMode = EditorViewMode.TextEditor;
+            }
+
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                InlineErrorMessage = "Markdown parsing failed. The document is shown in a safe fallback mode.";
+            });
+        }
+
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            ParsedBlocks.ReplaceAll(blocks);
+            DocumentApplied?.Invoke(this, new MarkdownDocument
+            {
+                FilePath = _document.FilePath,
+                FileName = _document.FileName,
+                FileSizeBytes = _document.FileSizeBytes,
+                LastModified = _document.LastModified,
+                Content = text,
+                IsUntitled = _document.IsUntitled,
+                EncodingName = _document.EncodingName,
+                NewLine = _document.NewLine
+            });
+        });
+    }
+
+    private void ScheduleParse()
+    {
+        _parseCancellationSource?.Cancel();
+        _parseCancellationSource?.Dispose();
+        _parseCancellationSource = new CancellationTokenSource();
+        var token = _parseCancellationSource.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(ParseDebounceDelay, token);
+                token.ThrowIfCancellationRequested();
+                await ParseAndApplyPreviewAsync(_document.Content);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, token);
+    }
+
+    private void ScheduleAutoSave()
+    {
+        _autosaveCancellationSource?.Cancel();
+        _autosaveCancellationSource?.Dispose();
+
+        if (!_preferences.AutoSaveEnabled || _document.IsUntitled || !_document.IsDirty || string.IsNullOrWhiteSpace(_document.FilePath))
+        {
+            return;
+        }
+
+        _autosaveCancellationSource = new CancellationTokenSource();
+        var token = _autosaveCancellationSource.Token;
+        var delay = TimeSpan.FromSeconds(_preferences.AutoSaveDelaySeconds);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(delay, token);
+                token.ThrowIfCancellationRequested();
+                await MainThread.InvokeOnMainThreadAsync(async () => await SaveCurrentDocumentInternalAsync(forceSaveAs: false));
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, token);
+    }
+
+    private async void OnWatchedDocumentChanged(object? sender, string filePath)
+    {
+        if (_document.IsUntitled || string.IsNullOrWhiteSpace(_document.FilePath) || !string.Equals(filePath, _document.FilePath, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (_isSavingDocument || DateTimeOffset.UtcNow - _lastSaveUtc < TimeSpan.FromSeconds(1))
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(ExternalChangeDebounceDelay);
+
+            if (_document.IsDirty)
+            {
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    InlineErrorMessage = "The file changed on disk while you have unsaved edits. Save or revert to reconcile it.";
+                });
+                return;
+            }
+
+            var updatedDocument = await _documentService.LoadDocumentAsync(_document.FilePath);
+            await LoadDocumentIntoStateAsync(updatedDocument);
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                InlineErrorMessage = "The file changed on disk and was automatically reloaded.";
+            });
+        }
+        catch (Exception ex)
+        {
+            await ReportErrorAsync("External file change handling failed.", ex, "The file changed on disk but could not be reloaded.");
+        }
+    }
+
+    private async Task ClearInlineErrorAsync()
+    {
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            InlineErrorMessage = string.Empty;
+        });
+    }
+
+    private async Task ReportErrorAsync(string message, Exception? exception, string inlineMessage)
+    {
+        if (exception is null)
+        {
+            _logger.LogWarning("{Message}", message);
+        }
+        else
+        {
+            _logger.LogError(exception, "{Message}", message);
+        }
+
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            InlineErrorMessage = inlineMessage;
+        });
+    }
+
+    private string BuildStatusText()
+    {
+        var parts = new List<string>();
+
+        parts.Add(_document.IsUntitled ? "Untitled" : "Saved file");
+
+        if (_document.IsDirty)
+        {
+            parts.Add("Unsaved changes");
+        }
+
+        parts.Add(_preferences.AutoSaveEnabled ? $"Autosave {_preferences.AutoSaveDelaySeconds}s" : "Autosave off");
+        parts.Add(SelectedViewMode switch
+        {
+            EditorViewMode.Viewer => "Viewer",
+            EditorViewMode.TextEditor => "Markdown editor",
+            _ => "Rich text editor"
+        });
+
+        return string.Join(" • ", parts);
+    }
+
+    private static string BuildSaveFailureMessage(Exception exception)
+    {
+        return exception switch
+        {
+            UnauthorizedAccessException => "The file could not be saved because access was denied.",
+            IOException => "The file could not be saved because it is locked or unavailable.",
+            InvalidOperationException => exception.Message,
+            _ => "The file could not be saved."
+        };
+    }
+
+    private void RefreshCommandStates()
+    {
+        (OpenFileCommand as Command)?.ChangeCanExecute();
+        (NewDocumentCommand as Command)?.ChangeCanExecute();
+        (SaveCommand as Command)?.ChangeCanExecute();
+        (SaveAsCommand as Command)?.ChangeCanExecute();
+        (RevertCommand as Command)?.ChangeCanExecute();
+        (CloseDocumentCommand as Command)?.ChangeCanExecute();
+        (CreateMdsCommand as Command)?.ChangeCanExecute();
+    }
+
     private void ToggleWorkspacePanel()
     {
         IsWorkspacePanelVisible = !IsWorkspacePanelVisible;
@@ -359,15 +870,11 @@ public class MainViewModel : INotifyPropertyChanged
             IsWorkspacePanelVisible = true;
             WorkspaceSearchText = string.Empty;
             await LoadWorkspaceAsync(folderPath);
-            await ClearInlineError();
+            await ClearInlineErrorAsync();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to open the selected folder.");
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                InlineErrorMessage = "The selected folder could not be opened.";
-            });
+            await ReportErrorAsync("Failed to open the selected folder.", ex, "The selected folder could not be opened.");
         }
     }
 
@@ -392,10 +899,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         if (!string.IsNullOrWhiteSpace(selectedPath))
         {
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                SetSelectedWorkspaceItem(FindWorkspaceItem(selectedPath));
-            });
+            await MainThread.InvokeOnMainThreadAsync(() => SetSelectedWorkspaceItem(FindWorkspaceItem(selectedPath)));
         }
 
         if (!string.IsNullOrWhiteSpace(renamePath))
@@ -452,7 +956,6 @@ public class MainViewModel : INotifyPropertyChanged
     private List<WorkspaceTreeItem> BuildExpandedWorkspaceItems()
     {
         var visibleItems = new List<WorkspaceTreeItem>();
-
         foreach (var item in _workspaceRootItems)
         {
             AppendExpandedWorkspaceItems(item, visibleItems);
@@ -521,10 +1024,7 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        await MainThread.InvokeOnMainThreadAsync(() =>
-        {
-            SetSelectedWorkspaceItem(item);
-        });
+        await MainThread.InvokeOnMainThreadAsync(() => SetSelectedWorkspaceItem(item));
 
         if (item.IsDirectory)
         {
@@ -533,17 +1033,14 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            var document = await _workspaceBrowserService.LoadDocumentAsync(item.FullPath);
-            await ApplyDocumentAsync(document);
-            await ClearInlineError();
+            await SaveIfNeededAsync();
+            var document = await _documentService.LoadDocumentAsync(item.FullPath);
+            await LoadDocumentIntoStateAsync(document);
+            await ClearInlineErrorAsync();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to open markdown file from the workspace tree.");
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                InlineErrorMessage = "The selected file could not be opened.";
-            });
+            await ReportErrorAsync("Failed to open markdown file from the workspace tree.", ex, "The selected file could not be opened.");
         }
     }
 
@@ -591,32 +1088,20 @@ public class MainViewModel : INotifyPropertyChanged
             WorkspaceSearchText = string.Empty;
             var createdFilePath = await _workspaceBrowserService.CreateMarkdownSharpFileAsync(targetDirectory);
             await LoadWorkspaceAsync(WorkspaceRootPath, selectedPath: createdFilePath, renamePath: createdFilePath);
-            await ClearInlineError();
+            await ClearInlineErrorAsync();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create a new markdown_sharp file.");
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                InlineErrorMessage = "The new markdown_sharp file could not be created.";
-            });
+            await ReportErrorAsync("Failed to create a new markdown_sharp file.", ex, "The new markdown_sharp file could not be created.");
         }
     }
 
-    private string SelectedWorkspaceDirectoryPath
-    {
-        get
-        {
-            if (_selectedWorkspaceItem is null)
-            {
-                return WorkspaceRootPath;
-            }
-
-            return _selectedWorkspaceItem.IsDirectory
+    private string SelectedWorkspaceDirectoryPath =>
+        _selectedWorkspaceItem is null
+            ? WorkspaceRootPath
+            : _selectedWorkspaceItem.IsDirectory
                 ? _selectedWorkspaceItem.FullPath
                 : Path.GetDirectoryName(_selectedWorkspaceItem.FullPath) ?? WorkspaceRootPath;
-        }
-    }
 
     private void SetSelectedWorkspaceItem(WorkspaceTreeItem? item)
     {
