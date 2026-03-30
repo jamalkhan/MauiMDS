@@ -11,12 +11,15 @@ namespace MauiMds.Views;
 public partial class MainPage : ContentPage
 {
     private const string TrayAnimationName = "SnackbarTray";
+    private const string WorkspaceAnimationName = "WorkspacePane";
 
     private readonly ILogger<MainPage> _logger;
     private readonly SnackbarService _snackbarService;
     private double _trayCurrentHeight;
     private double _trayMaxHeight;
     private double _trayPanStartHeight;
+    private double _workspacePaneCurrentWidth;
+    private double _workspaceResizeStartWidth;
 
     public MainPage(MainViewModel vm, SnackbarService snackbarService, ILogger<MainPage> logger)
     {
@@ -60,6 +63,7 @@ public partial class MainPage : ContentPage
         RefreshTrayState();
         RefreshSnackbar();
         RenderSnackbarHistory();
+        RefreshWorkspacePaneState(initial: true);
     }
 
     private async Task InitializeViewModelAsync(MainViewModel vm)
@@ -119,6 +123,11 @@ public partial class MainPage : ContentPage
         if (e.PropertyName is nameof(MainViewModel.FilePath) or nameof(MainViewModel.FileName) or nameof(MainViewModel.HeaderPathDisplay))
         {
             RefreshHeader(vm);
+        }
+
+        if (e.PropertyName is nameof(MainViewModel.IsWorkspacePanelVisible) or nameof(MainViewModel.WorkspacePanelWidth))
+        {
+            RefreshWorkspacePaneState(initial: false);
         }
 
         if (e.PropertyName == nameof(MainViewModel.PendingRenameItem) && vm.PendingRenameItem is not null)
@@ -184,6 +193,37 @@ public partial class MainPage : ContentPage
         }
     }
 
+    private void OnWorkspaceRailTapped(object? sender, TappedEventArgs e)
+    {
+        if (BindingContext is MainViewModel vm)
+        {
+            vm.ToggleWorkspacePanelCommand.Execute(null);
+        }
+    }
+
+    private void OnWorkspaceResizePanUpdated(object? sender, PanUpdatedEventArgs e)
+    {
+        if (BindingContext is not MainViewModel vm || !vm.IsWorkspacePanelVisible)
+        {
+            return;
+        }
+
+        switch (e.StatusType)
+        {
+            case GestureStatus.Started:
+                this.AbortAnimation(WorkspaceAnimationName);
+                _workspaceResizeStartWidth = _workspacePaneCurrentWidth > 0 ? _workspacePaneCurrentWidth : vm.WorkspacePanelWidth;
+                break;
+            case GestureStatus.Running:
+                SetWorkspacePaneWidth(_workspaceResizeStartWidth + e.TotalX);
+                break;
+            case GestureStatus.Canceled:
+            case GestureStatus.Completed:
+                vm.UpdateWorkspacePanelWidth(_workspacePaneCurrentWidth);
+                break;
+        }
+    }
+
     private void RefreshHeader(MainViewModel vm)
     {
         FileNameLabel.Text = vm.FileName;
@@ -193,6 +233,63 @@ public partial class MainPage : ContentPage
             "Header refreshed. FileName: {FileName}, FilePath: {FilePath}",
             FileNameLabel.Text,
             FilePathLabel.Text);
+    }
+
+    private void RefreshWorkspacePaneState(bool initial)
+    {
+        if (BindingContext is not MainViewModel vm)
+        {
+            return;
+        }
+
+        var targetWidth = vm.IsWorkspacePanelVisible ? vm.WorkspacePanelWidth : 0;
+        WorkspaceResizeHandle.IsVisible = vm.IsWorkspacePanelVisible;
+        WorkspaceRail.Opacity = vm.IsWorkspacePanelVisible ? 0.82 : 1;
+
+        if (initial)
+        {
+            SetWorkspacePaneWidth(targetWidth);
+            WorkspacePanelBorder.Opacity = vm.IsWorkspacePanelVisible ? 1 : 0;
+            WorkspacePanelBorder.IsVisible = vm.IsWorkspacePanelVisible;
+            return;
+        }
+
+        _ = AnimateWorkspacePaneToAsync(targetWidth, vm.IsWorkspacePanelVisible);
+    }
+
+    private void SetWorkspacePaneWidth(double width)
+    {
+        _workspacePaneCurrentWidth = Math.Max(0, width);
+        WorkspacePaneHost.WidthRequest = _workspacePaneCurrentWidth;
+    }
+
+    private async Task AnimateWorkspacePaneToAsync(double targetWidth, bool shouldRemainVisible)
+    {
+        this.AbortAnimation(WorkspaceAnimationName);
+
+        if (shouldRemainVisible)
+        {
+            WorkspacePanelBorder.IsVisible = true;
+            WorkspaceResizeHandle.IsVisible = true;
+        }
+
+        var startWidth = _workspacePaneCurrentWidth;
+        var startOpacity = WorkspacePanelBorder.Opacity;
+        var targetOpacity = shouldRemainVisible ? 1 : 0;
+        var animation = new Animation(progress =>
+        {
+            SetWorkspacePaneWidth(startWidth + ((targetWidth - startWidth) * progress));
+            WorkspacePanelBorder.Opacity = startOpacity + ((targetOpacity - startOpacity) * progress);
+        });
+
+        var tcs = new TaskCompletionSource<bool>();
+        animation.Commit(this, WorkspaceAnimationName, 16, 180, Easing.CubicOut, (value, canceled) => tcs.TrySetResult(!canceled));
+        await tcs.Task;
+
+        SetWorkspacePaneWidth(targetWidth);
+        WorkspacePanelBorder.Opacity = targetOpacity;
+        WorkspacePanelBorder.IsVisible = shouldRemainVisible;
+        WorkspaceResizeHandle.IsVisible = shouldRemainVisible;
     }
 
     private MarkdownSyntaxEditorView? GetActiveEditor()

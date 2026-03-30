@@ -237,16 +237,22 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
 
         var directories = directory
             .EnumerateDirectories()
+            .Where(child => !IsHidden(child))
             .OrderBy(child => child.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(child => new WorkspaceNodeInfo
+            .Select(child =>
             {
-                FullPath = child.FullName,
-                IsDirectory = true,
-                Children = BuildChildren(child, cancellationToken)
+                var children = BuildChildren(child, cancellationToken);
+                return new WorkspaceNodeInfo
+                {
+                    FullPath = child.FullName,
+                    IsDirectory = true,
+                    Children = children
+                };
             });
 
         var files = directory
             .EnumerateFiles()
+            .Where(file => !IsHidden(file))
             .Where(file => AllowedExtensions.Contains(file.Extension, StringComparer.OrdinalIgnoreCase))
             .OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase)
             .Select(file => new WorkspaceNodeInfo
@@ -257,6 +263,17 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
             });
 
         return directories.Concat(files).ToList();
+    }
+
+    private static bool IsHidden(FileSystemInfo fileSystemInfo)
+    {
+        if (fileSystemInfo.Name.StartsWith(".", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var attributes = fileSystemInfo.Attributes;
+        return attributes.HasFlag(FileAttributes.Hidden) || attributes.HasFlag(FileAttributes.System);
     }
 
 #if MACCATALYST

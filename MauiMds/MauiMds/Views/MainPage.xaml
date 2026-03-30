@@ -9,38 +9,72 @@
              BackgroundColor="{AppThemeBinding Light=#E7E4DE, Dark=#232321}">
     <Grid>
         <Grid Padding="28"
-              ColumnDefinitions="Auto,*">
-            <Border Grid.Column="0"
-                    WidthRequest="{Binding WorkspacePanelWidth}"
-                    IsVisible="{Binding IsWorkspacePanelVisible}"
-                    Margin="0,0,18,0"
-                    BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2A2B2D}"
-                    Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#45474B}"
-                    StrokeThickness="1"
-                    Padding="12"
-                    StrokeShape="RoundRectangle 18">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto,*"
-                      RowSpacing="10">
+              ColumnDefinitions="Auto,Auto,*">
+            <Grid x:Name="WorkspacePaneHost"
+                  Grid.Column="0"
+                  WidthRequest="260"
+                  Margin="0,0,12,0"
+                  ColumnDefinitions="*,10">
+                <Border x:Name="WorkspacePanelBorder"
+                        Grid.Column="0"
+                        BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2A2B2D}"
+                        Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#45474B}"
+                        StrokeThickness="1"
+                        Padding="12"
+                        StrokeShape="RoundRectangle 18">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*"
+                          RowSpacing="10">
                     <Button Text="Open Folder"
                             Command="{Binding OpenFolderCommand}"
                             Padding="12,10"
                             BackgroundColor="{AppThemeBinding Light=#DDD3BF, Dark=#3F3D39}"
                             TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
 
-                    <Entry Grid.Row="1"
-                           Placeholder="Search workspace"
-                           Text="{Binding WorkspaceSearchText}"
-                           ClearButtonVisibility="WhileEditing"
-                           BackgroundColor="{AppThemeBinding Light=#FBF8F2, Dark=#313234}"
-                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                    <Grid Grid.Row="1"
+                          ColumnDefinitions="Auto,Auto,*"
+                          ColumnSpacing="8">
+                        <Button Text="Up"
+                                Command="{Binding NavigateUpWorkspaceCommand}"
+                                Padding="12,8"
+                                BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
+                                TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                        <Button Grid.Column="1"
+                                Text="Set Workspace"
+                                Command="{Binding SetWorkspaceFolderToCurrentCommand}"
+                                Padding="12,8"
+                                BackgroundColor="{AppThemeBinding Light=#D4DDCF, Dark=#344136}"
+                                TextColor="{AppThemeBinding Light=#182018, Dark=#F0F6EF}" />
+                        <Entry Grid.Column="2"
+                               Placeholder="Search workspace"
+                               Text="{Binding WorkspaceSearchText}"
+                               ClearButtonVisibility="WhileEditing"
+                               BackgroundColor="{AppThemeBinding Light=#FBF8F2, Dark=#313234}"
+                               TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                    </Grid>
 
-                    <Label Grid.Row="2"
-                           Text="{Binding WorkspaceRootPath}"
-                           FontSize="11"
-                           LineBreakMode="HeadTruncation"
-                           TextColor="{AppThemeBinding Light=#5A544C, Dark=#BFB7AC}" />
+                    <VerticalStackLayout Grid.Row="2"
+                                         Spacing="2">
+                        <Label Text="Workspace Folder"
+                               FontSize="10"
+                               TextColor="{AppThemeBinding Light=#7B7469, Dark=#AFA89C}" />
+                        <Label Text="{Binding WorkspaceRootPath}"
+                               FontSize="11"
+                               LineBreakMode="MiddleTruncation"
+                               TextColor="{AppThemeBinding Light=#5A544C, Dark=#BFB7AC}" />
+                    </VerticalStackLayout>
 
-                    <Button Grid.Row="3"
+                    <VerticalStackLayout Grid.Row="3"
+                                         Spacing="2">
+                        <Label Text="Current Folder"
+                               FontSize="10"
+                               TextColor="{AppThemeBinding Light=#7B7469, Dark=#AFA89C}" />
+                        <Label Text="{Binding CurrentWorkspaceFolderDisplay}"
+                               FontSize="11"
+                               LineBreakMode="MiddleTruncation"
+                               TextColor="{AppThemeBinding Light=#3E3A35, Dark=#E1D9CC}" />
+                    </VerticalStackLayout>
+
+                    <Button Grid.Row="4"
                             Text="Create MDS"
                             Command="{Binding CreateMdsCommand}"
                             Padding="12,10"
@@ -48,7 +82,7 @@
                             TextColor="{AppThemeBinding Light=#152016, Dark=#EFF7EE}" />
 
                     <CollectionView x:Name="WorkspaceCollectionView"
-                                    Grid.Row="4"
+                                    Grid.Row="5"
                                     ItemsSource="{Binding WorkspaceItems}"
                                     SelectionMode="None"
                                     VerticalOptions="Fill">
@@ -76,43 +110,45 @@
                                         </DataTrigger>
                                     </Border.Triggers>
 
-                                    <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto"
+                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto"
                                           ColumnSpacing="6">
-                                        <BoxView WidthRequest="{Binding IndentWidth}"
-                                                 Opacity="0" />
+                                        <controls:WorkspaceItemIconView Grid.Column="0"
+                                                                        Kind="{Binding ItemIconKind}"
+                                                                        VerticalOptions="Center" />
 
-                                        <Button Grid.Column="1"
-                                                Text="{Binding ExpandGlyph}"
-                                                Command="{Binding Source={x:Reference RootPage}, Path=BindingContext.ToggleWorkspaceItemExpansionCommand}"
-                                                CommandParameter="{Binding .}"
-                                                WidthRequest="22"
-                                                HeightRequest="22"
-                                                Padding="0"
-                                                FontSize="11"
-                                                IsVisible="{Binding IsDirectory}"
-                                                BackgroundColor="Transparent"
-                                                TextColor="{AppThemeBinding Light=#615A51, Dark=#D7D0C5}" />
+                                        <Grid Grid.Column="1">
+                                            <VerticalStackLayout Spacing="1">
+                                                <Label Text="{Binding Name}"
+                                                       FontSize="12"
+                                                       LineBreakMode="MiddleTruncation"
+                                                       MaxLines="1"
+                                                       VerticalTextAlignment="Center"
+                                                       TextColor="{AppThemeBinding Light=#1B1A18, Dark=#F3EDE2}">
+                                                    <Label.Triggers>
+                                                        <DataTrigger TargetType="Label"
+                                                                     Binding="{Binding IsRenaming}"
+                                                                     Value="True">
+                                                            <Setter Property="IsVisible"
+                                                                    Value="False" />
+                                                        </DataTrigger>
+                                                    </Label.Triggers>
+                                                </Label>
 
-                                        <Label Grid.Column="2"
-                                               Text="{Binding ItemGlyph}"
-                                               FontSize="9"
-                                               VerticalTextAlignment="Center"
-                                               TextColor="{AppThemeBinding Light=#7C756A, Dark=#AFA79B}" />
-
-                                        <Grid Grid.Column="3">
-                                            <Label Text="{Binding Name}"
-                                                   FontSize="12"
-                                                   VerticalTextAlignment="Center"
-                                                   TextColor="{AppThemeBinding Light=#1B1A18, Dark=#F3EDE2}">
-                                                <Label.Triggers>
-                                                    <DataTrigger TargetType="Label"
-                                                                 Binding="{Binding IsRenaming}"
-                                                                 Value="True">
-                                                        <Setter Property="IsVisible"
-                                                                Value="False" />
-                                                    </DataTrigger>
-                                                </Label.Triggers>
-                                            </Label>
+                                                <Label Text="{Binding SecondaryText}"
+                                                       FontSize="10"
+                                                       LineBreakMode="TailTruncation"
+                                                       MaxLines="1"
+                                                       TextColor="{AppThemeBinding Light=#736C61, Dark=#AEA79C}">
+                                                    <Label.Triggers>
+                                                        <DataTrigger TargetType="Label"
+                                                                     Binding="{Binding IsRenaming}"
+                                                                     Value="True">
+                                                            <Setter Property="IsVisible"
+                                                                    Value="False" />
+                                                        </DataTrigger>
+                                                    </Label.Triggers>
+                                                </Label>
+                                            </VerticalStackLayout>
 
                                             <Entry Text="{Binding RenameText}"
                                                    FontSize="12"
@@ -132,7 +168,15 @@
                                             </Entry>
                                         </Grid>
 
-                                        <Button Grid.Column="4"
+                                        <Label Grid.Column="2"
+                                               Text="›"
+                                               FontSize="16"
+                                               VerticalTextAlignment="Center"
+                                               HorizontalTextAlignment="Center"
+                                               IsVisible="{Binding IsDirectory}"
+                                               TextColor="{AppThemeBinding Light=#7A7267, Dark=#BEB6AA}" />
+
+                                        <Button Grid.Column="3"
                                                 Text="R"
                                                 WidthRequest="22"
                                                 HeightRequest="22"
@@ -148,15 +192,67 @@
                                     <Border.GestureRecognizers>
                                         <TapGestureRecognizer Command="{Binding Source={x:Reference RootPage}, Path=BindingContext.SelectWorkspaceItemCommand}"
                                                               CommandParameter="{Binding .}" />
+                                        <TapGestureRecognizer NumberOfTapsRequired="2"
+                                                              Command="{Binding Source={x:Reference RootPage}, Path=BindingContext.NavigateWorkspaceItemCommand}"
+                                                              CommandParameter="{Binding .}" />
                                     </Border.GestureRecognizers>
                                 </Border>
                             </DataTemplate>
                         </CollectionView.ItemTemplate>
                     </CollectionView>
+                    </Grid>
+                </Border>
+
+                <Grid x:Name="WorkspaceResizeHandle"
+                      Grid.Column="1"
+                      WidthRequest="12"
+                      Margin="0,12,0,12"
+                      VerticalOptions="Fill">
+                    <Border Padding="0"
+                            BackgroundColor="{AppThemeBinding Light=#E6DCCB, Dark=#37393D}"
+                            StrokeThickness="0"
+                            StrokeShape="RoundRectangle 8">
+                        <VerticalStackLayout Spacing="6"
+                                             VerticalOptions="Center"
+                                             HorizontalOptions="Center">
+                            <BoxView WidthRequest="3" HeightRequest="20" Color="{AppThemeBinding Light=#BDAF97, Dark=#6F7379}" />
+                            <BoxView WidthRequest="3" HeightRequest="20" Color="{AppThemeBinding Light=#BDAF97, Dark=#6F7379}" />
+                        </VerticalStackLayout>
+                    </Border>
+                    <Grid.GestureRecognizers>
+                        <PanGestureRecognizer PanUpdated="OnWorkspaceResizePanUpdated" />
+                    </Grid.GestureRecognizers>
                 </Grid>
+            </Grid>
+
+            <Border Grid.Column="1"
+                    x:Name="WorkspaceRail"
+                    WidthRequest="28"
+                    Padding="6,12"
+                    Margin="0,0,12,0"
+                    VerticalOptions="Fill"
+                    BackgroundColor="{AppThemeBinding Light=#DDD3BF, Dark=#343331}"
+                    Stroke="{AppThemeBinding Light=#CBBEAA, Dark=#4C4F53}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 14">
+                <VerticalStackLayout Spacing="8"
+                                     VerticalOptions="Center"
+                                     HorizontalOptions="Center">
+                    <Label Text="◂"
+                           HorizontalTextAlignment="Center"
+                           TextColor="{AppThemeBinding Light=#4D463E, Dark=#E7DED2}" />
+                    <Label Text="Explorer"
+                           Rotation="-90"
+                           FontSize="11"
+                           HorizontalTextAlignment="Center"
+                           TextColor="{AppThemeBinding Light=#4D463E, Dark=#E7DED2}" />
+                </VerticalStackLayout>
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnWorkspaceRailTapped" />
+                </Border.GestureRecognizers>
             </Border>
 
-            <Grid Grid.Column="1"
+            <Grid Grid.Column="2"
                   RowDefinitions="Auto,Auto,*">
                 <Border Grid.Row="0"
                         BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2D2C2A}"

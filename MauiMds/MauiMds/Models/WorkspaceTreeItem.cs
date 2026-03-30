@@ -30,7 +30,12 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
     public bool HasChildren => Children.Count > 0;
     public bool CanRename => !IsDirectory;
     public string ExpandGlyph => IsExpanded ? "▾" : "▸";
-    public string ItemGlyph => IsDirectory ? "DIR" : "MD";
+    public string SecondaryText => IsDirectory ? "Folder" : Path.GetDirectoryName(FullPath) ?? string.Empty;
+    public WorkspaceItemIconKind ItemIconKind => IsDirectory
+        ? WorkspaceItemIconKind.Folder
+        : string.Equals(Path.GetExtension(FullPath), ".mds", StringComparison.OrdinalIgnoreCase)
+            ? WorkspaceItemIconKind.MarkdownSharp
+            : WorkspaceItemIconKind.Markdown;
 
     public string FullPath
     {
@@ -45,6 +50,7 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
             _fullPath = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(Name));
+            OnPropertyChanged(nameof(SecondaryText));
         }
     }
 
