@@ -6,7 +6,6 @@ namespace MauiMds.Markdown;
 
 public sealed class MarkdownView : ContentView
 {
-    private const int InitialRenderBatchSize = 6;
     private const int IncrementalRenderBatchSize = 4;
 
     public static readonly BindableProperty BlocksProperty = BindableProperty.Create(
@@ -29,6 +28,13 @@ public sealed class MarkdownView : ContentView
         typeof(MarkdownView),
         true,
         propertyChanged: OnIsRenderingEnabledChanged);
+
+    public static readonly BindableProperty InitialRenderLineCountProperty = BindableProperty.Create(
+        nameof(InitialRenderLineCount),
+        typeof(int),
+        typeof(MarkdownView),
+        20,
+        propertyChanged: OnInitialRenderLineCountChanged);
 
     private readonly VerticalStackLayout _contentStack;
     private readonly MarkdownRenderer _renderer;
@@ -86,6 +92,12 @@ public sealed class MarkdownView : ContentView
         set => SetValue(IsRenderingEnabledProperty, value);
     }
 
+    public int InitialRenderLineCount
+    {
+        get => (int)GetValue(InitialRenderLineCountProperty);
+        set => SetValue(InitialRenderLineCountProperty, value);
+    }
+
     private static void OnBlocksChanged(BindableObject bindable, object? oldValue, object? newValue)
     {
         var view = (MarkdownView)bindable;
@@ -119,6 +131,11 @@ public sealed class MarkdownView : ContentView
             "MarkdownView rendering disabled. BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
             view.Blocks?.Count ?? 0,
             view.SourceFilePath);
+    }
+
+    private static void OnInitialRenderLineCountChanged(BindableObject bindable, object? oldValue, object? newValue)
+    {
+        ((MarkdownView)bindable).RequestRender("initial render line count changed");
     }
 
     private void RequestRender(string reason)
@@ -183,7 +200,7 @@ public sealed class MarkdownView : ContentView
             InlineFormatter = _inlineFormatter
         };
 
-        var initialBatchEnd = Math.Min(Blocks.Count, InitialRenderBatchSize);
+        var initialBatchEnd = CalculateInitialBatchEnd(Blocks, Math.Max(5, InitialRenderLineCount));
         RenderRange(0, initialBatchEnd, context);
         _contentStack.InvalidateMeasure();
         InvalidateMeasure();
@@ -246,6 +263,56 @@ public sealed class MarkdownView : ContentView
                 _contentStack.Children.Add(CreateFallbackBlockView(block, index));
             }
         }
+    }
+
+    private static int CalculateInitialBatchEnd(IReadOnlyList<MarkdownBlock> blocks, int targetLineCount)
+    {
+        if (blocks.Count == 0)
+        {
+            return 0;
+        }
+
+        var lineCount = 0;
+        for (var index = 0; index < blocks.Count; index++)
+        {
+            lineCount += EstimateBlockLineCount(blocks[index]);
+            if (lineCount >= targetLineCount)
+            {
+                return index + 1;
+            }
+        }
+
+        return blocks.Count;
+    }
+
+    private static int EstimateBlockLineCount(MarkdownBlock block)
+    {
+        return block.Type switch
+        {
+            BlockType.Table => Math.Max(2, 1 + block.TableRows.Count),
+            BlockType.HorizontalRule => 1,
+            BlockType.Image => 1,
+            _ => CountLines(block.Content)
+        };
+    }
+
+    private static int CountLines(string? content)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return 1;
+        }
+
+        var lines = 1;
+        foreach (var character in content)
+        {
+            if (character == '\n')
+            {
+                lines++;
+            }
+        }
+
+        return lines;
     }
 
     private void CompleteRender(Stopwatch stopwatch)

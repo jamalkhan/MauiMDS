@@ -47,6 +47,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _workspaceSearchText = string.Empty;
     private string _preferencesAutoSaveDelaySecondsText = "30";
     private string _preferencesMaxLogFileSizeMbText = "2";
+    private string _preferencesInitialViewerRenderLineCountText = "20";
     private bool _preferencesAutoSaveEnabled = true;
     private WorkspaceTreeItem? _selectedWorkspaceItem;
     private WorkspaceTreeItem? _pendingRenameItem;
@@ -76,6 +77,7 @@ public class MainViewModel : INotifyPropertyChanged
         _preferencesAutoSaveEnabled = _preferences.AutoSaveEnabled;
         _preferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
         _preferencesMaxLogFileSizeMbText = _preferences.MaxLogFileSizeMb.ToString();
+        _preferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
 
         _documentWatchService.DocumentChanged += OnWatchedDocumentChanged;
 
@@ -402,6 +404,23 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public string PreferencesInitialViewerRenderLineCountText
+    {
+        get => _preferencesInitialViewerRenderLineCountText;
+        set
+        {
+            if (_preferencesInitialViewerRenderLineCountText == value)
+            {
+                return;
+            }
+
+            _preferencesInitialViewerRenderLineCountText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int InitialViewerRenderLineCount => Math.Max(5, _preferences.InitialViewerRenderLineCount);
+
     public async Task InitializeAsync()
     {
         if (_isInitialized)
@@ -594,6 +613,7 @@ public class MainViewModel : INotifyPropertyChanged
         PreferencesAutoSaveEnabled = _preferences.AutoSaveEnabled;
         PreferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
         PreferencesMaxLogFileSizeMbText = _preferences.MaxLogFileSizeMb.ToString();
+        PreferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
         IsPreferencesVisible = true;
     }
 
@@ -611,15 +631,23 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        if (!int.TryParse(PreferencesInitialViewerRenderLineCountText, out var initialViewerRenderLineCount) || initialViewerRenderLineCount < 5)
+        {
+            await ReportErrorAsync("Invalid viewer render preference.", null, "Initial viewer render lines must be at least 5.");
+            return;
+        }
+
         _preferences = new EditorPreferences
         {
             AutoSaveEnabled = PreferencesAutoSaveEnabled,
             AutoSaveDelaySeconds = delaySeconds,
-            MaxLogFileSizeMb = maxLogFileSizeMb
+            MaxLogFileSizeMb = maxLogFileSizeMb,
+            InitialViewerRenderLineCount = initialViewerRenderLineCount
         };
 
         _preferencesService.Save(_preferences);
         IsPreferencesVisible = false;
+        OnPropertyChanged(nameof(InitialViewerRenderLineCount));
         OnPropertyChanged(nameof(StatusText));
         ScheduleAutoSave();
         PersistSessionState();
@@ -1311,7 +1339,7 @@ public class MainViewModel : INotifyPropertyChanged
             var hasWorkspaceAccess = !string.IsNullOrWhiteSpace(restoredWorkspacePath) && Directory.Exists(restoredWorkspacePath);
             if (hasWorkspaceAccess)
             {
-                await TryRestoreWorkspaceAsync(restoredWorkspacePath);
+                WorkspaceRootPath = restoredWorkspacePath!;
             }
 
             var documentRestore = await TryRestoreSessionDocumentAsync(hasWorkspaceAccess);
@@ -1335,6 +1363,11 @@ public class MainViewModel : INotifyPropertyChanged
             }
 
             SelectedViewMode = _sessionState.LastViewMode;
+            if (hasWorkspaceAccess)
+            {
+                StartDeferredWorkspaceRestore(restoredWorkspacePath!, documentRestore.Document?.FilePath ?? _sessionState.DocumentFilePath);
+            }
+
             if (documentRestore.Document is not null || string.IsNullOrWhiteSpace(_sessionState.DocumentFilePath))
             {
                 PersistSessionState();
@@ -1446,6 +1479,47 @@ public class MainViewModel : INotifyPropertyChanged
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Skipping workspace restore because access was denied. WorkspaceRootPath: {WorkspaceRootPath}, ElapsedMs: {ElapsedMs}",
+                workspaceRootPath,
+                stopwatch.ElapsedMilliseconds);
+
+            WorkspaceRootPath = string.Empty;
+            _workspaceRootItems.Clear();
+            WorkspaceItems.Clear();
+        }
+    }
+
+    private void StartDeferredWorkspaceRestore(string workspaceRootPath, string? selectedPath)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(200);
+                await TryRestoreWorkspaceAsync(workspaceRootPath, selectedPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Deferred workspace restore failed. WorkspaceRootPath: {WorkspaceRootPath}", workspaceRootPath);
+            }
+        });
+    }
+
+    private async Task TryRestoreWorkspaceAsync(string workspaceRootPath, string? selectedPath)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            _ = Directory.EnumerateFileSystemEntries(workspaceRootPath).Take(1).Any();
+            await LoadWorkspaceAsync(workspaceRootPath, selectedPath: selectedPath, persistSessionState: false);
+            _logger.LogInformation("Deferred workspace restore completed. WorkspaceRootPath: {WorkspaceRootPath}, SelectedPath: {SelectedPath}, ElapsedMs: {ElapsedMs}",
+                workspaceRootPath,
+                selectedPath,
+                stopwatch.ElapsedMilliseconds);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Skipping deferred workspace restore because access was denied. WorkspaceRootPath: {WorkspaceRootPath}, ElapsedMs: {ElapsedMs}",
                 workspaceRootPath,
                 stopwatch.ElapsedMilliseconds);
 

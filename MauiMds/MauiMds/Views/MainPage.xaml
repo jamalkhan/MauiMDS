@@ -321,7 +321,7 @@
                         Margin="0,0,0,12"
                         IsVisible="{Binding IsPreferencesVisible}">
                     <Grid ColumnDefinitions="*,Auto"
-                          RowDefinitions="Auto,Auto,Auto,Auto"
+                          RowDefinitions="Auto,Auto,Auto,Auto,Auto"
                           ColumnSpacing="12"
                           RowSpacing="12">
                         <Label Text="Preferences"
@@ -358,6 +358,20 @@
                         </HorizontalStackLayout>
 
                         <HorizontalStackLayout Grid.Row="3"
+                                               Spacing="12">
+                            <Label Text="Initial Viewer Lines"
+                                   VerticalTextAlignment="Center"
+                                   TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                            <Entry WidthRequest="90"
+                                   Keyboard="Numeric"
+                                   Text="{Binding PreferencesInitialViewerRenderLineCountText}" />
+                            <Label Text="Default is 20"
+                                   VerticalTextAlignment="Center"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                        </HorizontalStackLayout>
+
+                        <HorizontalStackLayout Grid.Row="4"
                                                Grid.ColumnSpan="2"
                                                Spacing="10">
                             <Button Text="Save Preferences"
@@ -378,6 +392,7 @@
                         <markdown:MarkdownView x:Name="MarkdownViewer"
                                                IsVisible="{Binding IsViewerMode}"
                                                IsRenderingEnabled="{Binding IsViewerMode}"
+                                               InitialRenderLineCount="{Binding InitialViewerRenderLineCount}"
                                                Blocks="{Binding ParsedBlocks}"
                                                SourceFilePath="{Binding FilePath}" />
 
