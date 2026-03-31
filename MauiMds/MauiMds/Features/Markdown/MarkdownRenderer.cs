@@ -25,6 +25,11 @@ public sealed class MarkdownRenderer
 
     public View? RenderBlock(MarkdownBlock block, MarkdownRenderContext context)
     {
+        if (context.RenderMode == MarkdownRenderMode.Simplified)
+        {
+            return MarkdownViewFactory.CreateSimplifiedBlockView(block);
+        }
+
         var renderer = _renderers.FirstOrDefault(candidate => candidate.CanRender(block.Type));
         return renderer?.Render(block, context);
     }

@@ -18,60 +18,23 @@ public sealed class TableBlockRenderer : IMarkdownBlockRenderer
             return MarkdownViewFactory.CreateRichTextLabel(block.Content, 18, FontAttributes.None, new Thickness(0, 0, 0, 8), context.InlineFormatter);
         }
 
-        var grid = new Grid
+        var tableText = BuildTableText(block, columnCount);
+        var label = new Label
         {
-            ColumnSpacing = 0,
-            RowSpacing = 0
+            Text = tableText,
+            FontFamily = "Courier New",
+            FontSize = 13,
+            LineBreakMode = LineBreakMode.NoWrap,
+            Margin = new Thickness(0),
+            Padding = new Thickness(0)
         };
-
-        for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
-        {
-            grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
-        }
-
-        grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        for (var rowIndex = 0; rowIndex < block.TableRows.Count; rowIndex++)
-        {
-            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-        }
-
-        for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
-        {
-            var headerCell = CreateTableCell(
-                columnIndex < block.TableHeaders.Count ? block.TableHeaders[columnIndex] : string.Empty,
-                columnIndex < block.TableAlignments.Count ? block.TableAlignments[columnIndex] : MarkdownAlignment.Left,
-                true,
-                columnIndex == columnCount - 1,
-                block.TableRows.Count == 0,
-                context);
-            grid.Children.Add(headerCell);
-            Grid.SetColumn(headerCell, columnIndex);
-            Grid.SetRow(headerCell, 0);
-        }
-
-        for (var rowIndex = 0; rowIndex < block.TableRows.Count; rowIndex++)
-        {
-            var row = block.TableRows[rowIndex];
-            for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
-            {
-                var dataCell = CreateTableCell(
-                    columnIndex < row.Count ? row[columnIndex] : string.Empty,
-                    columnIndex < block.TableAlignments.Count ? block.TableAlignments[columnIndex] : MarkdownAlignment.Left,
-                    false,
-                    columnIndex == columnCount - 1,
-                    rowIndex == block.TableRows.Count - 1,
-                    context);
-                grid.Children.Add(dataCell);
-                Grid.SetColumn(dataCell, columnIndex);
-                Grid.SetRow(dataCell, rowIndex + 1);
-            }
-        }
+        label.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#1E1E1E"), Color.FromArgb("#F5F1E8"));
 
         var tableBorder = new Border
         {
-            Padding = new Thickness(0),
+            Padding = new Thickness(14, 12),
             StrokeThickness = 1,
-            Content = grid,
+            Content = label,
             StrokeShape = new RoundRectangle
             {
                 CornerRadius = new CornerRadius(14)
@@ -88,36 +51,75 @@ public sealed class TableBlockRenderer : IMarkdownBlockRenderer
         };
     }
 
-    private static Border CreateTableCell(string text, MarkdownAlignment alignment, bool isHeader, bool isLastColumn, bool isLastRow, MarkdownRenderContext context)
+    private static string BuildTableText(MarkdownBlock block, int columnCount)
     {
-        var label = MarkdownViewFactory.CreateRichTextLabel(text, isHeader ? 14 : 13, isHeader ? FontAttributes.Bold : FontAttributes.None, new Thickness(0), context.InlineFormatter);
-        label.HorizontalTextAlignment = alignment switch
+        var widths = new int[columnCount];
+
+        for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
         {
-            MarkdownAlignment.Center => TextAlignment.Center,
-            MarkdownAlignment.Right => TextAlignment.End,
-            _ => TextAlignment.Start
-        };
-
-        var border = new Border
-        {
-            Padding = new Thickness(12, 10),
-            Content = label,
-            StrokeShape = new Rectangle(),
-            StrokeThickness = 0
-        };
-
-        border.SetAppThemeColor(VisualElement.BackgroundColorProperty,
-            isHeader ? Color.FromArgb("#EDE4D4") : Color.FromArgb("#F8F3E8"),
-            isHeader ? Color.FromArgb("#35363A") : Color.FromArgb("#2A2B2D"));
-
-        border.Stroke = Brush.Transparent;
-
-        if (!isLastColumn || !isLastRow)
-        {
-            border.StrokeThickness = 1;
-            border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#D8CEBB"), Color.FromArgb("#4A4B50"));
+            widths[columnIndex] = columnIndex < block.TableHeaders.Count ? block.TableHeaders[columnIndex].Length : 0;
         }
 
-        return border;
+        foreach (var row in block.TableRows)
+        {
+            for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
+            {
+                var cell = columnIndex < row.Count ? row[columnIndex] : string.Empty;
+                widths[columnIndex] = Math.Max(widths[columnIndex], cell.Length);
+            }
+        }
+
+        for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
+        {
+            widths[columnIndex] = Math.Min(Math.Max(widths[columnIndex], 6), 32);
+        }
+
+        var lines = new List<string>
+        {
+            BuildTableLine(block.TableHeaders, widths, columnCount),
+            BuildSeparatorLine(block.TableAlignments, widths, columnCount)
+        };
+
+        foreach (var row in block.TableRows)
+        {
+            lines.Add(BuildTableLine(row, widths, columnCount));
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string BuildTableLine(IReadOnlyList<string> cells, IReadOnlyList<int> widths, int columnCount)
+    {
+        var renderedCells = new string[columnCount];
+        for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
+        {
+            var value = columnIndex < cells.Count ? cells[columnIndex] : string.Empty;
+            if (value.Length > widths[columnIndex])
+            {
+                value = value[..Math.Max(0, widths[columnIndex] - 1)] + "…";
+            }
+
+            renderedCells[columnIndex] = value.PadRight(widths[columnIndex]);
+        }
+
+        return $"| {string.Join(" | ", renderedCells)} |";
+    }
+
+    private static string BuildSeparatorLine(IReadOnlyList<MarkdownAlignment> alignments, IReadOnlyList<int> widths, int columnCount)
+    {
+        var segments = new string[columnCount];
+        for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
+        {
+            var width = widths[columnIndex];
+            var alignment = columnIndex < alignments.Count ? alignments[columnIndex] : MarkdownAlignment.Left;
+            segments[columnIndex] = alignment switch
+            {
+                MarkdownAlignment.Center => ":" + new string('-', Math.Max(1, width - 2)) + ":",
+                MarkdownAlignment.Right => new string('-', Math.Max(1, width - 1)) + ":",
+                _ => ":" + new string('-', Math.Max(1, width - 1))
+            };
+        }
+
+        return $"| {string.Join(" | ", segments)} |";
     }
 }

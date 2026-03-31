@@ -58,6 +58,8 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _preferencesAutoSaveEnabled = true;
     private bool _preferencesUse24HourTime;
     private bool _isViewerLoading;
+    private string _viewerLoadingPreviewText = string.Empty;
+    private DateTimeOffset? _lastParsedBlocksAssignedUtc;
     private string? _pendingDocumentFilePath;
     private string? _pendingDocumentFileName;
     private CancellationTokenSource? _parseCancellationSource;
@@ -140,6 +142,12 @@ public class MainViewModel : INotifyPropertyChanged
             }
 
             _parsedBlocks = value;
+            _lastParsedBlocksAssignedUtc = DateTimeOffset.UtcNow;
+            _logger.LogDebug(
+                "ParsedBlocks assigned. BlockCount: {BlockCount}, FilePath: {FilePath}, AssignedUtc: {AssignedUtc:O}",
+                value.Count,
+                _document.FilePath,
+                _lastParsedBlocksAssignedUtc);
             OnPropertyChanged();
         }
     }
@@ -279,6 +287,21 @@ public class MainViewModel : INotifyPropertyChanged
     public bool IsDirty => _document.IsDirty;
     public bool IsUntitled => _pendingDocumentFilePath is null && _document.IsUntitled;
     public string StatusText => BuildStatusText();
+
+    public string ViewerLoadingPreviewText
+    {
+        get => _viewerLoadingPreviewText;
+        private set
+        {
+            if (_viewerLoadingPreviewText == value)
+            {
+                return;
+            }
+
+            _viewerLoadingPreviewText = value;
+            OnPropertyChanged();
+        }
+    }
 
     public bool IsWorkspacePanelVisible
     {
@@ -896,6 +919,7 @@ public class MainViewModel : INotifyPropertyChanged
 
                 EditorText = _document.Content;
                 InlineErrorMessage = string.Empty;
+                ViewerLoadingPreviewText = BuildViewerLoadingPreview(document.Content);
                 if (previousIsDirty != _document.IsDirty)
                 {
                     OnPropertyChanged(nameof(IsDirty));
@@ -985,7 +1009,8 @@ public class MainViewModel : INotifyPropertyChanged
         var token = ResetParseCancellationToken();
         var snapshot = CreateCurrentDocumentSnapshot(_document.Content);
         var previewGeneration = Interlocked.Increment(ref _previewGeneration);
-        IsViewerLoading = IsViewerMode;
+            IsViewerLoading = IsViewerMode;
+            ViewerLoadingPreviewText = BuildViewerLoadingPreview(snapshot.Content);
 
         _ = Task.Run(async () =>
         {
@@ -1222,6 +1247,7 @@ public class MainViewModel : INotifyPropertyChanged
                     ParsedBlocks = preparedPreview.Blocks;
                     InlineErrorMessage = preparedPreview.InlineErrorMessage ?? string.Empty;
                     IsViewerLoading = false;
+                    ViewerLoadingPreviewText = string.Empty;
                     DocumentApplied?.Invoke(this, snapshot);
                 });
 
@@ -1251,6 +1277,40 @@ public class MainViewModel : INotifyPropertyChanged
                 _logger.LogWarning(ex, "Persisting session state asynchronously failed.");
             }
         });
+    }
+
+    private static string BuildViewerLoadingPreview(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return "Preparing markdown preview...";
+        }
+
+        const int maxLines = 28;
+        const int maxCharacters = 2200;
+
+        var normalized = content.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        if (normalized.Length > maxCharacters)
+        {
+            normalized = normalized[..maxCharacters];
+        }
+
+        var lines = normalized.Split('\n');
+        if (lines.Length > maxLines)
+        {
+            normalized = string.Join(Environment.NewLine, lines.Take(maxLines));
+        }
+        else
+        {
+            normalized = normalized.Replace("\n", Environment.NewLine, StringComparison.Ordinal);
+        }
+
+        if (content.Length > normalized.Length)
+        {
+            normalized = normalized.TrimEnd() + Environment.NewLine + Environment.NewLine + "...";
+        }
+
+        return normalized;
     }
 
     private static string BuildSaveFailureMessage(Exception exception)

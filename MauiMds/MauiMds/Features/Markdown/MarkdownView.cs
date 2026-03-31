@@ -7,7 +7,11 @@ namespace MauiMds.Features.Markdown;
 public sealed class MarkdownView : ContentView
 {
     private const int IncrementalRenderBatchLineBudget = 10;
+    private const int IncrementalRenderBatchMaxBlocks = 5;
+    private const int IncrementalRenderBatchWeightBudget = 14;
     private const int MinimumInitialRenderLineCount = 12;
+    private const int MinimumInitialRenderBlockCount = 6;
+    private const int MinimumInitialRenderWeightBudget = 18;
     private const int MinimumEstimatedViewportLines = 16;
     private static readonly TimeSpan IncrementalRenderBatchDelay = TimeSpan.FromMilliseconds(12);
 
@@ -40,13 +44,18 @@ public sealed class MarkdownView : ContentView
         propertyChanged: OnInitialRenderLineCountChanged);
 
     private readonly VerticalStackLayout _contentStack;
+    private readonly ScrollView _scrollView;
     private readonly MarkdownRenderer _renderer;
     private readonly MarkdownInlineFormatter _inlineFormatter;
     private ILogger<MarkdownView>? _logger;
     private CancellationTokenSource? _renderCancellationSource;
+    private CancellationTokenSource? _upgradeCancellationSource;
     private bool _hasPendingRender;
     private int _renderVersion;
     private int _requestedRenderVersion;
+    private DateTimeOffset? _lastBlocksChangedUtc;
+    private DateTimeOffset? _lastRenderQueuedUtc;
+    private readonly List<RenderSlot> _renderSlots = [];
 
     public MarkdownView()
     {
@@ -70,12 +79,16 @@ public sealed class MarkdownView : ContentView
             Spacing = 12
         };
 
-        Content = new ScrollView
+        _scrollView = new ScrollView
         {
             Content = _contentStack
         };
+        _scrollView.Scrolled += OnScrollViewScrolled;
+
+        Content = _scrollView;
 
         HandlerChanged += OnHandlerChanged;
+        SizeChanged += OnMarkdownViewSizeChanged;
     }
 
     public IReadOnlyList<MarkdownBlock>? Blocks
@@ -105,6 +118,12 @@ public sealed class MarkdownView : ContentView
     private static void OnBlocksChanged(BindableObject bindable, object? oldValue, object? newValue)
     {
         var view = (MarkdownView)bindable;
+        view._lastBlocksChangedUtc = DateTimeOffset.UtcNow;
+        view._logger?.LogDebug(
+            "MarkdownView Blocks changed. NewBlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}, ChangedUtc: {ChangedUtc:O}",
+            view.Blocks?.Count ?? 0,
+            view.SourceFilePath,
+            view._lastBlocksChangedUtc);
 
         view.RequestRender("blocks property changed");
     }
@@ -149,22 +168,29 @@ public sealed class MarkdownView : ContentView
     private void RequestRender(string reason)
     {
         var requestVersion = Interlocked.Increment(ref _requestedRenderVersion);
+        _lastRenderQueuedUtc = DateTimeOffset.UtcNow;
+        var blocksChangedToQueueMs = _lastBlocksChangedUtc.HasValue
+            ? (_lastRenderQueuedUtc.Value - _lastBlocksChangedUtc.Value).TotalMilliseconds
+            : (double?)null;
 
         if (!IsRenderingEnabled)
         {
             _hasPendingRender = true;
             _logger?.LogInformation(
-                "MarkdownView render deferred. Reason: {Reason}, RequestVersion: {RequestVersion}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+                "MarkdownView render deferred. Reason: {Reason}, RequestVersion: {RequestVersion}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}, BlocksChangedToQueueMs: {BlocksChangedToQueueMs}",
                 reason,
                 requestVersion,
                 Blocks?.Count ?? 0,
-                SourceFilePath);
+                SourceFilePath,
+                blocksChangedToQueueMs);
             return;
         }
 
         _hasPendingRender = false;
         _renderCancellationSource?.Cancel();
         _renderCancellationSource?.Dispose();
+        _upgradeCancellationSource?.Cancel();
+        _upgradeCancellationSource?.Dispose();
         _renderCancellationSource = new CancellationTokenSource();
         var token = _renderCancellationSource.Token;
 
@@ -184,6 +210,14 @@ public sealed class MarkdownView : ContentView
 
     private async Task RenderMarkdownCoreAsync(CancellationToken cancellationToken, int requestVersion)
     {
+        var mainThreadRenderStartUtc = DateTimeOffset.UtcNow;
+        var queuedToMainThreadMs = _lastRenderQueuedUtc.HasValue
+            ? (mainThreadRenderStartUtc - _lastRenderQueuedUtc.Value).TotalMilliseconds
+            : (double?)null;
+        var blocksChangedToMainThreadMs = _lastBlocksChangedUtc.HasValue
+            ? (mainThreadRenderStartUtc - _lastBlocksChangedUtc.Value).TotalMilliseconds
+            : (double?)null;
+
         if (requestVersion != _requestedRenderVersion)
         {
             _logger?.LogInformation(
@@ -197,10 +231,12 @@ public sealed class MarkdownView : ContentView
         var stopwatch = Stopwatch.StartNew();
         var renderVersion = Interlocked.Increment(ref _renderVersion);
         _logger?.LogInformation(
-            "MarkdownView rendering started. RequestVersion: {RequestVersion}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+            "MarkdownView rendering started. RequestVersion: {RequestVersion}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}, QueuedToMainThreadMs: {QueuedToMainThreadMs}, BlocksChangedToMainThreadMs: {BlocksChangedToMainThreadMs}",
             requestVersion,
             Blocks?.Count ?? 0,
-            SourceFilePath);
+            SourceFilePath,
+            queuedToMainThreadMs,
+            blocksChangedToMainThreadMs);
 
         if (Blocks is null)
         {
@@ -225,28 +261,40 @@ public sealed class MarkdownView : ContentView
         }
 
         _contentStack.Children.Clear();
+        _renderSlots.Clear();
 
         var blocks = Blocks;
-        var context = new MarkdownRenderContext
+        var fullContext = new MarkdownRenderContext
         {
             SourceFilePath = SourceFilePath,
-            InlineFormatter = _inlineFormatter
+            InlineFormatter = _inlineFormatter,
+            RenderMode = MarkdownRenderMode.Full
+        };
+        var simplifiedContext = new MarkdownRenderContext
+        {
+            SourceFilePath = SourceFilePath,
+            InlineFormatter = _inlineFormatter,
+            RenderMode = MarkdownRenderMode.Simplified
         };
 
         var initialBatchEnd = CalculateBatchEnd(
             blocks,
             0,
-            CalculateInitialRenderTargetLineCount());
+            CalculateInitialRenderTargetLineCount(),
+            CalculateInitialRenderTargetBlockCount(),
+            CalculateInitialRenderTargetWeightBudget());
 
         _logger?.LogDebug(
-            "MarkdownView initial render batch prepared. RequestVersion: {RequestVersion}, InitialBatchBlockCount: {InitialBatchBlockCount}, TotalBlockCount: {TotalBlockCount}, InitialTargetLines: {InitialTargetLines}, SourceFilePath: {SourceFilePath}",
+            "MarkdownView initial render batch prepared. RequestVersion: {RequestVersion}, InitialBatchBlockCount: {InitialBatchBlockCount}, TotalBlockCount: {TotalBlockCount}, InitialTargetLines: {InitialTargetLines}, InitialTargetBlocks: {InitialTargetBlocks}, InitialTargetWeight: {InitialTargetWeight}, SourceFilePath: {SourceFilePath}",
             requestVersion,
             initialBatchEnd,
             blocks.Count,
             CalculateInitialRenderTargetLineCount(),
+            CalculateInitialRenderTargetBlockCount(),
+            CalculateInitialRenderTargetWeightBudget(),
             SourceFilePath);
 
-        RenderRange(blocks, 0, initialBatchEnd, context);
+        RenderRange(blocks, 0, initialBatchEnd, fullContext, preferSimplified: false);
         _contentStack.InvalidateMeasure();
         InvalidateMeasure();
 
@@ -255,7 +303,7 @@ public sealed class MarkdownView : ContentView
         {
             _ = RenderRemainingBatchesAsync(
                 blocks,
-                context,
+                simplifiedContext,
                 index,
                 renderVersion,
                 requestVersion,
@@ -264,6 +312,7 @@ public sealed class MarkdownView : ContentView
             return;
         }
 
+        ScheduleViewportUpgrades();
         CompleteRender(stopwatch);
     }
 
@@ -284,7 +333,12 @@ public sealed class MarkdownView : ContentView
             await Task.Delay(IncrementalRenderBatchDelay, cancellationToken);
 
             var batchStart = index;
-            var batchEnd = CalculateBatchEnd(blocks, batchStart, IncrementalRenderBatchLineBudget);
+            var batchEnd = CalculateBatchEnd(
+                blocks,
+                batchStart,
+                IncrementalRenderBatchLineBudget,
+                IncrementalRenderBatchMaxBlocks,
+                IncrementalRenderBatchWeightBudget);
             var batchStopwatch = Stopwatch.StartNew();
 
             await MainThread.InvokeOnMainThreadAsync(() =>
@@ -301,17 +355,18 @@ public sealed class MarkdownView : ContentView
                     return;
                 }
 
-                RenderRange(blocks, batchStart, batchEnd, context);
+                RenderRange(blocks, batchStart, batchEnd, context, preferSimplified: true);
                 _contentStack.InvalidateMeasure();
                 InvalidateMeasure();
             });
 
             batchStopwatch.Stop();
             _logger?.LogTrace(
-                "MarkdownView incremental batch rendered. BatchStart: {BatchStart}, BatchEnd: {BatchEnd}, BatchBlockCount: {BatchBlockCount}, ElapsedMs: {ElapsedMs}, SourceFilePath: {SourceFilePath}",
+                "MarkdownView incremental batch rendered. BatchStart: {BatchStart}, BatchEnd: {BatchEnd}, BatchBlockCount: {BatchBlockCount}, BatchWeight: {BatchWeight}, ElapsedMs: {ElapsedMs}, SourceFilePath: {SourceFilePath}",
                 batchStart,
                 batchEnd,
                 batchEnd - batchStart,
+                CalculateBatchWeight(blocks, batchStart, batchEnd),
                 batchStopwatch.ElapsedMilliseconds,
                 SourceFilePath);
 
@@ -323,10 +378,14 @@ public sealed class MarkdownView : ContentView
             index = batchEnd;
         }
 
-        await MainThread.InvokeOnMainThreadAsync(() => CompleteRender(stopwatch));
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            ScheduleViewportUpgrades();
+            CompleteRender(stopwatch);
+        });
     }
 
-    private void RenderRange(IReadOnlyList<MarkdownBlock> blocks, int startIndex, int endIndex, MarkdownRenderContext context)
+    private void RenderRange(IReadOnlyList<MarkdownBlock> blocks, int startIndex, int endIndex, MarkdownRenderContext context, bool preferSimplified)
     {
         var rangeStopwatch = Stopwatch.StartNew();
         for (var index = startIndex; index < endIndex; index++)
@@ -335,11 +394,27 @@ public sealed class MarkdownView : ContentView
 
             try
             {
-                var view = _renderer.RenderBlock(block, context);
-                if (view is not null)
+                var useSimplified = preferSimplified && context.RenderMode == MarkdownRenderMode.Simplified;
+                var renderContext = useSimplified ? context : new MarkdownRenderContext
                 {
-                    _contentStack.Children.Add(view);
+                    SourceFilePath = context.SourceFilePath,
+                    InlineFormatter = context.InlineFormatter,
+                    RenderMode = MarkdownRenderMode.Full
+                };
+
+                var view = _renderer.RenderBlock(block, renderContext);
+                if (view is null)
+                {
+                    continue;
                 }
+
+                var host = new ContentView
+                {
+                    Content = view
+                };
+
+                _renderSlots.Add(new RenderSlot(index, block, host, useSimplified, EstimateBlockVisualHeight(block)));
+                _contentStack.Children.Add(host);
             }
             catch (Exception ex)
             {
@@ -374,7 +449,26 @@ public sealed class MarkdownView : ContentView
         return Math.Max(preferenceTarget, viewportTarget);
     }
 
-    private static int CalculateBatchEnd(IReadOnlyList<MarkdownBlock> blocks, int startIndex, int targetLineCount)
+    private int CalculateInitialRenderTargetBlockCount()
+    {
+        var viewportTarget = Height > 0
+            ? Math.Max(MinimumInitialRenderBlockCount, (int)Math.Ceiling(Height / 72d))
+            : MinimumInitialRenderBlockCount;
+
+        return viewportTarget;
+    }
+
+    private int CalculateInitialRenderTargetWeightBudget()
+    {
+        return Math.Max(MinimumInitialRenderWeightBudget, CalculateInitialRenderTargetBlockCount() * 2);
+    }
+
+    private static int CalculateBatchEnd(
+        IReadOnlyList<MarkdownBlock> blocks,
+        int startIndex,
+        int targetLineCount,
+        int maxBlockCount,
+        int targetWeightBudget)
     {
         if (blocks.Count == 0 || startIndex >= blocks.Count)
         {
@@ -382,10 +476,15 @@ public sealed class MarkdownView : ContentView
         }
 
         var lineCount = 0;
+        var blockCount = 0;
+        var weight = 0;
         for (var index = startIndex; index < blocks.Count; index++)
         {
             lineCount += EstimateBlockLineCount(blocks[index]);
-            if (lineCount >= targetLineCount)
+            blockCount++;
+            weight += EstimateBlockRenderWeight(blocks[index]);
+
+            if (blockCount >= maxBlockCount || lineCount >= targetLineCount || weight >= targetWeightBudget)
             {
                 return index + 1;
             }
@@ -403,6 +502,50 @@ public sealed class MarkdownView : ContentView
             BlockType.Image => 1,
             _ => CountLines(block.Content)
         };
+    }
+
+    private static double EstimateBlockVisualHeight(MarkdownBlock block)
+    {
+        var lines = EstimateBlockLineCount(block);
+        var baseHeight = block.Type switch
+        {
+            BlockType.Header => 44,
+            BlockType.CodeBlock => 84,
+            BlockType.Table => 92,
+            BlockType.Image => 140,
+            BlockType.BlockQuote => 56,
+            _ => 28
+        };
+
+        return baseHeight + (lines * 18);
+    }
+
+    private static int EstimateBlockRenderWeight(MarkdownBlock block)
+    {
+        return block.Type switch
+        {
+            BlockType.Table => 5,
+            BlockType.CodeBlock => 4,
+            BlockType.Image => 4,
+            BlockType.BlockQuote => 3,
+            BlockType.Footnote => 3,
+            BlockType.BulletListItem => 2,
+            BlockType.OrderedListItem => 2,
+            BlockType.TaskListItem => 2,
+            BlockType.Header => 2,
+            _ => 1
+        };
+    }
+
+    private static int CalculateBatchWeight(IReadOnlyList<MarkdownBlock> blocks, int startIndex, int endIndex)
+    {
+        var total = 0;
+        for (var index = startIndex; index < endIndex; index++)
+        {
+            total += EstimateBlockRenderWeight(blocks[index]);
+        }
+
+        return total;
     }
 
     private static int CountLines(string? content)
@@ -431,6 +574,111 @@ public sealed class MarkdownView : ContentView
             _contentStack.Children.Count,
             SourceFilePath,
             stopwatch.ElapsedMilliseconds);
+    }
+
+    private void OnScrollViewScrolled(object? sender, ScrolledEventArgs e)
+    {
+        ScheduleViewportUpgrades();
+    }
+
+    private void OnMarkdownViewSizeChanged(object? sender, EventArgs e)
+    {
+        ScheduleViewportUpgrades();
+    }
+
+    private void ScheduleViewportUpgrades()
+    {
+        if (_renderSlots.Count == 0 || !_renderSlots.Any(slot => slot.IsSimplified))
+        {
+            return;
+        }
+
+        _upgradeCancellationSource?.Cancel();
+        _upgradeCancellationSource?.Dispose();
+        _upgradeCancellationSource = new CancellationTokenSource();
+        var token = _upgradeCancellationSource.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(24, token);
+                token.ThrowIfCancellationRequested();
+                await MainThread.InvokeOnMainThreadAsync(() => UpgradeBlocksNearViewport(token));
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, token);
+    }
+
+    private void UpgradeBlocksNearViewport(CancellationToken cancellationToken)
+    {
+        if (_renderSlots.Count == 0 || cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        var viewportHeight = _scrollView.Height > 0 ? _scrollView.Height : Height;
+        if (viewportHeight <= 0)
+        {
+            viewportHeight = 800;
+        }
+
+        var scrollY = _scrollView.ScrollY;
+        var viewportTop = Math.Max(0, scrollY - Math.Max(240, viewportHeight * 0.35));
+        var viewportBottom = scrollY + viewportHeight + Math.Max(360, viewportHeight * 0.75);
+
+        var upgradeWeightBudget = 12;
+        var upgradedCount = 0;
+        var upgradedWeight = 0;
+        var currentTop = 0d;
+
+        foreach (var slot in _renderSlots)
+        {
+            var blockTop = currentTop;
+            var blockBottom = currentTop + slot.EstimatedHeight;
+            currentTop = blockBottom;
+
+            if (blockBottom < viewportTop || blockTop > viewportBottom || !slot.IsSimplified)
+            {
+                continue;
+            }
+
+            var blockWeight = EstimateBlockRenderWeight(slot.Block);
+            if (upgradedCount > 0 && upgradedWeight + blockWeight > upgradeWeightBudget)
+            {
+                break;
+            }
+
+            slot.Host.Content = _renderer.RenderBlock(slot.Block, new MarkdownRenderContext
+            {
+                SourceFilePath = SourceFilePath,
+                InlineFormatter = _inlineFormatter,
+                RenderMode = MarkdownRenderMode.Full
+            });
+            slot.IsSimplified = false;
+            upgradedCount++;
+            upgradedWeight += blockWeight;
+        }
+
+        if (upgradedCount > 0)
+        {
+            _contentStack.InvalidateMeasure();
+            InvalidateMeasure();
+            _logger?.LogTrace(
+                "MarkdownView upgraded simplified blocks near viewport. UpgradedCount: {UpgradedCount}, UpgradedWeight: {UpgradedWeight}, ScrollY: {ScrollY}, ViewportHeight: {ViewportHeight}, SourceFilePath: {SourceFilePath}",
+                upgradedCount,
+                upgradedWeight,
+                scrollY,
+                viewportHeight,
+                SourceFilePath);
+        }
+
+        if (_renderSlots.Any(slot => slot.IsSimplified))
+        {
+            ScheduleViewportUpgrades();
+        }
     }
 
     private void OnHandlerChanged(object? sender, EventArgs e)
@@ -477,5 +725,23 @@ public sealed class MarkdownView : ContentView
         border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#FBE0DD"), Color.FromArgb("#432524"));
         border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#D27A72"), Color.FromArgb("#B65A54"));
         return border;
+    }
+
+    private sealed class RenderSlot
+    {
+        public RenderSlot(int index, MarkdownBlock block, ContentView host, bool isSimplified, double estimatedHeight)
+        {
+            Index = index;
+            Block = block;
+            Host = host;
+            IsSimplified = isSimplified;
+            EstimatedHeight = estimatedHeight;
+        }
+
+        public int Index { get; }
+        public MarkdownBlock Block { get; }
+        public ContentView Host { get; }
+        public bool IsSimplified { get; set; }
+        public double EstimatedHeight { get; }
     }
 }

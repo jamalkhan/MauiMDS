@@ -15,13 +15,13 @@ public sealed class CodeBlockRenderer : IMarkdownBlockRenderer
             LineBreakMode = LineBreakMode.NoWrap,
             Margin = new Thickness(0),
             Padding = new Thickness(0),
-            FormattedText = context.InlineFormatter.BuildCodeFormattedText(block.Content, block.CodeLanguage)
+            Text = block.Content
         };
         codeLabel.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#1E1E1E"), Color.FromArgb("#F5F1E8"));
 
         var stack = new VerticalStackLayout
         {
-            Spacing = 8
+            Spacing = 6
         };
 
         if (!string.IsNullOrWhiteSpace(block.CodeLanguage))

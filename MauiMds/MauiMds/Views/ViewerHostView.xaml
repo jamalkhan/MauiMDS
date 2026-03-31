@@ -19,13 +19,42 @@
 
             <Border IsVisible="{Binding IsViewerLoading}"
                     InputTransparent="True"
+                    BackgroundColor="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}"
+                    StrokeThickness="0"
+                    Padding="0"
+                    Margin="0"
+                    StrokeShape="RoundRectangle 14">
+                <Grid RowDefinitions="Auto,*"
+                      RowSpacing="14">
+                    <HorizontalStackLayout Spacing="12">
+                        <ActivityIndicator IsRunning="{Binding IsViewerLoading}"
+                                           Color="{AppThemeBinding Light=#6F6250, Dark=#E6DED2}"
+                                           VerticalOptions="Center" />
+                        <Label Text="Preparing markdown preview..."
+                               VerticalTextAlignment="Center"
+                               FontSize="13"
+                               TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
+                    </HorizontalStackLayout>
+
+                    <ScrollView Grid.Row="1">
+                        <Label Text="{Binding ViewerLoadingPreviewText}"
+                               FontFamily="Courier New"
+                               FontSize="14"
+                               LineBreakMode="WordWrap"
+                               TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
+                    </ScrollView>
+                </Grid>
+            </Border>
+
+            <Border IsVisible="{Binding IsViewerLoading}"
+                    InputTransparent="True"
                     BackgroundColor="{AppThemeBinding Light=#F7F2E8CC, Dark=#2D2E30CC}"
                     StrokeThickness="0"
                     Padding="18,14"
-                    Margin="0"
                     StrokeShape="RoundRectangle 14"
                     VerticalOptions="End"
-                    HorizontalOptions="End">
+                    HorizontalOptions="End"
+                    Margin="0,0,0,6">
                 <HorizontalStackLayout Spacing="12">
                     <ActivityIndicator IsRunning="{Binding IsViewerLoading}"
                                        Color="{AppThemeBinding Light=#6F6250, Dark=#E6DED2}"
