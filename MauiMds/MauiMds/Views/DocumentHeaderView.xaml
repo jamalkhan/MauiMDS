@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:models="clr-namespace:MauiMds.Models"
+             x:Class="MauiMds.Views.DocumentHeaderView">
+    <Border BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2D2C2A}"
+            Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
+            StrokeThickness="1"
+            Padding="18,14"
+            StrokeShape="RoundRectangle 18">
+        <Grid RowDefinitions="Auto,Auto"
+              RowSpacing="14">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto"
+                  ColumnSpacing="16">
+                <Button Text="{Binding WorkspaceToggleLabel}"
+                        Command="{Binding ToggleWorkspacePanelCommand}"
+                        VerticalOptions="Center"
+                        Padding="14,10"
+                        BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
+                        TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+
+                <VerticalStackLayout Grid.Column="1"
+                                     Spacing="4">
+                    <Label x:Name="FileNameLabel"
+                           Text="{Binding FileName}"
+                           FontSize="22"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
+                    <Label x:Name="FilePathLabel"
+                           Text="{Binding HeaderPathDisplay}"
+                           FontSize="13"
+                           LineBreakMode="MiddleTruncation"
+                           TextColor="{AppThemeBinding Light=#53504A, Dark=#B9B2A8}" />
+                    <Label x:Name="StatusLabel"
+                           Text="{Binding StatusText}"
+                           FontSize="12"
+                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                    <Border x:Name="InlineErrorBorder"
+                            IsVisible="{Binding HasInlineError}"
+                            BackgroundColor="{AppThemeBinding Light=#FBE0DD, Dark=#432524}"
+                            StrokeThickness="0"
+                            Padding="12,8"
+                            Margin="0,8,0,0"
+                            StrokeShape="RoundRectangle 12">
+                        <Label x:Name="InlineErrorLabel"
+                               Text="{Binding InlineErrorMessage}"
+                               FontSize="12"
+                               LineBreakMode="WordWrap"
+                               TextColor="{AppThemeBinding Light=#7D2E28, Dark=#FFE7E4}" />
+                    </Border>
+                </VerticalStackLayout>
+
+                <Button Grid.Column="2"
+                        Text="Open"
+                        Command="{Binding OpenFileCommand}"
+                        VerticalOptions="Center"
+                        Padding="18,10"
+                        BackgroundColor="{AppThemeBinding Light=#DDD3BF, Dark=#3F3D39}"
+                        TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+
+                <Button Grid.Column="3"
+                        Text="Save"
+                        Command="{Binding SaveCommand}"
+                        VerticalOptions="Center"
+                        Padding="18,10"
+                        BackgroundColor="{AppThemeBinding Light=#D4DDCF, Dark=#344136}"
+                        TextColor="{AppThemeBinding Light=#182018, Dark=#F0F6EF}" />
+
+                <Button Grid.Column="4"
+                        Text="Preferences"
+                        Command="{Binding ShowPreferencesCommand}"
+                        VerticalOptions="Center"
+                        Padding="18,10"
+                        BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
+                        TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+            </Grid>
+
+            <Grid Grid.Row="1"
+                  ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                  ColumnSpacing="10">
+                <Button Text="Viewer"
+                        Command="{Binding SetViewModeCommand}"
+                        CommandParameter="{x:Static models:EditorViewMode.Viewer}"
+                        Padding="14,8">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button"
+                                     Binding="{Binding IsViewerMode}"
+                                     Value="True">
+                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
+                            <Setter Property="TextColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#1D1D1B}" />
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+
+                <Button Grid.Column="1"
+                        Text="Markdown"
+                        Command="{Binding SetViewModeCommand}"
+                        CommandParameter="{x:Static models:EditorViewMode.TextEditor}"
+                        Padding="14,8">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button"
+                                     Binding="{Binding IsTextEditorMode}"
+                                     Value="True">
+                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
+                            <Setter Property="TextColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#1D1D1B}" />
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+
+                <Button Grid.Column="2"
+                        Text="Rich Text"
+                        Command="{Binding SetViewModeCommand}"
+                        CommandParameter="{x:Static models:EditorViewMode.RichTextEditor}"
+                        Padding="14,8">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button"
+                                     Binding="{Binding IsRichTextEditorMode}"
+                                     Value="True">
+                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
+                            <Setter Property="TextColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#1D1D1B}" />
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+
+                <Label Grid.Column="3"
+                       Text="{Binding CurrentViewLabel}"
+                       VerticalTextAlignment="Center"
+                       FontSize="12"
+                       TextColor="{AppThemeBinding Light=#635D54, Dark=#C7C0B5}" />
+
+                <Button Grid.Column="4" Text="New" Command="{Binding NewDocumentCommand}" Padding="14,8" />
+                <Button Grid.Column="5" Text="Save As" Command="{Binding SaveAsCommand}" Padding="14,8" />
+                <Button Grid.Column="6" Text="Revert" Command="{Binding RevertCommand}" Padding="14,8" />
+                <Button Grid.Column="7" Text="Close" Command="{Binding CloseDocumentCommand}" Padding="14,8" />
+                <Button Grid.Column="8" Text="Undo" Command="{Binding UndoCommand}" Padding="14,8" />
+                <Button Grid.Column="9" Text="Redo" Command="{Binding RedoCommand}" Padding="14,8" />
+                <Button Grid.Column="10" Text="Find" Command="{Binding FindCommand}" Padding="14,8" />
+            </Grid>
+        </Grid>
+    </Border>
+</ContentView>

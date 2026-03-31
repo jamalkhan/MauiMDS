@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="MauiMds.Views.LogsDockView">
+    <Border BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2D2C2A}"
+            Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
+            StrokeThickness="1"
+            Padding="18,14"
+            StrokeShape="RoundRectangle 18">
+        <Grid RowDefinitions="Auto,Auto,Auto"
+              RowSpacing="0">
+            <Border x:Name="SnackbarBorder"
+                    Grid.Row="0"
+                    BackgroundColor="{AppThemeBinding Light=#F7F2E8, Dark=#2A2B2D}"
+                    Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#45474B}"
+                    StrokeThickness="1"
+                    Padding="16,14"
+                    StrokeShape="RoundRectangle 16">
+                <Grid ColumnDefinitions="Auto,*,Auto"
+                      ColumnSpacing="12">
+                    <BoxView x:Name="SnackbarAccent"
+                             WidthRequest="4"
+                             HeightRequest="40"
+                             VerticalOptions="Center"
+                             CornerRadius="3" />
+
+                    <VerticalStackLayout Grid.Column="1"
+                                         Spacing="2">
+                        <Label x:Name="SnackbarLevelLabel"
+                               Text="Logs"
+                               FontAttributes="Bold"
+                               FontSize="14" />
+                        <Label x:Name="SnackbarCategoryLabel"
+                               Text="Recent activity"
+                               FontSize="12"
+                               LineBreakMode="TailTruncation" />
+                        <Label x:Name="HistoryStateLabel"
+                               Text="Open log history"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#6D655C, Dark=#B7AFA4}" />
+                    </VerticalStackLayout>
+
+                    <Label x:Name="SnackbarTimeLabel"
+                           Grid.Column="2"
+                           VerticalTextAlignment="Center"
+                           HorizontalTextAlignment="End"
+                           FontSize="12" />
+                </Grid>
+
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnSnackbarTapped" />
+                </Border.GestureRecognizers>
+            </Border>
+
+            <Grid x:Name="HistoryResizeHandle"
+                  Grid.Row="1"
+                  HeightRequest="12"
+                  Margin="0,10,0,10"
+                  IsVisible="False"
+                  Opacity="0.94">
+                <Border Padding="0"
+                        BackgroundColor="{AppThemeBinding Light=#E6DCCB, Dark=#37393D}"
+                        StrokeThickness="0"
+                        StrokeShape="RoundRectangle 8">
+                    <HorizontalStackLayout Spacing="6"
+                                           VerticalOptions="Center"
+                                           HorizontalOptions="Center">
+                        <BoxView WidthRequest="28" HeightRequest="3" Color="{AppThemeBinding Light=#BDAF97, Dark=#6F7379}" />
+                        <BoxView WidthRequest="28" HeightRequest="3" Color="{AppThemeBinding Light=#BDAF97, Dark=#6F7379}" />
+                    </HorizontalStackLayout>
+                </Border>
+                <Grid.GestureRecognizers>
+                    <PanGestureRecognizer PanUpdated="OnResizePanUpdated" />
+                    <PointerGestureRecognizer PointerEntered="OnResizePointerEntered"
+                                              PointerExited="OnResizePointerExited" />
+                </Grid.GestureRecognizers>
+            </Grid>
+
+            <Border x:Name="HistoryTrayBorder"
+                    Grid.Row="2"
+                    BackgroundColor="{AppThemeBinding Light=#F7F2E8, Dark=#2A2B2D}"
+                    Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#45474B}"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 16"
+                    Padding="18,14,18,10"
+                    HeightRequest="0"
+                    IsVisible="False">
+                <Grid RowDefinitions="Auto,*"
+                      RowSpacing="12">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Snackbar History"
+                               FontAttributes="Bold"
+                               FontSize="16"
+                               TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                        <Label x:Name="HistoryCountLabel"
+                               Grid.Column="1"
+                               FontSize="12"
+                               VerticalTextAlignment="Center"
+                               TextColor="{AppThemeBinding Light=#615A51, Dark=#BFB8AE}" />
+                    </Grid>
+
+                    <ScrollView Grid.Row="1"
+                                VerticalScrollBarVisibility="Always">
+                        <VerticalStackLayout x:Name="SnackbarHistoryStack"
+                                             Spacing="10" />
+                    </ScrollView>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</ContentView>

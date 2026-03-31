@@ -5,21 +5,24 @@ using MauiMds.Models;
 using MauiMds.Services;
 using MauiMds.ViewModels;
 using Microsoft.Extensions.Logging;
+#if MACCATALYST
+using CoreGraphics;
+using Foundation;
+using UIKit;
+#endif
 
 namespace MauiMds.Views;
 
 public partial class MainPage : ContentPage
 {
-    private const string TrayAnimationName = "SnackbarTray";
-    private const string WorkspaceAnimationName = "WorkspacePane";
-
     private readonly ILogger<MainPage> _logger;
     private readonly SnackbarService _snackbarService;
-    private double _trayCurrentHeight;
-    private double _trayMaxHeight;
-    private double _trayPanStartHeight;
-    private double _workspacePaneCurrentWidth;
-    private double _workspaceResizeStartWidth;
+    private readonly WorkspacePaneController _workspacePaneController;
+    private readonly LogsDockController _logsDockController;
+#if MACCATALYST
+    private UIPointerInteraction? _workspaceResizePointerInteraction;
+    private UIPointerInteraction? _historyResizePointerInteraction;
+#endif
 
     public MainPage(MainViewModel vm, SnackbarService snackbarService, ILogger<MainPage> logger)
     {
@@ -31,10 +34,34 @@ public partial class MainPage : ContentPage
         {
             InitializeComponent();
             BindingContext = vm;
+
+            _workspacePaneController = new WorkspacePaneController(
+                this,
+                width => WorkspaceExplorer.SetPaneWidth(width),
+                (isVisible, opacity) => WorkspaceExplorer.SetPanelState(isVisible, opacity));
+
+            _logsDockController = new LogsDockController(
+                this,
+                (height, historyVisible, resizeVisible) => LogsDock.ApplyHistoryPaneState(height, historyVisible, resizeVisible),
+                RefreshHistoryPaneState);
+
             vm.PropertyChanged += OnViewModelPropertyChanged;
             vm.EditorActionRequested += OnEditorActionRequested;
             _snackbarService.PropertyChanged += OnSnackbarPropertyChanged;
             _snackbarService.History.CollectionChanged += OnSnackbarHistoryChanged;
+
+            WorkspaceExplorer.ResizePanUpdated += OnWorkspaceResizePanUpdated;
+            WorkspaceExplorer.ResizePointerEntered += OnResizeHandlePointerEntered;
+            WorkspaceExplorer.ResizePointerExited += OnResizeHandlePointerExited;
+            WorkspaceExplorer.RenameEntryLoaded += OnWorkspaceRenameEntryLoaded;
+            WorkspaceExplorer.RenameCompleted += OnWorkspaceRenameCompleted;
+            WorkspaceExplorer.RenameUnfocused += OnWorkspaceRenameUnfocused;
+
+            LogsDock.SnackbarTapped += OnSnackbarTapped;
+            LogsDock.ResizePanUpdated += OnHistoryResizePanUpdated;
+            LogsDock.ResizePointerEntered += OnResizeHandlePointerEntered;
+            LogsDock.ResizePointerExited += OnResizeHandlePointerExited;
+
             Loaded += OnLoaded;
             SizeChanged += OnPageSizeChanged;
             _logger.LogInformation("MainPage initialized successfully.");
@@ -60,10 +87,11 @@ public partial class MainPage : ContentPage
             _logger.LogWarning("MainPage loaded without a MainViewModel binding context.");
         }
 
-        RefreshTrayState();
+        RefreshHistoryPaneState();
         RefreshSnackbar();
         RenderSnackbarHistory();
         RefreshWorkspacePaneState(initial: true);
+        AttachResizePointerInteractions();
     }
 
     private async Task InitializeViewModelAsync(MainViewModel vm)
@@ -120,7 +148,12 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        if (e.PropertyName is nameof(MainViewModel.FilePath) or nameof(MainViewModel.FileName) or nameof(MainViewModel.HeaderPathDisplay))
+        if (e.PropertyName is nameof(MainViewModel.FilePath)
+            or nameof(MainViewModel.FileName)
+            or nameof(MainViewModel.HeaderPathDisplay)
+            or nameof(MainViewModel.StatusText)
+            or nameof(MainViewModel.HasInlineError)
+            or nameof(MainViewModel.InlineErrorMessage))
         {
             RefreshHeader(vm);
         }
@@ -132,7 +165,7 @@ public partial class MainPage : ContentPage
 
         if (e.PropertyName == nameof(MainViewModel.PendingRenameItem) && vm.PendingRenameItem is not null)
         {
-            WorkspaceCollectionView.ScrollTo(vm.PendingRenameItem, position: ScrollToPosition.MakeVisible, animate: true);
+            WorkspaceExplorer.WorkspaceCollectionView.ScrollTo(vm.PendingRenameItem, position: ScrollToPosition.MakeVisible, animate: true);
         }
     }
 
@@ -147,92 +180,60 @@ public partial class MainPage : ContentPage
     private void OnSnackbarHistoryChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         RenderSnackbarHistory();
-        RefreshTrayState();
-    }
-
-    private async void OnTrayHandleTapped(object? sender, TappedEventArgs e)
-    {
-        await ToggleTrayAsync();
+        RefreshHistoryPaneState();
+        RefreshSnackbar();
     }
 
     private async void OnSnackbarTapped(object? sender, TappedEventArgs e)
     {
-        await OpenTrayAsync();
+        await _logsDockController.ToggleAsync(Height);
     }
 
-    private void OnSnackbarDismissClicked(object? sender, EventArgs e)
+    private void OnHistoryResizePanUpdated(object? sender, PanUpdatedEventArgs e)
     {
-        _snackbarService.DismissVisibleAndPendingMessages();
+        _logsDockController.HandleResizePan(e);
     }
 
-    private void OnTrayPanUpdated(object? sender, PanUpdatedEventArgs e)
+    private void OnResizeHandlePointerEntered(object? sender, PointerEventArgs e)
     {
-        switch (e.StatusType)
+        if (sender is VisualElement element)
         {
-            case GestureStatus.Started:
-                this.AbortAnimation(TrayAnimationName);
-                _trayPanStartHeight = _trayCurrentHeight;
-                break;
-            case GestureStatus.Running:
-                SetTrayHeight(_trayPanStartHeight - e.TotalY);
-                break;
-            case GestureStatus.Canceled:
-            case GestureStatus.Completed:
-                var targetHeight = _trayCurrentHeight >= _trayMaxHeight * 0.35 ? _trayMaxHeight : 0;
-                _ = AnimateTrayToAsync(targetHeight);
-                break;
+            element.Opacity = 1;
+            element.Scale = 1.02;
+        }
+    }
+
+    private void OnResizeHandlePointerExited(object? sender, PointerEventArgs e)
+    {
+        if (sender is VisualElement element)
+        {
+            element.Opacity = 0.94;
+            element.Scale = 1;
         }
     }
 
     private void OnPageSizeChanged(object? sender, EventArgs e)
     {
-        _trayMaxHeight = Height * 0.3;
-        if (_trayCurrentHeight > _trayMaxHeight)
-        {
-            SetTrayHeight(_trayMaxHeight);
-        }
-    }
+        _logsDockController.UpdateMaxHeight(Height);
 
-    private void OnWorkspaceRailTapped(object? sender, TappedEventArgs e)
-    {
-        if (BindingContext is MainViewModel vm)
-        {
-            vm.ToggleWorkspacePanelCommand.Execute(null);
-        }
+#if MACCATALYST
+        _workspaceResizePointerInteraction?.Invalidate();
+        _historyResizePointerInteraction?.Invalidate();
+#endif
     }
 
     private void OnWorkspaceResizePanUpdated(object? sender, PanUpdatedEventArgs e)
     {
-        if (BindingContext is not MainViewModel vm || !vm.IsWorkspacePanelVisible)
+        if (BindingContext is not MainViewModel vm)
         {
             return;
         }
 
-        switch (e.StatusType)
-        {
-            case GestureStatus.Started:
-                this.AbortAnimation(WorkspaceAnimationName);
-                _workspaceResizeStartWidth = _workspacePaneCurrentWidth > 0 ? _workspacePaneCurrentWidth : vm.WorkspacePanelWidth;
-                break;
-            case GestureStatus.Running:
-                SetWorkspacePaneWidth(_workspaceResizeStartWidth + e.TotalX);
-                break;
-            case GestureStatus.Canceled:
-            case GestureStatus.Completed:
-                vm.UpdateWorkspacePanelWidth(_workspacePaneCurrentWidth);
-                break;
-        }
-    }
-
-    private void RefreshHeader(MainViewModel vm)
-    {
-        FileNameLabel.Text = vm.FileName;
-        FilePathLabel.Text = vm.HeaderPathDisplay;
-
-        _logger.LogDebug(
-            "Header refreshed. FileName: {FileName}, FilePath: {FilePath}",
-            FileNameLabel.Text,
-            FilePathLabel.Text);
+        _workspacePaneController.HandleResizePan(
+            e,
+            vm.IsWorkspacePanelVisible,
+            vm.WorkspacePanelWidth,
+            vm.UpdateWorkspacePanelWidth);
     }
 
     private void RefreshWorkspacePaneState(bool initial)
@@ -242,54 +243,17 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        var targetWidth = vm.IsWorkspacePanelVisible ? vm.WorkspacePanelWidth : 0;
-        WorkspaceResizeHandle.IsVisible = vm.IsWorkspacePanelVisible;
-        WorkspaceRail.Opacity = vm.IsWorkspacePanelVisible ? 0.82 : 1;
-
-        if (initial)
-        {
-            SetWorkspacePaneWidth(targetWidth);
-            WorkspacePanelBorder.Opacity = vm.IsWorkspacePanelVisible ? 1 : 0;
-            WorkspacePanelBorder.IsVisible = vm.IsWorkspacePanelVisible;
-            return;
-        }
-
-        _ = AnimateWorkspacePaneToAsync(targetWidth, vm.IsWorkspacePanelVisible);
+        _workspacePaneController.Refresh(initial, vm.IsWorkspacePanelVisible, vm.IsWorkspacePanelVisible ? vm.WorkspacePanelWidth : 0);
     }
 
-    private void SetWorkspacePaneWidth(double width)
+    private void RefreshHeader(MainViewModel vm)
     {
-        _workspacePaneCurrentWidth = Math.Max(0, width);
-        WorkspacePaneHost.WidthRequest = _workspacePaneCurrentWidth;
-    }
-
-    private async Task AnimateWorkspacePaneToAsync(double targetWidth, bool shouldRemainVisible)
-    {
-        this.AbortAnimation(WorkspaceAnimationName);
-
-        if (shouldRemainVisible)
-        {
-            WorkspacePanelBorder.IsVisible = true;
-            WorkspaceResizeHandle.IsVisible = true;
-        }
-
-        var startWidth = _workspacePaneCurrentWidth;
-        var startOpacity = WorkspacePanelBorder.Opacity;
-        var targetOpacity = shouldRemainVisible ? 1 : 0;
-        var animation = new Animation(progress =>
-        {
-            SetWorkspacePaneWidth(startWidth + ((targetWidth - startWidth) * progress));
-            WorkspacePanelBorder.Opacity = startOpacity + ((targetOpacity - startOpacity) * progress);
-        });
-
-        var tcs = new TaskCompletionSource<bool>();
-        animation.Commit(this, WorkspaceAnimationName, 16, 180, Easing.CubicOut, (value, canceled) => tcs.TrySetResult(!canceled));
-        await tcs.Task;
-
-        SetWorkspacePaneWidth(targetWidth);
-        WorkspacePanelBorder.Opacity = targetOpacity;
-        WorkspacePanelBorder.IsVisible = shouldRemainVisible;
-        WorkspaceResizeHandle.IsVisible = shouldRemainVisible;
+        DocumentHeader.ApplyHeaderState(
+            vm.FileName,
+            vm.HeaderPathDisplay,
+            vm.StatusText,
+            vm.HasInlineError,
+            vm.InlineErrorMessage);
     }
 
     private MarkdownSyntaxEditorView? GetActiveEditor()
@@ -299,7 +263,7 @@ public partial class MainPage : ContentPage
             return null;
         }
 
-        return vm.IsEditorMode ? MarkdownTextEditor : null;
+        return vm.IsEditorMode ? ViewerHost.MarkdownEditor : null;
     }
 
     private async Task HandleFindAsync(MarkdownSyntaxEditorView editor)
@@ -318,40 +282,39 @@ public partial class MainPage : ContentPage
 
     private void RefreshSnackbar()
     {
-        var message = _snackbarService.CurrentMessage;
-        SnackbarBorder.IsVisible = message is not null;
+        var message = _snackbarService.History.Count > 0
+            ? _snackbarService.History[_snackbarService.History.Count - 1]
+            : null;
 
-        if (message is null)
-        {
-            return;
-        }
+        var timeFormat = GetPreferredTimeFormat();
 
-        SnackbarLevelLabel.Text = message.LevelLabel;
-        SnackbarCategoryLabel.Text = message.Category;
-        SnackbarTimeLabel.Text = message.Timestamp.ToLocalTime().ToString("h:mm:ss tt");
-        SnackbarMessageLabel.Text = message.DisplayMessage;
+        LogsDock.SnackbarLevelLabelControl.Text = "Logs";
+        LogsDock.SnackbarCategoryLabelControl.Text = _snackbarService.History.Count == 0
+            ? "No recent events"
+            : $"{_snackbarService.History.Count} message{(_snackbarService.History.Count == 1 ? string.Empty : "s")} in history";
+        LogsDock.SnackbarTimeLabelControl.Text = message?.Timestamp.ToLocalTime().ToString(timeFormat) ?? string.Empty;
+        LogsDock.HistoryStateLabelControl.Text = _logsDockController.CurrentHeight > 0.5 ? "Hide log history" : "Open log history";
 
         ApplySnackbarTheme(
-            message.Level,
-            SnackbarBorder,
-            SnackbarAccent,
-            SnackbarLevelLabel,
-            SnackbarCategoryLabel,
-            SnackbarTimeLabel,
-            SnackbarMessageLabel,
-            dismissButton: SnackbarDismissButton);
+            message?.Level ?? SnackbarMessageLevel.Info,
+            LogsDock.SnackbarBorderControl,
+            LogsDock.SnackbarAccentControl,
+            LogsDock.SnackbarLevelLabelControl,
+            LogsDock.SnackbarCategoryLabelControl,
+            LogsDock.SnackbarTimeLabelControl,
+            LogsDock.HistoryStateLabelControl);
     }
 
     private void RenderSnackbarHistory()
     {
-        SnackbarHistoryStack.Children.Clear();
+        LogsDock.HistoryStack.Children.Clear();
 
         foreach (var message in _snackbarService.History)
         {
-            SnackbarHistoryStack.Children.Add(CreateHistoryEntry(message));
+            LogsDock.HistoryStack.Children.Add(CreateHistoryEntry(message));
         }
 
-        HistoryCountLabel.Text = $"{_snackbarService.History.Count} / {_snackbarService.HistoryCapacity}";
+        LogsDock.HistoryCountLabelControl.Text = $"{_snackbarService.History.Count} / {_snackbarService.HistoryCapacity}";
     }
 
     private View CreateHistoryEntry(SnackbarMessage message)
@@ -403,9 +366,10 @@ public partial class MainPage : ContentPage
             IsVisible = !string.IsNullOrWhiteSpace(message.ExceptionMessage)
         };
 
+        var timeFormat = GetPreferredTimeFormat();
         levelLabel.Text = message.LevelLabel;
         categoryLabel.Text = message.Category;
-        timeLabel.Text = message.Timestamp.ToLocalTime().ToString("MM/dd h:mm:ss tt");
+        timeLabel.Text = message.Timestamp.ToLocalTime().ToString($"MM/dd {timeFormat}");
         messageLabel.Text = message.Message;
         detailLabel.Text = message.ExceptionMessage;
 
@@ -500,56 +464,87 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private async Task ToggleTrayAsync()
+    private void RefreshHistoryPaneState()
     {
-        await AnimateTrayToAsync(_trayCurrentHeight > 0 ? 0 : _trayMaxHeight);
+        LogsDock.HistoryCountLabelControl.Text = $"{_snackbarService.History.Count} / {_snackbarService.HistoryCapacity}";
+        LogsDock.HistoryStateLabelControl.Text = _logsDockController.CurrentHeight > 0.5
+            ? "Hide log history"
+            : "Open log history";
     }
 
-    private async Task OpenTrayAsync()
+    private string GetPreferredTimeFormat()
     {
-        await AnimateTrayToAsync(_trayMaxHeight);
+        return BindingContext is MainViewModel vm ? vm.PreferredTimeFormat : "h:mm:ss tt";
     }
 
-    private async Task AnimateTrayToAsync(double targetHeight)
+    private void AttachResizePointerInteractions()
     {
-        targetHeight = Math.Clamp(targetHeight, 0, _trayMaxHeight);
-        var startingHeight = _trayCurrentHeight;
+#if MACCATALYST
+        _workspaceResizePointerInteraction ??= AttachResizePointerInteraction(WorkspaceExplorer.ResizeHandleElement, UIAxis.Horizontal);
+        _historyResizePointerInteraction ??= AttachResizePointerInteraction(LogsDock.ResizeHandleElement, UIAxis.Vertical);
+#endif
+    }
 
-        if (Math.Abs(startingHeight - targetHeight) < 0.5)
+#if MACCATALYST
+    private static UIPointerInteraction? AttachResizePointerInteraction(VisualElement element, UIAxis axis)
+    {
+        if (element.Handler?.PlatformView is not UIView nativeView)
         {
-            SetTrayHeight(targetHeight);
-            return;
+            element.HandlerChanged += OnHandlerChanged;
+            return null;
         }
 
-        var completion = new TaskCompletionSource();
-        var animation = new Animation(value => SetTrayHeight(value), startingHeight, targetHeight, Easing.CubicOut);
-        animation.Commit(
-            this,
-            TrayAnimationName,
-            16,
-            220,
-            Easing.CubicOut,
-            (_, _) => completion.TrySetResult());
+        nativeView.UserInteractionEnabled = true;
+        var interaction = new UIPointerInteraction(new ResizePointerInteractionDelegate(nativeView, axis));
+        nativeView.AddInteraction(interaction);
+        return interaction;
 
-        await completion.Task;
+        void OnHandlerChanged(object? sender, EventArgs e)
+        {
+            element.HandlerChanged -= OnHandlerChanged;
+            AttachResizePointerInteraction(element, axis);
+        }
     }
 
-    private void SetTrayHeight(double requestedHeight)
+    private sealed class ResizePointerInteractionDelegate : UIPointerInteractionDelegate
     {
-        _trayCurrentHeight = Math.Clamp(requestedHeight, 0, _trayMaxHeight);
-        HistoryTrayBorder.HeightRequest = _trayCurrentHeight;
-        HistoryTrayBorder.IsVisible = _trayCurrentHeight > 0.5;
-        RefreshTrayState();
-    }
+        private readonly WeakReference<UIView> _viewReference;
+        private readonly UIAxis _axis;
+        private readonly NSString _identifier;
 
-    private void RefreshTrayState()
-    {
-        TrayStateLabel.Text = _trayCurrentHeight > 0.5
-            ? "Slide down to hide"
-            : "Slide up for history";
+        public ResizePointerInteractionDelegate(UIView view, UIAxis axis)
+        {
+            _viewReference = new WeakReference<UIView>(view);
+            _axis = axis;
+            _identifier = new NSString(axis == UIAxis.Horizontal ? "workspace-resize" : "history-resize");
+        }
 
-        HistoryCountLabel.Text = $"{_snackbarService.History.Count} / {_snackbarService.HistoryCapacity}";
+        public override UIPointerRegion? GetRegionForRequest(UIPointerInteraction interaction, UIPointerRegionRequest request, UIPointerRegion? defaultRegion)
+        {
+            if (!_viewReference.TryGetTarget(out var view))
+            {
+                return defaultRegion;
+            }
+
+            return UIPointerRegion.Create(view.Bounds, _identifier);
+        }
+
+        public override UIPointerStyle? GetStyleForRegion(UIPointerInteraction interaction, UIPointerRegion region)
+        {
+            if (!_viewReference.TryGetTarget(out var view))
+            {
+                return UIPointerStyle.CreateSystemPointerStyle();
+            }
+
+            var preferredLength = _axis == UIAxis.Horizontal
+                ? Math.Max(18, view.Bounds.Height)
+                : Math.Max(18, view.Bounds.Width);
+
+            var shape = UIPointerShape.CreateBeam((nfloat)preferredLength, _axis);
+            return UIPointerStyle.Create(shape, _axis);
+        }
     }
+#endif
 
     private static SnackbarPalette GetPalette(SnackbarMessageLevel level)
     {
@@ -604,43 +599,43 @@ public partial class MainPage : ContentPage
         Color LightSubtleText,
         Color DarkSubtleText);
 
-    private async void OnWorkspaceRenameCompleted(object? sender, EventArgs e)
+    private async void OnWorkspaceRenameCompleted(object? sender, WorkspaceRenameEntryEventArgs e)
     {
-        if (BindingContext is not MainViewModel vm || sender is not Entry entry || entry.BindingContext is not WorkspaceTreeItem item)
+        if (BindingContext is not MainViewModel vm)
         {
             return;
         }
 
-        await vm.CommitWorkspaceRenameAsync(item);
+        await vm.CommitWorkspaceRenameAsync(e.Item);
     }
 
-    private async void OnWorkspaceRenameUnfocused(object? sender, FocusEventArgs e)
+    private async void OnWorkspaceRenameUnfocused(object? sender, WorkspaceRenameEntryEventArgs e)
     {
-        if (BindingContext is not MainViewModel vm || sender is not Entry entry || entry.BindingContext is not WorkspaceTreeItem item)
+        if (BindingContext is not MainViewModel vm)
         {
             return;
         }
 
-        await vm.CommitWorkspaceRenameAsync(item);
+        await vm.CommitWorkspaceRenameAsync(e.Item);
     }
 
-    private void OnWorkspaceRenameEntryLoaded(object? sender, EventArgs e)
+    private void OnWorkspaceRenameEntryLoaded(object? sender, WorkspaceRenameEntryEventArgs e)
     {
-        if (BindingContext is not MainViewModel vm || sender is not Entry entry || entry.BindingContext is not WorkspaceTreeItem item)
+        if (BindingContext is not MainViewModel vm)
         {
             return;
         }
 
-        if (!ReferenceEquals(vm.PendingRenameItem, item))
+        if (!ReferenceEquals(vm.PendingRenameItem, e.Item))
         {
             return;
         }
 
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            entry.Focus();
-            entry.CursorPosition = 0;
-            entry.SelectionLength = entry.Text?.Length ?? 0;
+            e.Entry.Focus();
+            e.Entry.CursorPosition = 0;
+            e.Entry.SelectionLength = e.Entry.Text?.Length ?? 0;
         });
     }
 }

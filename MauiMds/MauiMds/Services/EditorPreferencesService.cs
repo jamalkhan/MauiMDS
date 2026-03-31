@@ -27,7 +27,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 AutoSaveEnabled = preferences.AutoSaveEnabled,
                 AutoSaveDelaySeconds = Math.Max(5, preferences.AutoSaveDelaySeconds),
                 MaxLogFileSizeMb = Math.Max(1, preferences.MaxLogFileSizeMb),
-                InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount)
+                InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount),
+                Use24HourTime = preferences.Use24HourTime
             };
         }
         catch
@@ -49,7 +50,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             AutoSaveEnabled = preferences.AutoSaveEnabled,
             AutoSaveDelaySeconds = Math.Max(5, preferences.AutoSaveDelaySeconds),
             MaxLogFileSizeMb = Math.Max(1, preferences.MaxLogFileSizeMb),
-            InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount)
+            InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount),
+            Use24HourTime = preferences.Use24HourTime
         };
 
         var json = JsonSerializer.Serialize(normalized, JsonOptions);
@@ -63,7 +65,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             AutoSaveEnabled = true,
             AutoSaveDelaySeconds = 30,
             MaxLogFileSizeMb = 2,
-            InitialViewerRenderLineCount = 20
+            InitialViewerRenderLineCount = 20,
+            Use24HourTime = false
         };
     }
 }

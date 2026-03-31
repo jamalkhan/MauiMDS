@@ -54,6 +54,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _preferencesMaxLogFileSizeMbText = "2";
     private string _preferencesInitialViewerRenderLineCountText = "20";
     private bool _preferencesAutoSaveEnabled = true;
+    private bool _preferencesUse24HourTime;
     private WorkspaceTreeItem? _selectedWorkspaceItem;
     private WorkspaceTreeItem? _pendingRenameItem;
     private CancellationTokenSource? _workspaceSearchCancellationSource;
@@ -80,6 +81,7 @@ public class MainViewModel : INotifyPropertyChanged
         _preferences = _preferencesService.Load();
         _sessionState = _sessionStateService.Load();
         _preferencesAutoSaveEnabled = _preferences.AutoSaveEnabled;
+        _preferencesUse24HourTime = _preferences.Use24HourTime;
         _preferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
         _preferencesMaxLogFileSizeMbText = _preferences.MaxLogFileSizeMb.ToString();
         _preferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
@@ -481,6 +483,22 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     public int InitialViewerRenderLineCount => Math.Max(5, _preferences.InitialViewerRenderLineCount);
+    public bool PreferencesUse24HourTime
+    {
+        get => _preferencesUse24HourTime;
+        set
+        {
+            if (_preferencesUse24HourTime == value)
+            {
+                return;
+            }
+
+            _preferencesUse24HourTime = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string PreferredTimeFormat => _preferences.Use24HourTime ? "HH:mm:ss" : "h:mm:ss tt";
 
     public async Task InitializeAsync()
     {
@@ -672,6 +690,7 @@ public class MainViewModel : INotifyPropertyChanged
     private void ShowPreferences()
     {
         PreferencesAutoSaveEnabled = _preferences.AutoSaveEnabled;
+        PreferencesUse24HourTime = _preferences.Use24HourTime;
         PreferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
         PreferencesMaxLogFileSizeMbText = _preferences.MaxLogFileSizeMb.ToString();
         PreferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
@@ -703,12 +722,14 @@ public class MainViewModel : INotifyPropertyChanged
             AutoSaveEnabled = PreferencesAutoSaveEnabled,
             AutoSaveDelaySeconds = delaySeconds,
             MaxLogFileSizeMb = maxLogFileSizeMb,
-            InitialViewerRenderLineCount = initialViewerRenderLineCount
+            InitialViewerRenderLineCount = initialViewerRenderLineCount,
+            Use24HourTime = PreferencesUse24HourTime
         };
 
         _preferencesService.Save(_preferences);
         IsPreferencesVisible = false;
         OnPropertyChanged(nameof(InitialViewerRenderLineCount));
+        OnPropertyChanged(nameof(PreferredTimeFormat));
         OnPropertyChanged(nameof(StatusText));
         ScheduleAutoSave();
         PersistSessionState();
@@ -798,7 +819,12 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            _document = new EditorDocumentState
+            var previousFilePath = _document.FilePath;
+            var previousFileName = _document.FileName;
+            var previousIsUntitled = _document.IsUntitled;
+            var previousIsDirty = _document.IsDirty;
+
+            var nextDocumentState = new EditorDocumentState
             {
                 FilePath = document.IsUntitled ? string.Empty : document.FilePath,
                 FileName = document.FileName ?? Path.GetFileName(document.FilePath),
@@ -812,17 +838,36 @@ public class MainViewModel : INotifyPropertyChanged
                 NewLine = document.NewLine
             };
 
+            _document = nextDocumentState;
+
             var uiStateStopwatch = Stopwatch.StartNew();
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                FilePath = _document.FilePath;
-                FileName = _document.FileName;
+                if (!string.Equals(previousFilePath, _document.FilePath, StringComparison.Ordinal))
+                {
+                    OnPropertyChanged(nameof(FilePath));
+                    OnPropertyChanged(nameof(HeaderPathDisplay));
+                    OnPropertyChanged(nameof(HasFilePath));
+                }
+
+                if (!string.Equals(previousFileName, _document.FileName, StringComparison.Ordinal))
+                {
+                    OnPropertyChanged(nameof(FileName));
+                }
+
                 EditorText = _document.Content;
                 InlineErrorMessage = string.Empty;
-                OnPropertyChanged(nameof(IsDirty));
-                OnPropertyChanged(nameof(IsUntitled));
+                if (previousIsDirty != _document.IsDirty)
+                {
+                    OnPropertyChanged(nameof(IsDirty));
+                }
+
+                if (previousIsUntitled != _document.IsUntitled)
+                {
+                    OnPropertyChanged(nameof(IsUntitled));
+                }
+
                 OnPropertyChanged(nameof(StatusText));
-                OnPropertyChanged(nameof(HeaderPathDisplay));
             });
             uiStateStopwatch.Stop();
 
@@ -1271,6 +1316,14 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         await MainThread.InvokeOnMainThreadAsync(() => SetSelectedWorkspaceItem(item));
+
+        if (!item.IsDirectory)
+        {
+            await OpenDocumentAsync(
+                () => _documentService.LoadDocumentAsync(item.FullPath),
+                "Failed to open markdown file from the workspace tree.",
+                "The selected file could not be opened.");
+        }
     }
 
     private async Task NavigateWorkspaceItemAsync(WorkspaceTreeItem? item)
