@@ -2,7 +2,7 @@ using System.Text;
 
 namespace MauiMds.Services;
 
-internal static class MarkdownFileConventions
+public static class MarkdownFileConventions
 {
     public static readonly string[] AllowedExtensions = [".mds", ".md"];
     public const string ExampleDocumentName = "example.mds";
