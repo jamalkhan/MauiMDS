@@ -1,6 +1,6 @@
 using Microsoft.Maui.Controls.Shapes;
 
-namespace MauiMds.Markdown;
+namespace MauiMds.Features.Markdown;
 
 internal static class MarkdownViewFactory
 {

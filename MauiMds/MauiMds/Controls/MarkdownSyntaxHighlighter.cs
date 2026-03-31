@@ -15,7 +15,7 @@ internal sealed class MarkdownSyntaxHighlighter
     private static readonly Regex FrontMatterKeyPattern = new(@"^(?<key>[A-Za-z0-9_-]+)(?<colon>\s*:\s*)(?<value>.*)$", RegexOptions.Compiled);
     private static readonly Regex FencePattern = new(@"^(?<indent>\s*)(?<marker>`{3,}|~{3,})(?<lang>[A-Za-z0-9_-]*)\s*$", RegexOptions.Compiled);
     private static readonly Regex TokenPattern = new(@"(!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|\[\^[^\]]+\]|`[^`]+`|\*\*[^*]+\*\*|~~[^~]+~~|(?<!\*)\*[^*]+\*(?!\*)|https?://\S+)", RegexOptions.Compiled);
-    private readonly Markdown.MarkdownInlineFormatter _inlineFormatter = new();
+    private readonly Features.Markdown.MarkdownInlineFormatter _inlineFormatter = new();
 
     public FormattedString BuildFormattedText(string text)
     {

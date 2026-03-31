@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace MauiMds.Markdown;
+namespace MauiMds.Features.Markdown;
 
 public sealed class MarkdownInlineFormatter
 {

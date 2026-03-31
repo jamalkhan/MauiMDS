@@ -3,8 +3,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using MauiMds.Features.Editor;
+using MauiMds.Features.Session;
+using MauiMds.Features.Workspace;
 using MauiMds.Models;
-using MauiMds.Processors;
 using MauiMds.Services;
 using Microsoft.Extensions.Logging;
 
@@ -26,11 +28,11 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IMarkdownDocumentService _documentService;
     private readonly IWorkspaceBrowserService _workspaceBrowserService;
     private readonly IEditorPreferencesService _preferencesService;
-    private readonly ISessionStateService _sessionStateService;
     private readonly IDocumentWatchService _documentWatchService;
     private readonly ILogger<MainViewModel> _logger;
-    private readonly MdsParser _parser;
-    private readonly List<WorkspaceTreeItem> _workspaceRootItems = [];
+    private readonly DocumentWorkflowController _documentWorkflowController;
+    private readonly AutosaveCoordinator _autosaveCoordinator;
+    private readonly SessionRestoreCoordinator _sessionRestoreCoordinator;
 
     private EditorDocumentState _document = new();
     private EditorViewMode _selectedViewMode = EditorViewMode.Viewer;
@@ -47,39 +49,36 @@ public class MainViewModel : INotifyPropertyChanged
     private double _workspacePanelWidth = DefaultWorkspacePanelWidth;
     private string _editorText = string.Empty;
     private string _inlineErrorMessage = string.Empty;
-    private string _workspaceRootPath = string.Empty;
-    private string _currentWorkspaceFolderPath = string.Empty;
-    private string _workspaceSearchText = string.Empty;
     private string _preferencesAutoSaveDelaySecondsText = "30";
     private string _preferencesMaxLogFileSizeMbText = "2";
     private string _preferencesInitialViewerRenderLineCountText = "20";
     private bool _preferencesAutoSaveEnabled = true;
     private bool _preferencesUse24HourTime;
-    private WorkspaceTreeItem? _selectedWorkspaceItem;
-    private WorkspaceTreeItem? _pendingRenameItem;
-    private CancellationTokenSource? _workspaceSearchCancellationSource;
     private CancellationTokenSource? _parseCancellationSource;
-    private CancellationTokenSource? _autosaveCancellationSource;
     private DateTimeOffset _lastSaveUtc;
 
     public MainViewModel(
-        MdsParser parser,
         IMarkdownDocumentService documentService,
         IWorkspaceBrowserService workspaceBrowserService,
         IEditorPreferencesService preferencesService,
-        ISessionStateService sessionStateService,
         IDocumentWatchService documentWatchService,
+        WorkspaceExplorerState workspaceExplorerState,
+        DocumentWorkflowController documentWorkflowController,
+        AutosaveCoordinator autosaveCoordinator,
+        SessionRestoreCoordinator sessionRestoreCoordinator,
         ILogger<MainViewModel> logger)
     {
-        _parser = parser;
         _documentService = documentService;
         _workspaceBrowserService = workspaceBrowserService;
         _preferencesService = preferencesService;
-        _sessionStateService = sessionStateService;
         _documentWatchService = documentWatchService;
+        _documentWorkflowController = documentWorkflowController;
+        _autosaveCoordinator = autosaveCoordinator;
+        _sessionRestoreCoordinator = sessionRestoreCoordinator;
         _logger = logger;
         _preferences = _preferencesService.Load();
-        _sessionState = _sessionStateService.Load();
+        _sessionState = _sessionRestoreCoordinator.Load();
+        Workspace = workspaceExplorerState;
         _preferencesAutoSaveEnabled = _preferences.AutoSaveEnabled;
         _preferencesUse24HourTime = _preferences.Use24HourTime;
         _preferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
@@ -88,8 +87,7 @@ public class MainViewModel : INotifyPropertyChanged
         _workspacePanelWidth = ClampWorkspacePanelWidth(_sessionState.WorkspacePanelWidth);
 
         _documentWatchService.DocumentChanged += OnWatchedDocumentChanged;
-
-        WorkspaceItems = new ObservableCollection<WorkspaceTreeItem>();
+        Workspace.PropertyChanged += OnWorkspacePropertyChanged;
 
         OpenFileCommand = new Command(async () => await OpenFileAsync(), () => !IsBusy);
         NewDocumentCommand = new Command(async () => await NewDocumentAsync(), () => !IsBusy);
@@ -135,7 +133,8 @@ public class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
         }
     }
-    public ObservableCollection<WorkspaceTreeItem> WorkspaceItems { get; }
+    public WorkspaceExplorerState Workspace { get; }
+    public ObservableCollection<WorkspaceTreeItem> WorkspaceItems => Workspace.WorkspaceItems;
 
     public ICommand OpenFileCommand { get; }
     public ICommand NewDocumentCommand { get; }
@@ -305,89 +304,21 @@ public class MainViewModel : INotifyPropertyChanged
 
     public string WorkspaceToggleLabel => IsWorkspacePanelVisible ? "Hide Explorer" : "Show Explorer";
 
-    public string WorkspaceRootPath
-    {
-        get => _workspaceRootPath;
-        private set
-        {
-            if (_workspaceRootPath == value)
-            {
-                return;
-            }
-
-            _workspaceRootPath = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(HasWorkspaceRoot));
-        }
-    }
-
-    public bool HasWorkspaceRoot => !string.IsNullOrWhiteSpace(WorkspaceRootPath);
-
-    public string CurrentWorkspaceFolderPath
-    {
-        get => _currentWorkspaceFolderPath;
-        private set
-        {
-            if (_currentWorkspaceFolderPath == value)
-            {
-                return;
-            }
-
-            _currentWorkspaceFolderPath = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(CurrentWorkspaceFolderName));
-            OnPropertyChanged(nameof(CurrentWorkspaceFolderDisplay));
-            OnPropertyChanged(nameof(CanNavigateUpWorkspace));
-            OnPropertyChanged(nameof(CanSetCurrentFolderAsWorkspace));
-        }
-    }
-
-    public string CurrentWorkspaceFolderName => string.IsNullOrWhiteSpace(CurrentWorkspaceFolderPath) ? "(none)" : Path.GetFileName(CurrentWorkspaceFolderPath.TrimEnd(Path.DirectorySeparatorChar)) switch
-    {
-        "" => CurrentWorkspaceFolderPath,
-        var name => name
-    };
-
-    public string CurrentWorkspaceFolderDisplay => string.IsNullOrWhiteSpace(CurrentWorkspaceFolderPath) ? "No current folder" : CurrentWorkspaceFolderPath;
-    public bool CanNavigateUpWorkspace =>
-        !string.IsNullOrWhiteSpace(CurrentWorkspaceFolderPath) &&
-        !string.IsNullOrWhiteSpace(WorkspaceRootPath) &&
-        !string.Equals(CurrentWorkspaceFolderPath, WorkspaceRootPath, StringComparison.Ordinal);
-    public bool CanSetCurrentFolderAsWorkspace =>
-        !string.IsNullOrWhiteSpace(CurrentWorkspaceFolderPath) &&
-        !string.IsNullOrWhiteSpace(WorkspaceRootPath) &&
-        !string.Equals(CurrentWorkspaceFolderPath, WorkspaceRootPath, StringComparison.Ordinal);
+    public string WorkspaceRootPath => Workspace.WorkspaceRootPath;
+    public bool HasWorkspaceRoot => Workspace.HasWorkspaceRoot;
+    public string CurrentWorkspaceFolderPath => Workspace.CurrentWorkspaceFolderPath;
+    public string CurrentWorkspaceFolderName => Workspace.CurrentWorkspaceFolderName;
+    public string CurrentWorkspaceFolderDisplay => Workspace.CurrentWorkspaceFolderDisplay;
+    public bool CanNavigateUpWorkspace => Workspace.CanNavigateUpWorkspace;
+    public bool CanSetCurrentFolderAsWorkspace => Workspace.CanSetCurrentFolderAsWorkspace;
 
     public string WorkspaceSearchText
     {
-        get => _workspaceSearchText;
-        set
-        {
-            if (_workspaceSearchText == value)
-            {
-                return;
-            }
-
-            _workspaceSearchText = value;
-            OnPropertyChanged();
-            _ = RefreshWorkspaceItemsAsync();
-        }
+        get => Workspace.WorkspaceSearchText;
+        set => Workspace.WorkspaceSearchText = value;
     }
 
-    public WorkspaceTreeItem? PendingRenameItem
-    {
-        get => _pendingRenameItem;
-        private set
-        {
-            if (_pendingRenameItem == value)
-            {
-                return;
-            }
-
-            _pendingRenameItem = value;
-            OnPropertyChanged();
-        }
-    }
+    public WorkspaceTreeItem? PendingRenameItem => Workspace.PendingRenameItem;
 
     public string InlineErrorMessage
     {
@@ -523,7 +454,7 @@ public class MainViewModel : INotifyPropertyChanged
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 item.IsRenaming = false;
-                PendingRenameItem = null;
+                Workspace.MarkRenameCommitted();
             });
 
             var updatedPath = await _workspaceBrowserService.RenameMarkdownFileAsync(item.FullPath, item.RenameText);
@@ -534,7 +465,11 @@ public class MainViewModel : INotifyPropertyChanged
                 await LoadDocumentIntoStateAsync(renamedDocument);
             }
 
-            await LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: Path.GetDirectoryName(updatedPath) ?? WorkspaceRootPath, selectedPath: updatedPath);
+            await Workspace.LoadWorkspaceAsync(
+                WorkspaceRootPath,
+                currentFolderPath: Path.GetDirectoryName(updatedPath) ?? WorkspaceRootPath,
+                selectedPath: updatedPath);
+            PersistSessionState();
             await ClearInlineErrorAsync();
         }
         catch (Exception ex)
@@ -543,7 +478,7 @@ public class MainViewModel : INotifyPropertyChanged
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 item.IsRenaming = true;
-                PendingRenameItem = item;
+                Workspace.BeginRename(item);
             });
         }
     }
@@ -557,10 +492,36 @@ public class MainViewModel : INotifyPropertyChanged
 
         return MainThread.InvokeOnMainThreadAsync(() =>
         {
-            item.IsRenaming = false;
-            item.ResetRenameText();
-            PendingRenameItem = null;
+            Workspace.CancelRename(item);
         });
+    }
+
+    private void OnWorkspacePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(WorkspaceExplorerState.WorkspaceRootPath)
+            or nameof(WorkspaceExplorerState.HasWorkspaceRoot)
+            or nameof(WorkspaceExplorerState.CurrentWorkspaceFolderPath)
+            or nameof(WorkspaceExplorerState.CurrentWorkspaceFolderName)
+            or nameof(WorkspaceExplorerState.CurrentWorkspaceFolderDisplay)
+            or nameof(WorkspaceExplorerState.CanNavigateUpWorkspace)
+            or nameof(WorkspaceExplorerState.CanSetCurrentFolderAsWorkspace)
+            or nameof(WorkspaceExplorerState.PendingRenameItem)
+            or nameof(WorkspaceExplorerState.WorkspaceSearchText))
+        {
+            OnPropertyChanged(e.PropertyName switch
+            {
+                nameof(WorkspaceExplorerState.WorkspaceRootPath) => nameof(WorkspaceRootPath),
+                nameof(WorkspaceExplorerState.HasWorkspaceRoot) => nameof(HasWorkspaceRoot),
+                nameof(WorkspaceExplorerState.CurrentWorkspaceFolderPath) => nameof(CurrentWorkspaceFolderPath),
+                nameof(WorkspaceExplorerState.CurrentWorkspaceFolderName) => nameof(CurrentWorkspaceFolderName),
+                nameof(WorkspaceExplorerState.CurrentWorkspaceFolderDisplay) => nameof(CurrentWorkspaceFolderDisplay),
+                nameof(WorkspaceExplorerState.CanNavigateUpWorkspace) => nameof(CanNavigateUpWorkspace),
+                nameof(WorkspaceExplorerState.CanSetCurrentFolderAsWorkspace) => nameof(CanSetCurrentFolderAsWorkspace),
+                nameof(WorkspaceExplorerState.PendingRenameItem) => nameof(PendingRenameItem),
+                nameof(WorkspaceExplorerState.WorkspaceSearchText) => nameof(WorkspaceSearchText),
+                _ => null
+            });
+        }
     }
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -794,19 +755,37 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void ApplySaveResult(SaveDocumentResult result)
     {
-        FilePath = result.FilePath;
-        FileName = result.FileName;
-        _document.IsUntitled = false;
-        _document.IsDirty = false;
-        _document.OriginalContent = _document.Content;
-        _document.FileSizeBytes = result.FileSizeBytes;
-        _document.LastModified = result.LastModified;
+        var previousFilePath = _document.FilePath;
+        var previousFileName = _document.FileName;
+        var previousIsUntitled = _document.IsUntitled;
+        var previousIsDirty = _document.IsDirty;
+
+        _documentWorkflowController.ApplySaveResult(_document, result);
         _lastSaveUtc = DateTimeOffset.UtcNow;
 
-        OnPropertyChanged(nameof(IsUntitled));
-        OnPropertyChanged(nameof(IsDirty));
+        if (!string.Equals(previousFilePath, _document.FilePath, StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(FilePath));
+            OnPropertyChanged(nameof(HeaderPathDisplay));
+            OnPropertyChanged(nameof(HasFilePath));
+        }
+
+        if (!string.Equals(previousFileName, _document.FileName, StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(FileName));
+        }
+
+        if (previousIsUntitled != _document.IsUntitled)
+        {
+            OnPropertyChanged(nameof(IsUntitled));
+        }
+
+        if (previousIsDirty != _document.IsDirty)
+        {
+            OnPropertyChanged(nameof(IsDirty));
+        }
+
         OnPropertyChanged(nameof(StatusText));
-        OnPropertyChanged(nameof(HeaderPathDisplay));
 
         _documentWatchService.Watch(result.FilePath);
         PersistSessionState();
@@ -823,22 +802,8 @@ public class MainViewModel : INotifyPropertyChanged
             var previousFileName = _document.FileName;
             var previousIsUntitled = _document.IsUntitled;
             var previousIsDirty = _document.IsDirty;
-
-            var nextDocumentState = new EditorDocumentState
-            {
-                FilePath = document.IsUntitled ? string.Empty : document.FilePath,
-                FileName = document.FileName ?? Path.GetFileName(document.FilePath),
-                Content = document.Content,
-                OriginalContent = document.Content,
-                IsUntitled = document.IsUntitled || !Path.IsPathRooted(document.FilePath),
-                IsDirty = false,
-                FileSizeBytes = document.FileSizeBytes,
-                LastModified = document.LastModified,
-                EncodingName = document.EncodingName,
-                NewLine = document.NewLine
-            };
-
-            _document = nextDocumentState;
+            var preparedDocument = _documentWorkflowController.PrepareDocument(document, SelectedViewMode);
+            _document = preparedDocument.DocumentState;
 
             var uiStateStopwatch = Stopwatch.StartNew();
             await MainThread.InvokeOnMainThreadAsync(() =>
@@ -856,7 +821,7 @@ public class MainViewModel : INotifyPropertyChanged
                 }
 
                 EditorText = _document.Content;
-                InlineErrorMessage = string.Empty;
+                InlineErrorMessage = preparedDocument.InlineErrorMessage ?? string.Empty;
                 if (previousIsDirty != _document.IsDirty)
                 {
                     OnPropertyChanged(nameof(IsDirty));
@@ -867,6 +832,9 @@ public class MainViewModel : INotifyPropertyChanged
                     OnPropertyChanged(nameof(IsUntitled));
                 }
 
+                SelectedViewMode = preparedDocument.ViewMode;
+                ParsedBlocks = preparedDocument.Blocks;
+                DocumentApplied?.Invoke(this, document);
                 OnPropertyChanged(nameof(StatusText));
             });
             uiStateStopwatch.Stop();
@@ -889,18 +857,13 @@ public class MainViewModel : INotifyPropertyChanged
             }
             sessionStopwatch.Stop();
 
-            var applyStopwatch = Stopwatch.StartNew();
-            await ParseAndApplyPreviewAsync(_document.Content);
-            applyStopwatch.Stop();
-
             _logger.LogInformation(
-                "Document load/apply pipeline completed. FilePath: {FilePath}, ContentLength: {ContentLength}, UiStateMs: {UiStateMs}, WatchMs: {WatchMs}, SessionPersistMs: {SessionPersistMs}, PreviewApplyMs: {PreviewApplyMs}, TotalElapsedMs: {TotalElapsedMs}, ViewMode: {ViewMode}",
+                "Document load/apply pipeline completed. FilePath: {FilePath}, ContentLength: {ContentLength}, UiStateMs: {UiStateMs}, WatchMs: {WatchMs}, SessionPersistMs: {SessionPersistMs}, TotalElapsedMs: {TotalElapsedMs}, ViewMode: {ViewMode}",
                 _document.FilePath,
                 _document.Content.Length,
                 uiStateStopwatch.ElapsedMilliseconds,
                 watchStopwatch.ElapsedMilliseconds,
                 sessionStopwatch.ElapsedMilliseconds,
-                applyStopwatch.ElapsedMilliseconds,
                 overallStopwatch.ElapsedMilliseconds,
                 SelectedViewMode);
         }
@@ -913,36 +876,30 @@ public class MainViewModel : INotifyPropertyChanged
     private async Task ParseAndApplyPreviewAsync(string text)
     {
         var pipelineStopwatch = Stopwatch.StartNew();
-        IReadOnlyList<MarkdownBlock> blocks;
         var parseStopwatch = Stopwatch.StartNew();
-        try
+        var preparedDocument = _documentWorkflowController.PrepareDocument(new MarkdownDocument
         {
-            blocks = _parser.Parse(text);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Markdown parsing failed. Falling back to plaintext paragraph rendering.");
-            blocks = [new MarkdownBlock { Type = BlockType.Paragraph, Content = text }];
-
-            if (SelectedViewMode == EditorViewMode.RichTextEditor)
-            {
-                SelectedViewMode = EditorViewMode.TextEditor;
-            }
-
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                InlineErrorMessage = "Markdown parsing failed. The document is shown in a safe fallback mode.";
-            });
-        }
-        finally
-        {
-            parseStopwatch.Stop();
-        }
+            FilePath = _document.FilePath,
+            FileName = _document.FileName,
+            FileSizeBytes = _document.FileSizeBytes,
+            LastModified = _document.LastModified,
+            Content = text,
+            IsUntitled = _document.IsUntitled,
+            EncodingName = _document.EncodingName,
+            NewLine = _document.NewLine
+        }, SelectedViewMode);
+        parseStopwatch.Stop();
 
         var applyStopwatch = Stopwatch.StartNew();
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            ParsedBlocks = blocks;
+            if (SelectedViewMode != preparedDocument.ViewMode)
+            {
+                SelectedViewMode = preparedDocument.ViewMode;
+            }
+
+            ParsedBlocks = preparedDocument.Blocks;
+            InlineErrorMessage = preparedDocument.InlineErrorMessage ?? string.Empty;
             DocumentApplied?.Invoke(this, new MarkdownDocument
             {
                 FilePath = _document.FilePath,
@@ -960,7 +917,7 @@ public class MainViewModel : INotifyPropertyChanged
         _logger.LogInformation(
             "Preview parse/apply completed. FilePath: {FilePath}, BlockCount: {BlockCount}, ParseElapsedMs: {ParseElapsedMs}, UiApplyElapsedMs: {UiApplyElapsedMs}, TotalElapsedMs: {TotalElapsedMs}, ViewMode: {ViewMode}",
             _document.FilePath,
-            blocks.Count,
+            preparedDocument.Blocks.Count,
             parseStopwatch.ElapsedMilliseconds,
             applyStopwatch.ElapsedMilliseconds,
             pipelineStopwatch.ElapsedMilliseconds,
@@ -990,30 +947,13 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void ScheduleAutoSave()
     {
-        _autosaveCancellationSource?.Cancel();
-        _autosaveCancellationSource?.Dispose();
-
-        if (!_preferences.AutoSaveEnabled || _document.IsUntitled || !_document.IsDirty || string.IsNullOrWhiteSpace(_document.FilePath))
-        {
-            return;
-        }
-
-        _autosaveCancellationSource = new CancellationTokenSource();
-        var token = _autosaveCancellationSource.Token;
-        var delay = TimeSpan.FromSeconds(_preferences.AutoSaveDelaySeconds);
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(delay, token);
-                token.ThrowIfCancellationRequested();
-                await MainThread.InvokeOnMainThreadAsync(async () => await SaveCurrentDocumentInternalAsync(forceSaveAs: false));
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, token);
+        _autosaveCoordinator.Schedule(
+            _preferences.AutoSaveEnabled,
+            _document.IsUntitled,
+            _document.IsDirty,
+            _document.FilePath,
+            TimeSpan.FromSeconds(_preferences.AutoSaveDelaySeconds),
+            () => SaveCurrentDocumentInternalAsync(forceSaveAs: false));
     }
 
     private async void OnWatchedDocumentChanged(object? sender, string filePath)
@@ -1157,155 +1097,14 @@ public class MainViewModel : INotifyPropertyChanged
 
             IsWorkspacePanelVisible = true;
             WorkspaceSearchText = string.Empty;
-            await LoadWorkspaceAsync(folderPath);
+            await Workspace.LoadWorkspaceAsync(folderPath);
+            PersistSessionState();
             await ClearInlineErrorAsync();
         }
         catch (Exception ex)
         {
             await ReportErrorAsync("Failed to open the selected folder.", ex, "The selected folder could not be opened.");
         }
-    }
-
-    private async Task LoadWorkspaceAsync(string folderPath, string? currentFolderPath = null, string? selectedPath = null, string? renamePath = null, bool persistSessionState = true)
-    {
-        if (string.IsNullOrWhiteSpace(folderPath))
-        {
-            return;
-        }
-
-        var tree = await _workspaceBrowserService.LoadWorkspaceTreeAsync(folderPath);
-        var rootItems = tree.Select(info => BuildWorkspaceItem(info, 0, null)).ToList();
-
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                WorkspaceRootPath = folderPath;
-                _workspaceRootItems.Clear();
-                _workspaceRootItems.AddRange(rootItems);
-                CurrentWorkspaceFolderPath = ResolveCurrentWorkspaceFolderPath(folderPath, currentFolderPath);
-                SetSelectedWorkspaceItem(string.IsNullOrWhiteSpace(selectedPath) ? null : FindWorkspaceItem(selectedPath));
-            });
-
-        await RefreshWorkspaceItemsAsync();
-
-        if (!string.IsNullOrWhiteSpace(renamePath))
-        {
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                var itemToRename = FindWorkspaceItem(renamePath);
-                if (itemToRename is not null)
-                {
-                    BeginRenameWorkspaceItem(itemToRename);
-                }
-            });
-        }
-
-        if (persistSessionState)
-        {
-            PersistSessionState();
-        }
-    }
-
-    private WorkspaceTreeItem BuildWorkspaceItem(WorkspaceNodeInfo info, int depth, WorkspaceTreeItem? parent)
-    {
-        var item = new WorkspaceTreeItem(info.FullPath, info.IsDirectory, depth, parent);
-        foreach (var child in info.Children)
-        {
-            item.Children.Add(BuildWorkspaceItem(child, depth + 1, item));
-        }
-
-        return item;
-    }
-
-    private async Task RefreshWorkspaceItemsAsync()
-    {
-        _workspaceSearchCancellationSource?.Cancel();
-        _workspaceSearchCancellationSource?.Dispose();
-        _workspaceSearchCancellationSource = new CancellationTokenSource();
-        var cancellationToken = _workspaceSearchCancellationSource.Token;
-
-        try
-        {
-            var visibleItems = string.IsNullOrWhiteSpace(WorkspaceSearchText)
-                ? BuildCurrentFolderItems()
-                : await BuildSearchedWorkspaceItemsAsync(WorkspaceSearchText.Trim(), cancellationToken);
-
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                WorkspaceItems.Clear();
-                foreach (var item in visibleItems)
-                {
-                    WorkspaceItems.Add(item);
-                }
-            });
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
-
-    private List<WorkspaceTreeItem> BuildCurrentFolderItems()
-    {
-        if (string.IsNullOrWhiteSpace(CurrentWorkspaceFolderPath) || string.Equals(CurrentWorkspaceFolderPath, WorkspaceRootPath, StringComparison.Ordinal))
-        {
-            return _workspaceRootItems
-                .OrderBy(item => item.IsDirectory ? 0 : 1)
-                .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        var currentFolder = FindWorkspaceItem(CurrentWorkspaceFolderPath);
-        if (currentFolder is null)
-        {
-            return [];
-        }
-
-        return currentFolder.Children
-            .OrderBy(item => item.IsDirectory ? 0 : 1)
-            .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private async Task<List<WorkspaceTreeItem>> BuildSearchedWorkspaceItemsAsync(string query, CancellationToken cancellationToken)
-    {
-        var visibleItems = new List<WorkspaceTreeItem>();
-        var searchRoots = string.Equals(CurrentWorkspaceFolderPath, WorkspaceRootPath, StringComparison.Ordinal) || string.IsNullOrWhiteSpace(CurrentWorkspaceFolderPath)
-            ? _workspaceRootItems
-            : FindWorkspaceItem(CurrentWorkspaceFolderPath) is { } currentFolder
-                ? currentFolder.Children
-                : [];
-
-        foreach (var rootItem in searchRoots)
-        {
-            await AppendMatchingWorkspaceItemsAsync(rootItem, query, visibleItems, cancellationToken);
-        }
-
-        return visibleItems;
-    }
-
-    private async Task<bool> AppendMatchingWorkspaceItemsAsync(WorkspaceTreeItem item, string query, List<WorkspaceTreeItem> visibleItems, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var matchingChildren = new List<WorkspaceTreeItem>();
-        foreach (var child in item.Children)
-        {
-            await AppendMatchingWorkspaceItemsAsync(child, query, matchingChildren, cancellationToken);
-        }
-
-        var selfMatches = item.Name.Contains(query, StringComparison.OrdinalIgnoreCase);
-        if (!selfMatches && !item.IsDirectory)
-        {
-            selfMatches = await _workspaceBrowserService.FileContainsTextAsync(item.FullPath, query, cancellationToken);
-        }
-
-        if (!selfMatches && matchingChildren.Count == 0)
-        {
-            return false;
-        }
-
-        visibleItems.Add(item);
-        visibleItems.AddRange(matchingChildren);
-        return true;
     }
 
     private async Task SelectWorkspaceItemAsync(WorkspaceTreeItem? item)
@@ -1315,12 +1114,12 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        await MainThread.InvokeOnMainThreadAsync(() => SetSelectedWorkspaceItem(item));
+        await MainThread.InvokeOnMainThreadAsync(() => Workspace.SelectItem(item));
 
         if (!item.IsDirectory)
         {
             await OpenDocumentAsync(
-                () => _documentService.LoadDocumentAsync(item.FullPath),
+                async () => await _documentService.LoadDocumentAsync(item.FullPath),
                 "Failed to open markdown file from the workspace tree.",
                 "The selected file could not be opened.");
         }
@@ -1333,19 +1132,17 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        await MainThread.InvokeOnMainThreadAsync(() => SetSelectedWorkspaceItem(item));
+        await MainThread.InvokeOnMainThreadAsync(() => Workspace.SelectItem(item));
 
         if (item.IsDirectory)
         {
-            SetSelectedWorkspaceItem(null);
-            CurrentWorkspaceFolderPath = item.FullPath;
+            await Workspace.NavigateToItemAsync(item);
             PersistSessionState();
-            await RefreshWorkspaceItemsAsync();
             return;
         }
 
         await OpenDocumentAsync(
-            () => _documentService.LoadDocumentAsync(item.FullPath),
+            async () => await _documentService.LoadDocumentAsync(item.FullPath),
             "Failed to open markdown file from the workspace tree.",
             "The selected file could not be opened.");
     }
@@ -1360,21 +1157,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void BeginRenameWorkspaceItem(WorkspaceTreeItem? item)
     {
-        if (item is null || !item.CanRename)
-        {
-            return;
-        }
-
-        if (PendingRenameItem is not null && !ReferenceEquals(PendingRenameItem, item))
-        {
-            PendingRenameItem.IsRenaming = false;
-            PendingRenameItem.ResetRenameText();
-        }
-
-        item.ResetRenameText();
-        item.IsRenaming = true;
-        PendingRenameItem = item;
-        SetSelectedWorkspaceItem(item);
+        Workspace.BeginRename(item);
     }
 
     private async Task CreateMdsAsync()
@@ -1384,13 +1167,15 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        var targetDirectory = SelectedWorkspaceDirectoryPath;
+        var targetDirectory = Workspace.SelectedWorkspaceDirectoryPath;
 
         try
         {
             WorkspaceSearchText = string.Empty;
             var createdFilePath = await _workspaceBrowserService.CreateMarkdownSharpFileAsync(targetDirectory);
-            await LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath, selectedPath: createdFilePath, renamePath: createdFilePath);
+            await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath, selectedPath: createdFilePath);
+            Workspace.BeginRename(Workspace.FindWorkspaceItem(createdFilePath));
+            PersistSessionState();
             await ClearInlineErrorAsync();
         }
         catch (Exception ex)
@@ -1405,22 +1190,9 @@ public class MainViewModel : INotifyPropertyChanged
         {
             return;
         }
-
-        var parentDirectory = Path.GetDirectoryName(CurrentWorkspaceFolderPath.TrimEnd(Path.DirectorySeparatorChar));
-        if (string.IsNullOrWhiteSpace(parentDirectory))
-        {
-            return;
-        }
-
-        if (!parentDirectory.StartsWith(WorkspaceRootPath, StringComparison.Ordinal))
-        {
-            parentDirectory = WorkspaceRootPath;
-        }
-
-        CurrentWorkspaceFolderPath = parentDirectory;
-        SetSelectedWorkspaceItem(null);
+        
+        await Workspace.NavigateUpAsync();
         PersistSessionState();
-        await RefreshWorkspaceItemsAsync();
     }
 
     private async Task SetWorkspaceFolderToCurrentAsync()
@@ -1430,68 +1202,10 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        var newWorkspaceRoot = CurrentWorkspaceFolderPath;
         WorkspaceSearchText = string.Empty;
-        await LoadWorkspaceAsync(newWorkspaceRoot, currentFolderPath: newWorkspaceRoot);
+        await Workspace.SetWorkspaceFolderToCurrentAsync();
+        PersistSessionState();
         await ClearInlineErrorAsync();
-    }
-
-    private string SelectedWorkspaceDirectoryPath =>
-        !string.IsNullOrWhiteSpace(CurrentWorkspaceFolderPath)
-            ? CurrentWorkspaceFolderPath
-            : WorkspaceRootPath;
-
-    private void SetSelectedWorkspaceItem(WorkspaceTreeItem? item)
-    {
-        if (ReferenceEquals(_selectedWorkspaceItem, item))
-        {
-            return;
-        }
-
-        if (_selectedWorkspaceItem is not null)
-        {
-            _selectedWorkspaceItem.IsSelected = false;
-        }
-
-        _selectedWorkspaceItem = item;
-
-        if (_selectedWorkspaceItem is not null)
-        {
-            _selectedWorkspaceItem.IsSelected = true;
-        }
-    }
-
-    private WorkspaceTreeItem? FindWorkspaceItem(string fullPath)
-    {
-        foreach (var rootItem in _workspaceRootItems)
-        {
-            var match = FindWorkspaceItemRecursive(rootItem, fullPath);
-            if (match is not null)
-            {
-                return match;
-            }
-        }
-
-        return null;
-    }
-
-    private static WorkspaceTreeItem? FindWorkspaceItemRecursive(WorkspaceTreeItem item, string fullPath)
-    {
-        if (string.Equals(item.FullPath, fullPath, StringComparison.Ordinal))
-        {
-            return item;
-        }
-
-        foreach (var child in item.Children)
-        {
-            var match = FindWorkspaceItemRecursive(child, fullPath);
-            if (match is not null)
-            {
-                return match;
-            }
-        }
-
-        return null;
     }
 
     private async Task RestoreSessionAsync()
@@ -1500,19 +1214,27 @@ public class MainViewModel : INotifyPropertyChanged
         try
         {
             IsWorkspacePanelVisible = _sessionState.IsWorkspacePanelVisible;
+            WorkspacePanelWidth = _sessionState.WorkspacePanelWidth;
+            SelectedViewMode = _sessionState.LastViewMode;
 
-            var restoredWorkspacePath = ResolveWorkspaceRestorePath(out var workspaceRepickMessage);
+            var restoredWorkspacePath = _sessionRestoreCoordinator.ResolveWorkspaceRestorePath(_sessionState, out var workspaceRepickMessage);
             var hasWorkspaceAccess = !string.IsNullOrWhiteSpace(restoredWorkspacePath) && Directory.Exists(restoredWorkspacePath);
             if (hasWorkspaceAccess)
             {
-                WorkspaceRootPath = restoredWorkspacePath!;
-                CurrentWorkspaceFolderPath = ResolveCurrentWorkspaceFolderPath(restoredWorkspacePath!, _sessionState.CurrentFolderPath);
+                await Workspace.LoadWorkspaceAsync(
+                    restoredWorkspacePath!,
+                    ResolveCurrentWorkspaceFolderPath(restoredWorkspacePath!, _sessionState.CurrentFolderPath),
+                    _sessionState.DocumentFilePath);
+            }
+            else
+            {
+                Workspace.Clear();
             }
 
             var documentRestore = await TryRestoreSessionDocumentAsync(hasWorkspaceAccess);
             if (documentRestore.Document is not null)
             {
-                await LoadDocumentIntoStateAsync(documentRestore.Document);
+                await LoadDocumentIntoStateAsync(documentRestore.Document, persistSessionState: false);
             }
             else
             {
@@ -1528,28 +1250,8 @@ public class MainViewModel : INotifyPropertyChanged
                     });
                 }
             }
-
-            SelectedViewMode = _sessionState.LastViewMode;
-            if (hasWorkspaceAccess)
-            {
-                StartDeferredWorkspaceRestore(
-                    restoredWorkspacePath!,
-                    ResolveCurrentWorkspaceFolderPath(restoredWorkspacePath!, _sessionState.CurrentFolderPath),
-                    documentRestore.Document?.FilePath ?? _sessionState.DocumentFilePath);
-            }
-
-            if (documentRestore.Document is not null || string.IsNullOrWhiteSpace(_sessionState.DocumentFilePath))
-            {
-                PersistSessionState();
-            }
-            else
-            {
-                _sessionState.LastViewMode = SelectedViewMode;
-                _sessionState.IsWorkspacePanelVisible = IsWorkspacePanelVisible;
-                _sessionState.WorkspacePanelWidth = WorkspacePanelWidth;
-                _sessionState.CurrentFolderPath = CurrentWorkspaceFolderPath;
-                _sessionStateService.Save(_sessionState);
-            }
+            
+            PersistSessionState();
             _logger.LogInformation("Restored previous session. WorkspaceRootPath: {WorkspaceRootPath}, CurrentFolderPath: {CurrentFolderPath}, DocumentFilePath: {DocumentFilePath}, ViewMode: {ViewMode}, ElapsedMs: {ElapsedMs}",
                 _sessionState.WorkspaceRootPath,
                 _sessionState.CurrentFolderPath,
@@ -1566,7 +1268,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     private async Task<(MarkdownDocument? Document, string? RepickMessage)> TryRestoreSessionDocumentAsync(bool hasWorkspaceAccess)
     {
-        var filePath = ResolveDocumentRestorePath(hasWorkspaceAccess, out var needsRepick);
+        var filePath = _sessionRestoreCoordinator.ResolveDocumentRestorePath(_sessionState, hasWorkspaceAccess, out var needsRepick);
         _logger.LogInformation(
             "Resolved session document restore path. FilePath: {FilePath}, HasWorkspaceAccess: {HasWorkspaceAccess}, NeedsRepick: {NeedsRepick}, SavedDocumentFilePath: {SavedDocumentFilePath}, HasDocumentBookmark: {HasDocumentBookmark}",
             filePath,
@@ -1601,23 +1303,29 @@ public class MainViewModel : INotifyPropertyChanged
         _sessionState = new SessionState
         {
             WorkspaceRootPath = string.IsNullOrWhiteSpace(WorkspaceRootPath) ? null : WorkspaceRootPath,
-            WorkspaceRootBookmark = string.IsNullOrWhiteSpace(WorkspaceRootPath) ? null : _workspaceBrowserService.TryCreatePersistentAccessBookmark(WorkspaceRootPath),
             DocumentFilePath = !IsUntitled && !string.IsNullOrWhiteSpace(FilePath) ? FilePath : null,
-            DocumentFileBookmark = !IsUntitled && !string.IsNullOrWhiteSpace(FilePath) ? _documentService.TryCreatePersistentAccessBookmark(FilePath) : null,
             CurrentFolderPath = string.IsNullOrWhiteSpace(CurrentWorkspaceFolderPath) ? WorkspaceRootPath : CurrentWorkspaceFolderPath,
             LastViewMode = SelectedViewMode,
             IsWorkspacePanelVisible = IsWorkspacePanelVisible,
             WorkspacePanelWidth = WorkspacePanelWidth
         };
 
-        _sessionStateService.Save(_sessionState);
+        _sessionRestoreCoordinator.Save(new SessionPersistenceRequest
+        {
+            WorkspaceRootPath = _sessionState.WorkspaceRootPath,
+            DocumentFilePath = _sessionState.DocumentFilePath,
+            CurrentFolderPath = _sessionState.CurrentFolderPath,
+            ViewMode = _sessionState.LastViewMode,
+            IsWorkspacePanelVisible = _sessionState.IsWorkspacePanelVisible,
+            WorkspacePanelWidth = _sessionState.WorkspacePanelWidth
+        });
         _logger.LogInformation(
             "Persisted session state. WorkspaceRootPath: {WorkspaceRootPath}, CurrentFolderPath: {CurrentFolderPath}, DocumentFilePath: {DocumentFilePath}, HasWorkspaceBookmark: {HasWorkspaceBookmark}, HasDocumentBookmark: {HasDocumentBookmark}, ViewMode: {ViewMode}",
             _sessionState.WorkspaceRootPath,
             _sessionState.CurrentFolderPath,
             _sessionState.DocumentFilePath,
-            !string.IsNullOrWhiteSpace(_sessionState.WorkspaceRootBookmark),
-            !string.IsNullOrWhiteSpace(_sessionState.DocumentFileBookmark),
+            !string.IsNullOrWhiteSpace(_sessionState.WorkspaceRootPath),
+            !string.IsNullOrWhiteSpace(_sessionState.DocumentFilePath),
             _sessionState.LastViewMode);
     }
 
@@ -1629,144 +1337,16 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         _sessionState.DocumentFilePath = document.FilePath;
-        _sessionState.DocumentFileBookmark = _documentService.TryCreatePersistentAccessBookmark(document.FilePath);
         _sessionState.CurrentFolderPath = CurrentWorkspaceFolderPath;
         _sessionState.LastViewMode = SelectedViewMode;
         _sessionState.IsWorkspacePanelVisible = IsWorkspacePanelVisible;
         _sessionState.WorkspacePanelWidth = WorkspacePanelWidth;
-        _sessionStateService.Save(_sessionState);
+        PersistSessionState();
 
         _logger.LogInformation(
             "Remembered opened document for session restore. DocumentFilePath: {DocumentFilePath}, HasDocumentBookmark: {HasDocumentBookmark}",
             _sessionState.DocumentFilePath,
-            !string.IsNullOrWhiteSpace(_sessionState.DocumentFileBookmark));
-    }
-
-    private async Task TryRestoreWorkspaceAsync(string workspaceRootPath)
-    {
-        var stopwatch = Stopwatch.StartNew();
-
-        try
-        {
-            _ = Directory.EnumerateFileSystemEntries(workspaceRootPath).Take(1).Any();
-            await LoadWorkspaceAsync(workspaceRootPath, currentFolderPath: ResolveCurrentWorkspaceFolderPath(workspaceRootPath, _sessionState.CurrentFolderPath), persistSessionState: false);
-            _logger.LogInformation("Restored workspace from session. WorkspaceRootPath: {WorkspaceRootPath}, ElapsedMs: {ElapsedMs}",
-                workspaceRootPath,
-                stopwatch.ElapsedMilliseconds);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            _logger.LogWarning(ex, "Skipping workspace restore because access was denied. WorkspaceRootPath: {WorkspaceRootPath}, ElapsedMs: {ElapsedMs}",
-                workspaceRootPath,
-                stopwatch.ElapsedMilliseconds);
-
-            WorkspaceRootPath = string.Empty;
-            _workspaceRootItems.Clear();
-            WorkspaceItems.Clear();
-        }
-    }
-
-    private void StartDeferredWorkspaceRestore(string workspaceRootPath, string currentFolderPath, string? selectedPath)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(200);
-                await TryRestoreWorkspaceAsync(workspaceRootPath, currentFolderPath, selectedPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Deferred workspace restore failed. WorkspaceRootPath: {WorkspaceRootPath}", workspaceRootPath);
-            }
-        });
-    }
-
-    private async Task TryRestoreWorkspaceAsync(string workspaceRootPath, string currentFolderPath, string? selectedPath)
-    {
-        var stopwatch = Stopwatch.StartNew();
-
-        try
-        {
-            _ = Directory.EnumerateFileSystemEntries(workspaceRootPath).Take(1).Any();
-            await LoadWorkspaceAsync(workspaceRootPath, currentFolderPath: currentFolderPath, selectedPath: selectedPath, persistSessionState: false);
-            _logger.LogInformation("Deferred workspace restore completed. WorkspaceRootPath: {WorkspaceRootPath}, CurrentFolderPath: {CurrentFolderPath}, SelectedPath: {SelectedPath}, ElapsedMs: {ElapsedMs}",
-                workspaceRootPath,
-                currentFolderPath,
-                selectedPath,
-                stopwatch.ElapsedMilliseconds);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            _logger.LogWarning(ex, "Skipping deferred workspace restore because access was denied. WorkspaceRootPath: {WorkspaceRootPath}, ElapsedMs: {ElapsedMs}",
-                workspaceRootPath,
-                stopwatch.ElapsedMilliseconds);
-
-            WorkspaceRootPath = string.Empty;
-            _workspaceRootItems.Clear();
-            WorkspaceItems.Clear();
-        }
-    }
-
-    private string? ResolveWorkspaceRestorePath(out string? repickMessage)
-    {
-        repickMessage = null;
-
-#if MACCATALYST
-        if (!string.IsNullOrWhiteSpace(_sessionState.WorkspaceRootBookmark))
-        {
-            if (_workspaceBrowserService.TryRestorePersistentAccessFromBookmark(_sessionState.WorkspaceRootBookmark, out var restoredPath, out var isStale) &&
-                !string.IsNullOrWhiteSpace(restoredPath))
-            {
-                if (isStale)
-                {
-                    _logger.LogWarning("Workspace bookmark resolved but is stale. WorkspaceRootPath: {WorkspaceRootPath}", restoredPath);
-                }
-
-                return restoredPath;
-            }
-
-            repickMessage = "The previous workspace folder needs permission again. Please use Open Folder to re-pick it.";
-            return null;
-        }
-
-        return null;
-#else
-        return _sessionState.WorkspaceRootPath;
-#endif
-    }
-
-    private string? ResolveDocumentRestorePath(bool hasWorkspaceAccess, out bool needsRepick)
-    {
-        needsRepick = false;
-
-#if MACCATALYST
-        if (!string.IsNullOrWhiteSpace(_sessionState.DocumentFileBookmark))
-        {
-            if (_documentService.TryRestorePersistentAccessFromBookmark(_sessionState.DocumentFileBookmark, out var restoredPath, out var isStale) &&
-                !string.IsNullOrWhiteSpace(restoredPath))
-            {
-                if (isStale)
-                {
-                    _logger.LogWarning("Document bookmark resolved but is stale. DocumentFilePath: {DocumentFilePath}", restoredPath);
-                }
-
-                return restoredPath;
-            }
-
-            needsRepick = true;
-            return null;
-        }
-
-        if (hasWorkspaceAccess)
-        {
-            return _sessionState.DocumentFilePath;
-        }
-
-        return null;
-#else
-        return _sessionState.DocumentFilePath;
-#endif
+            !string.IsNullOrWhiteSpace(_sessionState.DocumentFilePath));
     }
 
     private async Task LoadFallbackStartupDocumentAsync(Stopwatch startupStopwatch)
@@ -1782,7 +1362,7 @@ public class MainViewModel : INotifyPropertyChanged
             startupStopwatch.ElapsedMilliseconds);
     }
 
-    private string ResolveCurrentWorkspaceFolderPath(string workspaceRootPath, string? currentFolderPath)
+    private static string ResolveCurrentWorkspaceFolderPath(string workspaceRootPath, string? currentFolderPath)
     {
         if (string.IsNullOrWhiteSpace(workspaceRootPath))
         {

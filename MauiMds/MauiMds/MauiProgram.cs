@@ -1,4 +1,7 @@
-﻿using MauiMds.Logging;
+﻿using MauiMds.Features.Editor;
+using MauiMds.Features.Session;
+using MauiMds.Features.Workspace;
+using MauiMds.Logging;
 using MauiMds.Processors;
 using MauiMds.Services;
 using MauiMds.ViewModels;
@@ -35,8 +38,16 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IEditorPreferencesService>(preferencesService);
 		builder.Services.AddSingleton<IDocumentWatchService, DocumentWatchService>();
 		builder.Services.AddSingleton<ISessionStateService, SessionStateService>();
+		builder.Services.AddSingleton<MarkdownFileAccessService>();
+		builder.Services.AddSingleton<IMarkdownFileAccessService>(sp => sp.GetRequiredService<MarkdownFileAccessService>());
+		builder.Services.AddSingleton<IMarkdownFileStorageService, MarkdownFileStorageService>();
+		builder.Services.AddSingleton<IMarkdownDocumentPickerService, MarkdownDocumentPickerService>();
 		builder.Services.AddSingleton<IMarkdownDocumentService, MarkdownDocumentService>();
 		builder.Services.AddSingleton<IWorkspaceBrowserService, WorkspaceBrowserService>();
+		builder.Services.AddSingleton<WorkspaceExplorerState>();
+		builder.Services.AddSingleton<DocumentWorkflowController>();
+		builder.Services.AddSingleton<AutosaveCoordinator>();
+		builder.Services.AddSingleton<SessionRestoreCoordinator>();
 		builder.Services.AddSingleton<MainViewModel>();
 		builder.Services.AddSingleton<Views.MainPage>();
 

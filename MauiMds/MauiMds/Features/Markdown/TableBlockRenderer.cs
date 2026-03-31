@@ -1,7 +1,7 @@
 using MauiMds.Models;
 using Microsoft.Maui.Controls.Shapes;
 
-namespace MauiMds.Markdown;
+namespace MauiMds.Features.Markdown;
 
 public sealed class TableBlockRenderer : IMarkdownBlockRenderer
 {

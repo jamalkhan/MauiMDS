@@ -2,7 +2,7 @@ using System.Diagnostics;
 using MauiMds.Models;
 using Microsoft.Extensions.Logging;
 
-namespace MauiMds.Markdown;
+namespace MauiMds.Features.Markdown;
 
 public sealed class MarkdownView : ContentView
 {
