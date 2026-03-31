@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace MauiMds.Models;
 
 public sealed class EditorPreferences
@@ -7,4 +9,5 @@ public sealed class EditorPreferences
     public int MaxLogFileSizeMb { get; init; } = 2;
     public int InitialViewerRenderLineCount { get; init; } = 20;
     public bool Use24HourTime { get; init; }
+    public LogLevel FileLogLevel { get; init; } = LogLevel.Information;
 }

@@ -6,7 +6,10 @@ namespace MauiMds.Features.Markdown;
 
 public sealed class MarkdownView : ContentView
 {
-    private const int IncrementalRenderBatchSize = 4;
+    private const int IncrementalRenderBatchLineBudget = 10;
+    private const int MinimumInitialRenderLineCount = 12;
+    private const int MinimumEstimatedViewportLines = 16;
+    private static readonly TimeSpan IncrementalRenderBatchDelay = TimeSpan.FromMilliseconds(12);
 
     public static readonly BindableProperty BlocksProperty = BindableProperty.Create(
         nameof(Blocks),
@@ -43,6 +46,7 @@ public sealed class MarkdownView : ContentView
     private CancellationTokenSource? _renderCancellationSource;
     private bool _hasPendingRender;
     private int _renderVersion;
+    private int _requestedRenderVersion;
 
     public MarkdownView()
     {
@@ -107,7 +111,11 @@ public sealed class MarkdownView : ContentView
 
     private static void OnSourceFilePathChanged(BindableObject bindable, object? oldValue, object? newValue)
     {
-        ((MarkdownView)bindable).RequestRender("source file path changed");
+        var view = (MarkdownView)bindable;
+        view._logger?.LogInformation(
+            "MarkdownView source file path updated without rerender. SourceFilePath: {SourceFilePath}, BlockCount: {BlockCount}",
+            view.SourceFilePath,
+            view.Blocks?.Count ?? 0);
     }
 
     private static void OnIsRenderingEnabledChanged(BindableObject bindable, object? oldValue, object? newValue)
@@ -140,12 +148,15 @@ public sealed class MarkdownView : ContentView
 
     private void RequestRender(string reason)
     {
+        var requestVersion = Interlocked.Increment(ref _requestedRenderVersion);
+
         if (!IsRenderingEnabled)
         {
             _hasPendingRender = true;
             _logger?.LogInformation(
-                "MarkdownView render deferred. Reason: {Reason}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+                "MarkdownView render deferred. Reason: {Reason}, RequestVersion: {RequestVersion}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
                 reason,
+                requestVersion,
                 Blocks?.Count ?? 0,
                 SourceFilePath);
             return;
@@ -163,7 +174,7 @@ public sealed class MarkdownView : ContentView
             {
                 await Task.Delay(1, token);
                 token.ThrowIfCancellationRequested();
-                await MainThread.InvokeOnMainThreadAsync(async () => await RenderMarkdownCoreAsync(token));
+                await MainThread.InvokeOnMainThreadAsync(async () => await RenderMarkdownCoreAsync(token, requestVersion));
             }
             catch (OperationCanceledException)
             {
@@ -171,16 +182,25 @@ public sealed class MarkdownView : ContentView
         }, token);
     }
 
-    private async Task RenderMarkdownCoreAsync(CancellationToken cancellationToken)
+    private async Task RenderMarkdownCoreAsync(CancellationToken cancellationToken, int requestVersion)
     {
+        if (requestVersion != _requestedRenderVersion)
+        {
+            _logger?.LogInformation(
+                "MarkdownView render skipped before start because a newer request exists. RequestVersion: {RequestVersion}, CurrentRequestVersion: {CurrentRequestVersion}, SourceFilePath: {SourceFilePath}",
+                requestVersion,
+                _requestedRenderVersion,
+                SourceFilePath);
+            return;
+        }
+
         var stopwatch = Stopwatch.StartNew();
         var renderVersion = Interlocked.Increment(ref _renderVersion);
         _logger?.LogInformation(
-            "MarkdownView rendering started. BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+            "MarkdownView rendering started. RequestVersion: {RequestVersion}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
+            requestVersion,
             Blocks?.Count ?? 0,
             SourceFilePath);
-
-        _contentStack.Children.Clear();
 
         if (Blocks is null)
         {
@@ -194,54 +214,124 @@ public sealed class MarkdownView : ContentView
             return;
         }
 
+        if (requestVersion != _requestedRenderVersion)
+        {
+            _logger?.LogInformation(
+                "MarkdownView render canceled before clearing old content. RequestVersion: {RequestVersion}, CurrentRequestVersion: {CurrentRequestVersion}, SourceFilePath: {SourceFilePath}",
+                requestVersion,
+                _requestedRenderVersion,
+                SourceFilePath);
+            return;
+        }
+
+        _contentStack.Children.Clear();
+
+        var blocks = Blocks;
         var context = new MarkdownRenderContext
         {
             SourceFilePath = SourceFilePath,
             InlineFormatter = _inlineFormatter
         };
 
-        var initialBatchEnd = CalculateInitialBatchEnd(Blocks, Math.Max(5, InitialRenderLineCount));
-        RenderRange(0, initialBatchEnd, context);
+        var initialBatchEnd = CalculateBatchEnd(
+            blocks,
+            0,
+            CalculateInitialRenderTargetLineCount());
+
+        _logger?.LogDebug(
+            "MarkdownView initial render batch prepared. RequestVersion: {RequestVersion}, InitialBatchBlockCount: {InitialBatchBlockCount}, TotalBlockCount: {TotalBlockCount}, InitialTargetLines: {InitialTargetLines}, SourceFilePath: {SourceFilePath}",
+            requestVersion,
+            initialBatchEnd,
+            blocks.Count,
+            CalculateInitialRenderTargetLineCount(),
+            SourceFilePath);
+
+        RenderRange(blocks, 0, initialBatchEnd, context);
         _contentStack.InvalidateMeasure();
         InvalidateMeasure();
 
         var index = initialBatchEnd;
-        while (index < Blocks.Count)
+        if (index < blocks.Count)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            await Task.Yield();
-
-            if (renderVersion != _renderVersion || !IsRenderingEnabled)
-            {
-                _logger?.LogInformation(
-                    "MarkdownView incremental render canceled. RenderVersion: {RenderVersion}, CurrentVersion: {CurrentVersion}, SourceFilePath: {SourceFilePath}",
-                    renderVersion,
-                    _renderVersion,
-                    SourceFilePath);
-                return;
-            }
-
-            var batchEnd = Math.Min(Blocks.Count, index + IncrementalRenderBatchSize);
-            RenderRange(index, batchEnd, context);
-            _contentStack.InvalidateMeasure();
-            InvalidateMeasure();
-            index = batchEnd;
+            _ = RenderRemainingBatchesAsync(
+                blocks,
+                context,
+                index,
+                renderVersion,
+                requestVersion,
+                stopwatch,
+                cancellationToken);
+            return;
         }
 
         CompleteRender(stopwatch);
     }
 
-    private void RenderRange(int startIndex, int endIndex, MarkdownRenderContext context)
+    private async Task RenderRemainingBatchesAsync(
+        IReadOnlyList<MarkdownBlock> blocks,
+        MarkdownRenderContext context,
+        int startIndex,
+        int renderVersion,
+        int requestVersion,
+        Stopwatch stopwatch,
+        CancellationToken cancellationToken)
     {
-        if (Blocks is null)
+        var index = startIndex;
+
+        while (index < blocks.Count)
         {
-            return;
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(IncrementalRenderBatchDelay, cancellationToken);
+
+            var batchStart = index;
+            var batchEnd = CalculateBatchEnd(blocks, batchStart, IncrementalRenderBatchLineBudget);
+            var batchStopwatch = Stopwatch.StartNew();
+
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                if (renderVersion != _renderVersion || requestVersion != _requestedRenderVersion || !IsRenderingEnabled)
+                {
+                    _logger?.LogInformation(
+                        "MarkdownView incremental render canceled. RenderVersion: {RenderVersion}, CurrentVersion: {CurrentVersion}, RequestVersion: {RequestVersion}, CurrentRequestVersion: {CurrentRequestVersion}, SourceFilePath: {SourceFilePath}",
+                        renderVersion,
+                        _renderVersion,
+                        requestVersion,
+                        _requestedRenderVersion,
+                        SourceFilePath);
+                    return;
+                }
+
+                RenderRange(blocks, batchStart, batchEnd, context);
+                _contentStack.InvalidateMeasure();
+                InvalidateMeasure();
+            });
+
+            batchStopwatch.Stop();
+            _logger?.LogTrace(
+                "MarkdownView incremental batch rendered. BatchStart: {BatchStart}, BatchEnd: {BatchEnd}, BatchBlockCount: {BatchBlockCount}, ElapsedMs: {ElapsedMs}, SourceFilePath: {SourceFilePath}",
+                batchStart,
+                batchEnd,
+                batchEnd - batchStart,
+                batchStopwatch.ElapsedMilliseconds,
+                SourceFilePath);
+
+            if (renderVersion != _renderVersion || requestVersion != _requestedRenderVersion || !IsRenderingEnabled)
+            {
+                return;
+            }
+
+            index = batchEnd;
         }
 
+        await MainThread.InvokeOnMainThreadAsync(() => CompleteRender(stopwatch));
+    }
+
+    private void RenderRange(IReadOnlyList<MarkdownBlock> blocks, int startIndex, int endIndex, MarkdownRenderContext context)
+    {
+        var rangeStopwatch = Stopwatch.StartNew();
         for (var index = startIndex; index < endIndex; index++)
         {
-            var block = Blocks[index];
+            var block = blocks[index];
 
             try
             {
@@ -263,17 +353,36 @@ public sealed class MarkdownView : ContentView
                 _contentStack.Children.Add(CreateFallbackBlockView(block, index));
             }
         }
+
+        rangeStopwatch.Stop();
+        _logger?.LogTrace(
+            "MarkdownView rendered block range. StartIndex: {StartIndex}, EndIndex: {EndIndex}, Count: {Count}, ElapsedMs: {ElapsedMs}, SourceFilePath: {SourceFilePath}",
+            startIndex,
+            endIndex,
+            endIndex - startIndex,
+            rangeStopwatch.ElapsedMilliseconds,
+            SourceFilePath);
     }
 
-    private static int CalculateInitialBatchEnd(IReadOnlyList<MarkdownBlock> blocks, int targetLineCount)
+    private int CalculateInitialRenderTargetLineCount()
     {
-        if (blocks.Count == 0)
+        var preferenceTarget = Math.Max(MinimumInitialRenderLineCount, InitialRenderLineCount);
+        var viewportTarget = Height > 0
+            ? Math.Max(MinimumEstimatedViewportLines, (int)Math.Ceiling(Height / 26d))
+            : MinimumEstimatedViewportLines;
+
+        return Math.Max(preferenceTarget, viewportTarget);
+    }
+
+    private static int CalculateBatchEnd(IReadOnlyList<MarkdownBlock> blocks, int startIndex, int targetLineCount)
+    {
+        if (blocks.Count == 0 || startIndex >= blocks.Count)
         {
-            return 0;
+            return startIndex;
         }
 
         var lineCount = 0;
-        for (var index = 0; index < blocks.Count; index++)
+        for (var index = startIndex; index < blocks.Count; index++)
         {
             lineCount += EstimateBlockLineCount(blocks[index]);
             if (lineCount >= targetLineCount)
@@ -327,6 +436,7 @@ public sealed class MarkdownView : ContentView
     private void OnHandlerChanged(object? sender, EventArgs e)
     {
         _logger = Handler?.MauiContext?.Services.GetService<ILogger<MarkdownView>>();
+        _inlineFormatter.AttachLogger(Handler?.MauiContext?.Services.GetService<ILogger<MarkdownInlineFormatter>>());
     }
 
     private static string BuildContentPreview(MarkdownBlock block)

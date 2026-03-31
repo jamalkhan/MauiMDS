@@ -37,6 +37,10 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
 
         _currentWorkspaceAccess?.Dispose();
         _currentWorkspaceAccess = new SecurityScopedResourceAccess(pickedUrl);
+        _logger.LogInformation(
+            "Picked workspace folder. FolderPath: {FolderPath}, AccessGranted: {AccessGranted}",
+            pickedUrl.Path,
+            _currentWorkspaceAccess.HasAccess);
         return pickedUrl.Path;
 #else
         var result = await FolderPicker.Default.PickAsync(default);
@@ -215,6 +219,24 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
 
             _currentWorkspaceAccess?.Dispose();
             _currentWorkspaceAccess = new SecurityScopedResourceAccess(resolvedUrl);
+            if (!_currentWorkspaceAccess.HasAccess || !CanEnumerateWorkspaceRoot(restoredPath))
+            {
+                _logger.LogWarning(
+                    "Workspace bookmark resolved but access could not be validated. WorkspaceRootPath: {WorkspaceRootPath}, IsStale: {IsStale}, AccessGranted: {AccessGranted}",
+                    restoredPath,
+                    isStale,
+                    _currentWorkspaceAccess.HasAccess);
+                _currentWorkspaceAccess.Dispose();
+                _currentWorkspaceAccess = null;
+                restoredPath = null;
+                return false;
+            }
+
+            _logger.LogInformation(
+                "Restored workspace bookmark. WorkspaceRootPath: {WorkspaceRootPath}, IsStale: {IsStale}, AccessGranted: {AccessGranted}",
+                restoredPath,
+                isStale,
+                _currentWorkspaceAccess.HasAccess);
             return true;
         }
         catch (Exception ex)
@@ -231,12 +253,31 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
 #endif
     }
 
-    private static List<WorkspaceNodeInfo> BuildChildren(DirectoryInfo directory, CancellationToken cancellationToken)
+    private bool CanEnumerateWorkspaceRoot(string rootPath)
+    {
+        try
+        {
+            using var enumerator = Directory.EnumerateFileSystemEntries(rootPath).GetEnumerator();
+            _ = enumerator.MoveNext();
+            return true;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Workspace access validation failed for {WorkspaceRootPath}.", rootPath);
+            return false;
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "Workspace access validation could not enumerate {WorkspaceRootPath}.", rootPath);
+            return false;
+        }
+    }
+
+    private List<WorkspaceNodeInfo> BuildChildren(DirectoryInfo directory, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var directories = directory
-            .EnumerateDirectories()
+        var directories = EnumerateDirectoriesSafely(directory)
             .Where(child => !IsHidden(child))
             .OrderBy(child => child.Name, StringComparer.OrdinalIgnoreCase)
             .Select(child =>
@@ -250,8 +291,7 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
                 };
             });
 
-        var files = directory
-            .EnumerateFiles()
+        var files = EnumerateFilesSafely(directory)
             .Where(file => !IsHidden(file))
             .Where(file => AllowedExtensions.Contains(file.Extension, StringComparer.OrdinalIgnoreCase))
             .OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase)
@@ -263,6 +303,42 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
             });
 
         return directories.Concat(files).ToList();
+    }
+
+    private IEnumerable<DirectoryInfo> EnumerateDirectoriesSafely(DirectoryInfo directory)
+    {
+        try
+        {
+            return directory.EnumerateDirectories();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Skipping unreadable workspace directory {DirectoryPath}", directory.FullName);
+            return [];
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "Skipping workspace directory {DirectoryPath} because it could not be enumerated.", directory.FullName);
+            return [];
+        }
+    }
+
+    private IEnumerable<FileInfo> EnumerateFilesSafely(DirectoryInfo directory)
+    {
+        try
+        {
+            return directory.EnumerateFiles();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Skipping files in unreadable workspace directory {DirectoryPath}", directory.FullName);
+            return [];
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "Skipping files in workspace directory {DirectoryPath} because they could not be enumerated.", directory.FullName);
+            return [];
+        }
     }
 
     private static bool IsHidden(FileSystemInfo fileSystemInfo)
@@ -342,18 +418,18 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
     {
         public NSUrl Url { get; }
         private readonly NSUrl _url;
-        private readonly bool _hasAccess;
+        public bool HasAccess { get; }
 
         public SecurityScopedResourceAccess(NSUrl url)
         {
             Url = url;
             _url = url;
-            _hasAccess = _url.StartAccessingSecurityScopedResource();
+            HasAccess = _url.StartAccessingSecurityScopedResource();
         }
 
         public void Dispose()
         {
-            if (_hasAccess)
+            if (HasAccess)
             {
                 _url.StopAccessingSecurityScopedResource();
             }

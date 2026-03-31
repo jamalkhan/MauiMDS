@@ -46,6 +46,7 @@ internal sealed class FakeMarkdownDocumentService : IMarkdownDocumentService
 
     public Task<MarkdownDocument?> LoadInitialDocumentAsync() => throw new NotSupportedException();
     public Task<MarkdownDocument> LoadDocumentAsync(string filePath, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<string?> PickDocumentPathAsync() => throw new NotSupportedException();
     public Task<MarkdownDocument?> PickDocumentAsync() => throw new NotSupportedException();
     public Task<MarkdownDocument> CreateUntitledDocumentAsync(string? suggestedName = null) => throw new NotSupportedException();
     public Task<SaveDocumentResult> SaveAsync(EditorDocumentState document, CancellationToken cancellationToken = default) => throw new NotSupportedException();

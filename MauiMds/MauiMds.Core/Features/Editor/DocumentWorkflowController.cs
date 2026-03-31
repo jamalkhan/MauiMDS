@@ -15,9 +15,9 @@ public sealed class DocumentWorkflowController
         _logger = logger;
     }
 
-    public DocumentLoadResult PrepareDocument(MarkdownDocument document, EditorViewMode currentViewMode)
+    public EditorDocumentState CreateDocumentState(MarkdownDocument document)
     {
-        var nextState = new EditorDocumentState
+        return new EditorDocumentState
         {
             FilePath = document.IsUntitled ? string.Empty : document.FilePath,
             FileName = document.FileName ?? Path.GetFileName(document.FilePath),
@@ -30,13 +30,15 @@ public sealed class DocumentWorkflowController
             EncodingName = document.EncodingName,
             NewLine = document.NewLine
         };
+    }
 
+    public DocumentPreviewResult PreparePreview(MarkdownDocument document, EditorViewMode currentViewMode)
+    {
         try
         {
             var blocks = _parser.Parse(document.Content);
-            return new DocumentLoadResult
+            return new DocumentPreviewResult
             {
-                DocumentState = nextState,
                 Blocks = blocks,
                 ViewMode = currentViewMode
             };
@@ -44,14 +46,25 @@ public sealed class DocumentWorkflowController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Markdown parsing failed. Falling back to plaintext paragraph rendering.");
-            return new DocumentLoadResult
+            return new DocumentPreviewResult
             {
-                DocumentState = nextState,
                 Blocks = [new MarkdownBlock { Type = BlockType.Paragraph, Content = document.Content }],
                 ViewMode = currentViewMode == EditorViewMode.RichTextEditor ? EditorViewMode.TextEditor : currentViewMode,
                 InlineErrorMessage = "Markdown parsing failed. The document is shown in a safe fallback mode."
             };
         }
+    }
+
+    public DocumentLoadResult PrepareDocument(MarkdownDocument document, EditorViewMode currentViewMode)
+    {
+        var preview = PreparePreview(document, currentViewMode);
+        return new DocumentLoadResult
+        {
+            DocumentState = CreateDocumentState(document),
+            Blocks = preview.Blocks,
+            ViewMode = preview.ViewMode,
+            InlineErrorMessage = preview.InlineErrorMessage
+        };
     }
 
     public void ApplySaveResult(EditorDocumentState document, SaveDocumentResult result)

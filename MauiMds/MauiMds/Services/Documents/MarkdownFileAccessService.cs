@@ -22,10 +22,16 @@ public sealed class MarkdownFileAccessService : IMarkdownFileAccessService
 #if MACCATALYST
         if (!_securityScopedUrls.TryGetValue(filePath, out var url))
         {
+            _logger.LogTrace("No tracked security-scoped URL found for {FilePath}.", filePath);
             return null;
         }
 
-        return new SecurityScopedResourceAccess(url);
+        var access = new SecurityScopedResourceAccess(url);
+        _logger.LogTrace(
+            "Created security-scoped access scope. FilePath: {FilePath}, Granted: {Granted}",
+            filePath,
+            access.HasAccess);
+        return access;
 #else
         return null;
 #endif
@@ -34,8 +40,16 @@ public sealed class MarkdownFileAccessService : IMarkdownFileAccessService
     public string? TryCreatePersistentAccessBookmark(string filePath)
     {
 #if MACCATALYST
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
         if (!_securityScopedUrls.TryGetValue(filePath, out var url))
         {
+            _logger.LogDebug(
+                "Skipping persistent access bookmark for {FilePath} because no security-scoped URL is tracked for it yet.",
+                filePath);
             return null;
         }
 
@@ -51,6 +65,7 @@ public sealed class MarkdownFileAccessService : IMarkdownFileAccessService
             return null;
         }
 
+        _logger.LogTrace("Created persistent access bookmark for {FilePath}.", filePath);
         return Convert.ToBase64String(bookmarkData.ToArray());
 #else
         return null;
@@ -92,6 +107,10 @@ public sealed class MarkdownFileAccessService : IMarkdownFileAccessService
             }
 
             TrackUrl(restoredPath, resolvedUrl);
+            _logger.LogTrace(
+                "Restored persistent access bookmark. FilePath: {FilePath}, IsStale: {IsStale}",
+                restoredPath,
+                isStale);
             return true;
         }
         catch (Exception ex)
@@ -108,6 +127,31 @@ public sealed class MarkdownFileAccessService : IMarkdownFileAccessService
 #endif
     }
 
+    public bool TryValidateReadAccess(string filePath)
+    {
+#if MACCATALYST
+        using var access = CreateAccessScope(filePath);
+        try
+        {
+            using var handle = File.OpenHandle(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            _logger.LogTrace("Validated read access for {FilePath}.", filePath);
+            return true;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Read access validation failed for {FilePath}.", filePath);
+            return false;
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "Read access validation could not open {FilePath}.", filePath);
+            return false;
+        }
+#else
+        return File.Exists(filePath);
+#endif
+    }
+
 #if MACCATALYST
     internal void TrackUrl(string filePath, NSUrl url)
     {
@@ -117,22 +161,23 @@ public sealed class MarkdownFileAccessService : IMarkdownFileAccessService
         }
 
         _securityScopedUrls[filePath] = url;
+        _logger.LogTrace("Tracked security-scoped URL. FilePath: {FilePath}", filePath);
     }
 
     private sealed class SecurityScopedResourceAccess : IDisposable
     {
         private readonly NSUrl _url;
-        private readonly bool _hasAccess;
+        public bool HasAccess { get; }
 
         public SecurityScopedResourceAccess(NSUrl url)
         {
             _url = url;
-            _hasAccess = _url.StartAccessingSecurityScopedResource();
+            HasAccess = _url.StartAccessingSecurityScopedResource();
         }
 
         public void Dispose()
         {
-            if (_hasAccess)
+            if (HasAccess)
             {
                 _url.StopAccessingSecurityScopedResource();
             }

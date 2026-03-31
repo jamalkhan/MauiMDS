@@ -1,47 +1,69 @@
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Features.Markdown;
 
 public sealed class MarkdownInlineFormatter
 {
+    private static readonly Regex AutolinkRegex = new(
+        @"https?://\S+|[\w\.\-]+@[\w\.\-]+\.\w+",
+        RegexOptions.Compiled);
+
+    private static readonly Regex CodeTokenRegex = new(
+        "(\"[^\"]*\"|'[^']*'|//.*?$|#.*?$|\\b\\d+\\b|\\b[A-Za-z_][A-Za-z0-9_]*\\b)",
+        RegexOptions.Compiled | RegexOptions.Multiline);
+
+    private readonly object _cacheLock = new();
+    private readonly Dictionary<string, bool> _requiresFormattedTextCache = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<InlineToken>> _inlineTokenCache = new(StringComparer.Ordinal);
+    private readonly Dictionary<CodeCacheKey, IReadOnlyList<CodeToken>> _codeTokenCache = [];
+    private ILogger<MarkdownInlineFormatter>? _logger;
+
+    public void AttachLogger(ILogger<MarkdownInlineFormatter>? logger)
+    {
+        _logger = logger;
+    }
+
     public bool RequiresFormattedText(string source)
     {
-        if (string.IsNullOrEmpty(source))
+        lock (_cacheLock)
         {
-            return false;
+            if (_requiresFormattedTextCache.TryGetValue(source, out var cached))
+            {
+                _logger?.LogTrace("Inline formatter reused formatted-text requirement cache. Length: {Length}, RequiresFormattedText: {RequiresFormattedText}", source.Length, cached);
+                return cached;
+            }
         }
 
-        return source.Contains('\\', StringComparison.Ordinal) ||
-               source.Contains('*', StringComparison.Ordinal) ||
-               source.Contains('`', StringComparison.Ordinal) ||
-               source.Contains('[', StringComparison.Ordinal) ||
-               source.Contains('~', StringComparison.Ordinal) ||
-               source.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
-               source.Contains("https://", StringComparison.OrdinalIgnoreCase) ||
-               source.Contains('@', StringComparison.Ordinal) ||
-               source.Contains('<', StringComparison.Ordinal);
+        var requiresFormattedText = !string.IsNullOrEmpty(source) &&
+                                    (source.Contains('\\', StringComparison.Ordinal) ||
+                                     source.Contains('*', StringComparison.Ordinal) ||
+                                     source.Contains('`', StringComparison.Ordinal) ||
+                                     source.Contains('[', StringComparison.Ordinal) ||
+                                     source.Contains('~', StringComparison.Ordinal) ||
+                                     source.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+                                     source.Contains("https://", StringComparison.OrdinalIgnoreCase) ||
+                                     source.Contains('@', StringComparison.Ordinal) ||
+                                     source.Contains('<', StringComparison.Ordinal));
+
+        lock (_cacheLock)
+        {
+            _requiresFormattedTextCache[source] = requiresFormattedText;
+        }
+
+        _logger?.LogTrace("Inline formatter computed formatted-text requirement. Length: {Length}, RequiresFormattedText: {RequiresFormattedText}", source.Length, requiresFormattedText);
+
+        return requiresFormattedText;
     }
 
     public FormattedString BuildFormattedText(string source, double fontSize)
     {
+        var tokens = GetInlineTokens(source);
         var formatted = new FormattedString();
-        var text = NormalizeInlineHtml(source);
-        var index = 0;
 
-        while (index < text.Length)
+        foreach (var token in tokens)
         {
-            if (TryAppendEscapedCharacter(formatted, text, ref index, fontSize) ||
-                TryAppendDelimitedSpan(formatted, text, ref index, "**", fontSize, span => span.FontAttributes = FontAttributes.Bold) ||
-                TryAppendDelimitedSpan(formatted, text, ref index, "~~", fontSize, span => span.TextDecorations = TextDecorations.Strikethrough) ||
-                TryAppendDelimitedSpan(formatted, text, ref index, "*", fontSize, span => span.FontAttributes = FontAttributes.Italic) ||
-                TryAppendInlineCode(formatted, text, ref index, fontSize) ||
-                TryAppendLink(formatted, text, ref index, fontSize) ||
-                TryAppendFootnoteReference(formatted, text, ref index, fontSize))
-            {
-                continue;
-            }
-
-            AppendPlainText(formatted, text, ref index, fontSize);
+            formatted.Spans.Add(CreateInlineSpan(token, fontSize));
         }
 
         return formatted;
@@ -49,30 +71,12 @@ public sealed class MarkdownInlineFormatter
 
     public FormattedString BuildCodeFormattedText(string code, string language)
     {
+        var tokens = GetCodeTokens(code, language);
         var formatted = new FormattedString();
-        var keywords = GetCodeKeywords(language);
-        var tokenPattern = "(\"[^\"]*\"|'[^']*'|//.*?$|#.*?$|\\b\\d+\\b|\\b[A-Za-z_][A-Za-z0-9_]*\\b)";
 
-        foreach (var line in code.Split(Environment.NewLine))
+        foreach (var token in tokens)
         {
-            var lineIndex = 0;
-            foreach (Match match in Regex.Matches(line, tokenPattern, RegexOptions.Multiline))
-            {
-                if (match.Index > lineIndex)
-                {
-                    formatted.Spans.Add(CreateCodeSpan(line.Substring(lineIndex, match.Index - lineIndex), null));
-                }
-
-                formatted.Spans.Add(CreateCodeSpan(match.Value, keywords.Contains(match.Value) ? "keyword" : ClassifyCodeToken(match.Value)));
-                lineIndex = match.Index + match.Length;
-            }
-
-            if (lineIndex < line.Length)
-            {
-                formatted.Spans.Add(CreateCodeSpan(line[lineIndex..], null));
-            }
-
-            formatted.Spans.Add(CreateCodeSpan(Environment.NewLine, null));
+            formatted.Spans.Add(CreateCodeSpan(token.Text, token.TokenType));
         }
 
         return formatted;
@@ -101,6 +105,113 @@ public sealed class MarkdownInlineFormatter
         return File.Exists(source) ? ImageSource.FromFile(source) : null;
     }
 
+    private IReadOnlyList<InlineToken> GetInlineTokens(string source)
+    {
+        lock (_cacheLock)
+        {
+            if (_inlineTokenCache.TryGetValue(source, out var cached))
+            {
+                _logger?.LogTrace("Inline formatter inline-token cache hit. Length: {Length}, TokenCount: {TokenCount}", source.Length, cached.Count);
+                return cached;
+            }
+        }
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var tokens = TokenizeInline(source);
+
+        lock (_cacheLock)
+        {
+            _inlineTokenCache[source] = tokens;
+        }
+
+        _logger?.LogDebug("Inline formatter inline-token cache miss. Length: {Length}, TokenCount: {TokenCount}, ElapsedMs: {ElapsedMs}", source.Length, tokens.Count, stopwatch.ElapsedMilliseconds);
+
+        return tokens;
+    }
+
+    private IReadOnlyList<CodeToken> GetCodeTokens(string code, string language)
+    {
+        var key = new CodeCacheKey(code, language);
+
+        lock (_cacheLock)
+        {
+            if (_codeTokenCache.TryGetValue(key, out var cached))
+            {
+                _logger?.LogTrace("Inline formatter code-token cache hit. Length: {Length}, Language: {Language}, TokenCount: {TokenCount}", code.Length, language, cached.Count);
+                return cached;
+            }
+        }
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var tokens = TokenizeCode(code, language);
+
+        lock (_cacheLock)
+        {
+            _codeTokenCache[key] = tokens;
+        }
+
+        _logger?.LogDebug("Inline formatter code-token cache miss. Length: {Length}, Language: {Language}, TokenCount: {TokenCount}, ElapsedMs: {ElapsedMs}", code.Length, language, tokens.Count, stopwatch.ElapsedMilliseconds);
+
+        return tokens;
+    }
+
+    private List<InlineToken> TokenizeInline(string source)
+    {
+        var tokens = new List<InlineToken>();
+        var text = NormalizeInlineHtml(source);
+        var index = 0;
+
+        while (index < text.Length)
+        {
+            if (TryAppendEscapedCharacter(tokens, text, ref index) ||
+                TryAppendDelimitedToken(tokens, text, ref index, "**", InlineTokenStyle.Bold) ||
+                TryAppendDelimitedToken(tokens, text, ref index, "~~", InlineTokenStyle.Strikethrough) ||
+                TryAppendDelimitedToken(tokens, text, ref index, "*", InlineTokenStyle.Italic) ||
+                TryAppendInlineCode(tokens, text, ref index) ||
+                TryAppendLink(tokens, text, ref index) ||
+                TryAppendFootnoteReference(tokens, text, ref index))
+            {
+                continue;
+            }
+
+            AppendPlainText(tokens, text, ref index);
+        }
+
+        return tokens;
+    }
+
+    private List<CodeToken> TokenizeCode(string code, string language)
+    {
+        var tokens = new List<CodeToken>();
+        var keywords = GetCodeKeywords(language);
+
+        foreach (var line in code.Split(Environment.NewLine))
+        {
+            var lineIndex = 0;
+
+            foreach (Match match in CodeTokenRegex.Matches(line))
+            {
+                if (match.Index > lineIndex)
+                {
+                    tokens.Add(new CodeToken(line.Substring(lineIndex, match.Index - lineIndex), null));
+                }
+
+                var tokenType = keywords.Contains(match.Value) ? "keyword" : ClassifyCodeToken(match.Value);
+                tokens.Add(new CodeToken(match.Value, tokenType));
+                lineIndex = match.Index + match.Length;
+            }
+
+            if (lineIndex < line.Length)
+            {
+                tokens.Add(new CodeToken(line[lineIndex..], null));
+            }
+
+            tokens.Add(new CodeToken(Environment.NewLine, null));
+        }
+
+        return tokens;
+    }
+
     private string NormalizeInlineHtml(string source)
     {
         return source
@@ -119,19 +230,19 @@ public sealed class MarkdownInlineFormatter
             .Replace("</code>", "`", StringComparison.OrdinalIgnoreCase);
     }
 
-    private bool TryAppendEscapedCharacter(FormattedString formatted, string text, ref int index, double fontSize)
+    private static bool TryAppendEscapedCharacter(List<InlineToken> tokens, string text, ref int index)
     {
         if (text[index] != '\\' || index + 1 >= text.Length)
         {
             return false;
         }
 
-        formatted.Spans.Add(CreateSpan(text[index + 1].ToString(), fontSize));
+        tokens.Add(new InlineToken(text[index + 1].ToString(), InlineTokenStyle.Plain));
         index += 2;
         return true;
     }
 
-    private bool TryAppendDelimitedSpan(FormattedString formatted, string text, ref int index, string delimiter, double fontSize, Action<Span> style)
+    private static bool TryAppendDelimitedToken(List<InlineToken> tokens, string text, ref int index, string delimiter, InlineTokenStyle style)
     {
         if (!text.AsSpan(index).StartsWith(delimiter, StringComparison.Ordinal))
         {
@@ -145,14 +256,12 @@ public sealed class MarkdownInlineFormatter
         }
 
         var innerText = text.Substring(index + delimiter.Length, closingIndex - index - delimiter.Length);
-        var span = CreateSpan(innerText, fontSize);
-        style(span);
-        formatted.Spans.Add(span);
+        tokens.Add(new InlineToken(innerText, style));
         index = closingIndex + delimiter.Length;
         return true;
     }
 
-    private bool TryAppendInlineCode(FormattedString formatted, string text, ref int index, double fontSize)
+    private static bool TryAppendInlineCode(List<InlineToken> tokens, string text, ref int index)
     {
         if (text[index] != '`')
         {
@@ -165,15 +274,12 @@ public sealed class MarkdownInlineFormatter
             return false;
         }
 
-        var span = CreateSpan(text.Substring(index + 1, closingIndex - index - 1), fontSize - 1);
-        span.FontFamily = "Courier New";
-        span.BackgroundColor = Color.FromArgb("#E8E1D3");
-        formatted.Spans.Add(span);
+        tokens.Add(new InlineToken(text.Substring(index + 1, closingIndex - index - 1), InlineTokenStyle.InlineCode));
         index = closingIndex + 1;
         return true;
     }
 
-    private bool TryAppendLink(FormattedString formatted, string text, ref int index, double fontSize)
+    private static bool TryAppendLink(List<InlineToken> tokens, string text, ref int index)
     {
         if (text[index] != '[')
         {
@@ -194,12 +300,12 @@ public sealed class MarkdownInlineFormatter
 
         var label = text.Substring(index + 1, labelEnd - index - 1);
         var url = text.Substring(labelEnd + 2, urlEnd - labelEnd - 2);
-        formatted.Spans.Add(CreateLinkSpan(label, url, fontSize));
+        tokens.Add(new InlineToken(label, InlineTokenStyle.Link, url));
         index = urlEnd + 1;
         return true;
     }
 
-    private bool TryAppendFootnoteReference(FormattedString formatted, string text, ref int index, double fontSize)
+    private static bool TryAppendFootnoteReference(List<InlineToken> tokens, string text, ref int index)
     {
         if (!text.AsSpan(index).StartsWith("[^", StringComparison.Ordinal))
         {
@@ -213,21 +319,18 @@ public sealed class MarkdownInlineFormatter
         }
 
         var reference = text.Substring(index + 2, closingIndex - index - 2);
-        var span = CreateSpan($"[{reference}]", Math.Max(10, fontSize - 4));
-        span.FontAttributes = FontAttributes.Bold;
-        span.TextColor = Color.FromArgb("#8D5A2B");
-        formatted.Spans.Add(span);
+        tokens.Add(new InlineToken($"[{reference}]", InlineTokenStyle.FootnoteReference));
         index = closingIndex + 1;
         return true;
     }
 
-    private void AppendPlainText(FormattedString formatted, string text, ref int index, double fontSize)
+    private static void AppendPlainText(List<InlineToken> tokens, string text, ref int index)
     {
         var nextSpecialIndex = FindNextSpecialIndex(text, index);
 
         if (nextSpecialIndex == index)
         {
-            formatted.Spans.Add(CreateSpan(text[index].ToString(), fontSize));
+            tokens.Add(new InlineToken(text[index].ToString(), InlineTokenStyle.Plain));
             index++;
             return;
         }
@@ -237,23 +340,23 @@ public sealed class MarkdownInlineFormatter
             : text.Substring(index, nextSpecialIndex - index);
 
         var chunkIndex = 0;
-        foreach (Match match in Regex.Matches(chunk, @"https?://\S+|[\w\.\-]+@[\w\.\-]+\.\w+"))
+        foreach (Match match in AutolinkRegex.Matches(chunk))
         {
             if (match.Index > chunkIndex)
             {
-                formatted.Spans.Add(CreateSpan(chunk.Substring(chunkIndex, match.Index - chunkIndex), fontSize));
+                tokens.Add(new InlineToken(chunk.Substring(chunkIndex, match.Index - chunkIndex), InlineTokenStyle.Plain));
             }
 
             var target = match.Value.Contains('@') && !match.Value.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                 ? $"mailto:{match.Value}"
                 : match.Value;
-            formatted.Spans.Add(CreateLinkSpan(match.Value, target, fontSize));
+            tokens.Add(new InlineToken(match.Value, InlineTokenStyle.Link, target));
             chunkIndex = match.Index + match.Length;
         }
 
         if (chunkIndex < chunk.Length)
         {
-            formatted.Spans.Add(CreateSpan(chunk[chunkIndex..], fontSize));
+            tokens.Add(new InlineToken(chunk[chunkIndex..], InlineTokenStyle.Plain));
         }
 
         index = nextSpecialIndex < 0 ? text.Length : nextSpecialIndex;
@@ -270,6 +373,36 @@ public sealed class MarkdownInlineFormatter
         return nextIndexes.Count == 0 ? -1 : nextIndexes.Min();
     }
 
+    private Span CreateInlineSpan(InlineToken token, double fontSize)
+    {
+        var span = token.Style switch
+        {
+            InlineTokenStyle.Link => CreateLinkSpan(token.Text, token.Target ?? token.Text, fontSize),
+            InlineTokenStyle.InlineCode => CreateInlineCodeSpan(token.Text, fontSize),
+            _ => CreateSpan(token.Text, fontSize)
+        };
+
+        switch (token.Style)
+        {
+            case InlineTokenStyle.Bold:
+                span.FontAttributes = FontAttributes.Bold;
+                break;
+            case InlineTokenStyle.Italic:
+                span.FontAttributes = FontAttributes.Italic;
+                break;
+            case InlineTokenStyle.Strikethrough:
+                span.TextDecorations = TextDecorations.Strikethrough;
+                break;
+            case InlineTokenStyle.FootnoteReference:
+                span.FontSize = Math.Max(10, fontSize - 4);
+                span.FontAttributes = FontAttributes.Bold;
+                span.TextColor = Color.FromArgb("#8D5A2B");
+                break;
+        }
+
+        return span;
+    }
+
     private Span CreateSpan(string text, double fontSize)
     {
         var span = new Span
@@ -278,6 +411,14 @@ public sealed class MarkdownInlineFormatter
             FontSize = fontSize
         };
         span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#161616"), Color.FromArgb("#F3EDE2"));
+        return span;
+    }
+
+    private Span CreateInlineCodeSpan(string text, double fontSize)
+    {
+        var span = CreateSpan(text, fontSize - 1);
+        span.FontFamily = "Courier New";
+        span.BackgroundColor = Color.FromArgb("#E8E1D3");
         return span;
     }
 
@@ -347,11 +488,26 @@ public sealed class MarkdownInlineFormatter
             return "string";
         }
 
-        if (value.All(char.IsDigit))
+        if (double.TryParse(value, out _))
         {
             return "number";
         }
 
         return null;
+    }
+
+    private readonly record struct InlineToken(string Text, InlineTokenStyle Style, string? Target = null);
+    private readonly record struct CodeToken(string Text, string? TokenType);
+    private readonly record struct CodeCacheKey(string Code, string Language);
+
+    private enum InlineTokenStyle
+    {
+        Plain,
+        Bold,
+        Italic,
+        Strikethrough,
+        InlineCode,
+        Link,
+        FootnoteReference
     }
 }

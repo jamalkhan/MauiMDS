@@ -6,6 +6,7 @@ using System.Windows.Input;
 using MauiMds.Features.Editor;
 using MauiMds.Features.Session;
 using MauiMds.Features.Workspace;
+using MauiMds.Logging;
 using MauiMds.Models;
 using MauiMds.Services;
 using Microsoft.Extensions.Logging;
@@ -30,6 +31,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IEditorPreferencesService _preferencesService;
     private readonly IDocumentWatchService _documentWatchService;
     private readonly ILogger<MainViewModel> _logger;
+    private readonly FileLogLevelSwitch _fileLogLevelSwitch;
     private readonly DocumentWorkflowController _documentWorkflowController;
     private readonly AutosaveCoordinator _autosaveCoordinator;
     private readonly SessionRestoreCoordinator _sessionRestoreCoordinator;
@@ -52,9 +54,14 @@ public class MainViewModel : INotifyPropertyChanged
     private string _preferencesAutoSaveDelaySecondsText = "30";
     private string _preferencesMaxLogFileSizeMbText = "2";
     private string _preferencesInitialViewerRenderLineCountText = "20";
+    private string _preferencesFileLogLevelText = "Info";
     private bool _preferencesAutoSaveEnabled = true;
     private bool _preferencesUse24HourTime;
+    private bool _isViewerLoading;
+    private string? _pendingDocumentFilePath;
+    private string? _pendingDocumentFileName;
     private CancellationTokenSource? _parseCancellationSource;
+    private long _previewGeneration;
     private DateTimeOffset _lastSaveUtc;
 
     public MainViewModel(
@@ -62,6 +69,7 @@ public class MainViewModel : INotifyPropertyChanged
         IWorkspaceBrowserService workspaceBrowserService,
         IEditorPreferencesService preferencesService,
         IDocumentWatchService documentWatchService,
+        FileLogLevelSwitch fileLogLevelSwitch,
         WorkspaceExplorerState workspaceExplorerState,
         DocumentWorkflowController documentWorkflowController,
         AutosaveCoordinator autosaveCoordinator,
@@ -72,6 +80,7 @@ public class MainViewModel : INotifyPropertyChanged
         _workspaceBrowserService = workspaceBrowserService;
         _preferencesService = preferencesService;
         _documentWatchService = documentWatchService;
+        _fileLogLevelSwitch = fileLogLevelSwitch;
         _documentWorkflowController = documentWorkflowController;
         _autosaveCoordinator = autosaveCoordinator;
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
@@ -84,6 +93,7 @@ public class MainViewModel : INotifyPropertyChanged
         _preferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
         _preferencesMaxLogFileSizeMbText = _preferences.MaxLogFileSizeMb.ToString();
         _preferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
+        _preferencesFileLogLevelText = FormatLogLevel(_preferences.FileLogLevel);
         _workspacePanelWidth = ClampWorkspacePanelWidth(_sessionState.WorkspacePanelWidth);
 
         _documentWatchService.DocumentChanged += OnWatchedDocumentChanged;
@@ -167,7 +177,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     public string FilePath
     {
-        get => _document.FilePath;
+        get => _pendingDocumentFilePath ?? _document.FilePath;
         private set
         {
             if (_document.FilePath == value)
@@ -185,7 +195,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     public string FileName
     {
-        get => _document.FileName;
+        get => _pendingDocumentFileName ?? _document.FileName;
         private set
         {
             if (_document.FileName == value)
@@ -267,7 +277,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     public bool IsBusy => _isOpeningDocument || _isSavingDocument;
     public bool IsDirty => _document.IsDirty;
-    public bool IsUntitled => _document.IsUntitled;
+    public bool IsUntitled => _pendingDocumentFilePath is null && _document.IsUntitled;
     public string StatusText => BuildStatusText();
 
     public bool IsWorkspacePanelVisible
@@ -414,6 +424,9 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     public int InitialViewerRenderLineCount => Math.Max(5, _preferences.InitialViewerRenderLineCount);
+    public IReadOnlyList<string> AvailableFileLogLevels { get; } =
+        ["Info", "Warning", "Error", "Debug", "Trace"];
+
     public bool PreferencesUse24HourTime
     {
         get => _preferencesUse24HourTime;
@@ -430,6 +443,37 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     public string PreferredTimeFormat => _preferences.Use24HourTime ? "HH:mm:ss" : "h:mm:ss tt";
+
+    public string PreferencesFileLogLevelText
+    {
+        get => _preferencesFileLogLevelText;
+        set
+        {
+            if (_preferencesFileLogLevelText == value)
+            {
+                return;
+            }
+
+            _preferencesFileLogLevelText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsViewerLoading
+    {
+        get => _isViewerLoading;
+        private set
+        {
+            if (_isViewerLoading == value)
+            {
+                return;
+            }
+
+            _isViewerLoading = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(StatusText));
+        }
+    }
 
     public async Task InitializeAsync()
     {
@@ -546,9 +590,9 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            var document = await _documentService.PickDocumentAsync();
+            var filePath = await _documentService.PickDocumentPathAsync();
             await OpenDocumentAsync(
-                () => Task.FromResult(document),
+                () => Task.FromResult(filePath),
                 "Failed to open the selected markdown document.",
                 "The selected file could not be opened.");
         }
@@ -578,28 +622,30 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     private async Task OpenDocumentAsync(
-        Func<Task<MarkdownDocument?>> documentProvider,
+        Func<Task<string?>> filePathProvider,
         string logMessage,
         string inlineMessage)
     {
         await SaveIfNeededAsync();
 
-        var document = await documentProvider();
-        if (document is null)
+        var filePath = await filePathProvider();
+        if (string.IsNullOrWhiteSpace(filePath))
         {
             await ClearInlineErrorAsync();
             return;
         }
 
-        RememberOpenedDocument(document);
-
         try
         {
+            ShowPendingDocumentShell(filePath);
+            var document = await _documentService.LoadDocumentAsync(filePath);
             await LoadDocumentIntoStateAsync(document);
             await ClearInlineErrorAsync();
         }
         catch (Exception ex)
         {
+            ClearPendingDocumentShell();
+            IsViewerLoading = false;
             await ReportErrorAsync(logMessage, ex, ex is InvalidOperationException ? ex.Message : inlineMessage);
         }
     }
@@ -655,6 +701,7 @@ public class MainViewModel : INotifyPropertyChanged
         PreferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
         PreferencesMaxLogFileSizeMbText = _preferences.MaxLogFileSizeMb.ToString();
         PreferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
+        PreferencesFileLogLevelText = FormatLogLevel(_preferences.FileLogLevel);
         IsPreferencesVisible = true;
     }
 
@@ -678,16 +725,24 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        if (!TryParseFileLogLevel(PreferencesFileLogLevelText, out var fileLogLevel))
+        {
+            await ReportErrorAsync("Invalid log level preference.", null, "File log level must be Trace, Debug, Information, Warning, or Error.");
+            return;
+        }
+
         _preferences = new EditorPreferences
         {
             AutoSaveEnabled = PreferencesAutoSaveEnabled,
             AutoSaveDelaySeconds = delaySeconds,
             MaxLogFileSizeMb = maxLogFileSizeMb,
             InitialViewerRenderLineCount = initialViewerRenderLineCount,
-            Use24HourTime = PreferencesUse24HourTime
+            Use24HourTime = PreferencesUse24HourTime,
+            FileLogLevel = fileLogLevel
         };
 
         _preferencesService.Save(_preferences);
+        _fileLogLevelSwitch.MinimumLevel = fileLogLevel;
         IsPreferencesVisible = false;
         OnPropertyChanged(nameof(InitialViewerRenderLineCount));
         OnPropertyChanged(nameof(PreferredTimeFormat));
@@ -700,6 +755,22 @@ public class MainViewModel : INotifyPropertyChanged
     private void CancelPreferences()
     {
         IsPreferencesVisible = false;
+    }
+
+    private static string FormatLogLevel(LogLevel logLevel)
+    {
+        return logLevel == LogLevel.Information ? "Info" : logLevel.ToString();
+    }
+
+    private static bool TryParseFileLogLevel(string text, out LogLevel logLevel)
+    {
+        if (string.Equals(text, "Info", StringComparison.OrdinalIgnoreCase))
+        {
+            logLevel = LogLevel.Information;
+            return true;
+        }
+
+        return Enum.TryParse(text, ignoreCase: true, out logLevel) && logLevel != LogLevel.None;
     }
 
     private void SetViewMode(EditorViewMode mode)
@@ -802,12 +873,15 @@ public class MainViewModel : INotifyPropertyChanged
             var previousFileName = _document.FileName;
             var previousIsUntitled = _document.IsUntitled;
             var previousIsDirty = _document.IsDirty;
-            var preparedDocument = _documentWorkflowController.PrepareDocument(document, SelectedViewMode);
-            _document = preparedDocument.DocumentState;
+            var currentViewMode = SelectedViewMode;
+            var previewGeneration = BeginNewPreviewGeneration();
+            _document = _documentWorkflowController.CreateDocumentState(document);
 
             var uiStateStopwatch = Stopwatch.StartNew();
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
+                ClearPendingDocumentShell(raiseNotifications: false);
+
                 if (!string.Equals(previousFilePath, _document.FilePath, StringComparison.Ordinal))
                 {
                     OnPropertyChanged(nameof(FilePath));
@@ -821,7 +895,7 @@ public class MainViewModel : INotifyPropertyChanged
                 }
 
                 EditorText = _document.Content;
-                InlineErrorMessage = preparedDocument.InlineErrorMessage ?? string.Empty;
+                InlineErrorMessage = string.Empty;
                 if (previousIsDirty != _document.IsDirty)
                 {
                     OnPropertyChanged(nameof(IsDirty));
@@ -832,9 +906,7 @@ public class MainViewModel : INotifyPropertyChanged
                     OnPropertyChanged(nameof(IsUntitled));
                 }
 
-                SelectedViewMode = preparedDocument.ViewMode;
-                ParsedBlocks = preparedDocument.Blocks;
-                DocumentApplied?.Invoke(this, document);
+                IsViewerLoading = IsViewerMode;
                 OnPropertyChanged(nameof(StatusText));
             });
             uiStateStopwatch.Stop();
@@ -853,9 +925,11 @@ public class MainViewModel : INotifyPropertyChanged
             var sessionStopwatch = Stopwatch.StartNew();
             if (persistSessionState)
             {
-                PersistSessionState();
+                _ = PersistSessionStateAsync();
             }
             sessionStopwatch.Stop();
+
+            StartPreviewPreparation(document, currentViewMode, previewGeneration);
 
             _logger.LogInformation(
                 "Document load/apply pipeline completed. FilePath: {FilePath}, ContentLength: {ContentLength}, UiStateMs: {UiStateMs}, WatchMs: {WatchMs}, SessionPersistMs: {SessionPersistMs}, TotalElapsedMs: {TotalElapsedMs}, ViewMode: {ViewMode}",
@@ -877,47 +951,29 @@ public class MainViewModel : INotifyPropertyChanged
     {
         var pipelineStopwatch = Stopwatch.StartNew();
         var parseStopwatch = Stopwatch.StartNew();
-        var preparedDocument = _documentWorkflowController.PrepareDocument(new MarkdownDocument
-        {
-            FilePath = _document.FilePath,
-            FileName = _document.FileName,
-            FileSizeBytes = _document.FileSizeBytes,
-            LastModified = _document.LastModified,
-            Content = text,
-            IsUntitled = _document.IsUntitled,
-            EncodingName = _document.EncodingName,
-            NewLine = _document.NewLine
-        }, SelectedViewMode);
+        var snapshot = CreateCurrentDocumentSnapshot(text);
+        var preparedPreview = _documentWorkflowController.PreparePreview(snapshot, SelectedViewMode);
         parseStopwatch.Stop();
 
         var applyStopwatch = Stopwatch.StartNew();
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            if (SelectedViewMode != preparedDocument.ViewMode)
+            if (SelectedViewMode != preparedPreview.ViewMode)
             {
-                SelectedViewMode = preparedDocument.ViewMode;
+                SelectedViewMode = preparedPreview.ViewMode;
             }
 
-            ParsedBlocks = preparedDocument.Blocks;
-            InlineErrorMessage = preparedDocument.InlineErrorMessage ?? string.Empty;
-            DocumentApplied?.Invoke(this, new MarkdownDocument
-            {
-                FilePath = _document.FilePath,
-                FileName = _document.FileName,
-                FileSizeBytes = _document.FileSizeBytes,
-                LastModified = _document.LastModified,
-                Content = text,
-                IsUntitled = _document.IsUntitled,
-                EncodingName = _document.EncodingName,
-                NewLine = _document.NewLine
-            });
+            ParsedBlocks = preparedPreview.Blocks;
+            InlineErrorMessage = preparedPreview.InlineErrorMessage ?? string.Empty;
+            IsViewerLoading = false;
+            DocumentApplied?.Invoke(this, snapshot);
         });
         applyStopwatch.Stop();
 
         _logger.LogInformation(
             "Preview parse/apply completed. FilePath: {FilePath}, BlockCount: {BlockCount}, ParseElapsedMs: {ParseElapsedMs}, UiApplyElapsedMs: {UiApplyElapsedMs}, TotalElapsedMs: {TotalElapsedMs}, ViewMode: {ViewMode}",
             _document.FilePath,
-            preparedDocument.Blocks.Count,
+            preparedPreview.Blocks.Count,
             parseStopwatch.ElapsedMilliseconds,
             applyStopwatch.ElapsedMilliseconds,
             pipelineStopwatch.ElapsedMilliseconds,
@@ -926,10 +982,10 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void ScheduleParse()
     {
-        _parseCancellationSource?.Cancel();
-        _parseCancellationSource?.Dispose();
-        _parseCancellationSource = new CancellationTokenSource();
-        var token = _parseCancellationSource.Token;
+        var token = ResetParseCancellationToken();
+        var snapshot = CreateCurrentDocumentSnapshot(_document.Content);
+        var previewGeneration = Interlocked.Increment(ref _previewGeneration);
+        IsViewerLoading = IsViewerMode;
 
         _ = Task.Run(async () =>
         {
@@ -937,7 +993,12 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 await Task.Delay(IsViewerMode ? ViewerParseDebounceDelay : EditorParseDebounceDelay, token);
                 token.ThrowIfCancellationRequested();
-                await ParseAndApplyPreviewAsync(_document.Content);
+                if (previewGeneration != Interlocked.Read(ref _previewGeneration))
+                {
+                    return;
+                }
+
+                await ParseAndApplyPreviewAsync(snapshot.Content);
             }
             catch (OperationCanceledException)
             {
@@ -1023,11 +1084,21 @@ public class MainViewModel : INotifyPropertyChanged
     {
         var parts = new List<string>();
 
-        parts.Add(_document.IsUntitled ? "Untitled" : "Saved file");
+        parts.Add(IsUntitled ? "Untitled" : "Saved file");
+
+        if (_pendingDocumentFilePath is not null)
+        {
+            parts.Add("Loading document");
+        }
 
         if (_document.IsDirty)
         {
             parts.Add("Unsaved changes");
+        }
+
+        if (IsViewerLoading)
+        {
+            parts.Add("Loading preview");
         }
 
         parts.Add(_preferences.AutoSaveEnabled ? $"Autosave {_preferences.AutoSaveDelaySeconds}s" : "Autosave off");
@@ -1039,6 +1110,147 @@ public class MainViewModel : INotifyPropertyChanged
         });
 
         return string.Join(" • ", parts);
+    }
+
+    private long BeginNewPreviewGeneration()
+    {
+        ResetParseCancellationToken();
+        return Interlocked.Increment(ref _previewGeneration);
+    }
+
+    private CancellationToken ResetParseCancellationToken()
+    {
+        _parseCancellationSource?.Cancel();
+        _parseCancellationSource?.Dispose();
+        _parseCancellationSource = new CancellationTokenSource();
+        return _parseCancellationSource.Token;
+    }
+
+    private MarkdownDocument CreateCurrentDocumentSnapshot(string content)
+    {
+        return new MarkdownDocument
+        {
+            FilePath = _document.FilePath,
+            FileName = _document.FileName,
+            FileSizeBytes = _document.FileSizeBytes,
+            LastModified = _document.LastModified,
+            Content = content,
+            IsUntitled = _document.IsUntitled,
+            EncodingName = _document.EncodingName,
+            NewLine = _document.NewLine
+        };
+    }
+
+    private void ShowPendingDocumentShell(string filePath)
+    {
+        _pendingDocumentFilePath = filePath;
+        _pendingDocumentFileName = Path.GetFileName(filePath);
+
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            IsViewerLoading = IsViewerMode;
+            OnPropertyChanged(nameof(FilePath));
+            OnPropertyChanged(nameof(FileName));
+            OnPropertyChanged(nameof(HasFilePath));
+            OnPropertyChanged(nameof(HeaderPathDisplay));
+            OnPropertyChanged(nameof(IsUntitled));
+            OnPropertyChanged(nameof(StatusText));
+        });
+    }
+
+    private void ClearPendingDocumentShell(bool raiseNotifications = true)
+    {
+        if (_pendingDocumentFilePath is null && _pendingDocumentFileName is null)
+        {
+            return;
+        }
+
+        _pendingDocumentFilePath = null;
+        _pendingDocumentFileName = null;
+
+        if (!raiseNotifications)
+        {
+            return;
+        }
+
+        OnPropertyChanged(nameof(FilePath));
+        OnPropertyChanged(nameof(FileName));
+        OnPropertyChanged(nameof(HasFilePath));
+        OnPropertyChanged(nameof(HeaderPathDisplay));
+        OnPropertyChanged(nameof(IsUntitled));
+        OnPropertyChanged(nameof(StatusText));
+    }
+
+    private void StartPreviewPreparation(MarkdownDocument document, EditorViewMode currentViewMode, long previewGeneration)
+    {
+        var token = _parseCancellationSource?.Token ?? CancellationToken.None;
+        var snapshot = new MarkdownDocument
+        {
+            FilePath = document.FilePath,
+            FileName = document.FileName,
+            FileSizeBytes = document.FileSizeBytes,
+            LastModified = document.LastModified,
+            Content = document.Content,
+            IsUntitled = document.IsUntitled,
+            EncodingName = document.EncodingName,
+            NewLine = document.NewLine
+        };
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                var pipelineStopwatch = Stopwatch.StartNew();
+                var parseStopwatch = Stopwatch.StartNew();
+                var preparedPreview = _documentWorkflowController.PreparePreview(snapshot, currentViewMode);
+                parseStopwatch.Stop();
+
+                token.ThrowIfCancellationRequested();
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    if (token.IsCancellationRequested || previewGeneration != Interlocked.Read(ref _previewGeneration))
+                    {
+                        return;
+                    }
+
+                    if (SelectedViewMode != preparedPreview.ViewMode)
+                    {
+                        SelectedViewMode = preparedPreview.ViewMode;
+                    }
+
+                    ParsedBlocks = preparedPreview.Blocks;
+                    InlineErrorMessage = preparedPreview.InlineErrorMessage ?? string.Empty;
+                    IsViewerLoading = false;
+                    DocumentApplied?.Invoke(this, snapshot);
+                });
+
+                _logger.LogInformation(
+                    "Initial preview preparation completed. FilePath: {FilePath}, BlockCount: {BlockCount}, ParseElapsedMs: {ParseElapsedMs}, TotalElapsedMs: {TotalElapsedMs}",
+                    snapshot.FilePath,
+                    preparedPreview.Blocks.Count,
+                    parseStopwatch.ElapsedMilliseconds,
+                    pipelineStopwatch.ElapsedMilliseconds);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, token);
+    }
+
+    private Task PersistSessionStateAsync()
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                PersistSessionState();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Persisting session state asynchronously failed.");
+            }
+        });
     }
 
     private static string BuildSaveFailureMessage(Exception exception)
@@ -1119,7 +1331,7 @@ public class MainViewModel : INotifyPropertyChanged
         if (!item.IsDirectory)
         {
             await OpenDocumentAsync(
-                async () => await _documentService.LoadDocumentAsync(item.FullPath),
+                () => Task.FromResult<string?>(item.FullPath),
                 "Failed to open markdown file from the workspace tree.",
                 "The selected file could not be opened.");
         }
@@ -1142,7 +1354,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         await OpenDocumentAsync(
-            async () => await _documentService.LoadDocumentAsync(item.FullPath),
+            () => Task.FromResult<string?>(item.FullPath),
             "Failed to open markdown file from the workspace tree.",
             "The selected file could not be opened.");
     }
@@ -1211,6 +1423,8 @@ public class MainViewModel : INotifyPropertyChanged
     private async Task RestoreSessionAsync()
     {
         var stopwatch = Stopwatch.StartNew();
+        var shouldPersistRestoredSessionState = true;
+        var clearWorkspaceRestoreTarget = false;
         try
         {
             IsWorkspacePanelVisible = _sessionState.IsWorkspacePanelVisible;
@@ -1221,10 +1435,23 @@ public class MainViewModel : INotifyPropertyChanged
             var hasWorkspaceAccess = !string.IsNullOrWhiteSpace(restoredWorkspacePath) && Directory.Exists(restoredWorkspacePath);
             if (hasWorkspaceAccess)
             {
-                await Workspace.LoadWorkspaceAsync(
-                    restoredWorkspacePath!,
-                    ResolveCurrentWorkspaceFolderPath(restoredWorkspacePath!, _sessionState.CurrentFolderPath),
-                    _sessionState.DocumentFilePath);
+                try
+                {
+                    await Workspace.LoadWorkspaceAsync(
+                        restoredWorkspacePath!,
+                        ResolveCurrentWorkspaceFolderPath(restoredWorkspacePath!, _sessionState.CurrentFolderPath),
+                        _sessionState.DocumentFilePath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to restore the previous workspace tree. Continuing session restore without the workspace explorer.");
+                    Workspace.Clear();
+                    hasWorkspaceAccess = false;
+                    if (ex is UnauthorizedAccessException)
+                    {
+                        clearWorkspaceRestoreTarget = true;
+                    }
+                }
             }
             else
             {
@@ -1238,6 +1465,7 @@ public class MainViewModel : INotifyPropertyChanged
             }
             else
             {
+                shouldPersistRestoredSessionState = false;
                 await LoadDocumentIntoStateAsync(
                     await _documentService.LoadInitialDocumentAsync() ?? await _documentService.CreateUntitledDocumentAsync(),
                     persistSessionState: false);
@@ -1250,8 +1478,16 @@ public class MainViewModel : INotifyPropertyChanged
                     });
                 }
             }
-            
-            PersistSessionState();
+
+            if (clearWorkspaceRestoreTarget || documentRestore.ClearRestoreTarget)
+            {
+                ClearInvalidRestoreTargets(clearWorkspaceRestoreTarget, documentRestore.ClearRestoreTarget);
+            }
+
+            if (shouldPersistRestoredSessionState)
+            {
+                PersistSessionState();
+            }
             _logger.LogInformation("Restored previous session. WorkspaceRootPath: {WorkspaceRootPath}, CurrentFolderPath: {CurrentFolderPath}, DocumentFilePath: {DocumentFilePath}, ViewMode: {ViewMode}, ElapsedMs: {ElapsedMs}",
                 _sessionState.WorkspaceRootPath,
                 _sessionState.CurrentFolderPath,
@@ -1266,7 +1502,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task<(MarkdownDocument? Document, string? RepickMessage)> TryRestoreSessionDocumentAsync(bool hasWorkspaceAccess)
+    private async Task<(MarkdownDocument? Document, string? RepickMessage, bool ClearRestoreTarget)> TryRestoreSessionDocumentAsync(bool hasWorkspaceAccess)
     {
         var filePath = _sessionRestoreCoordinator.ResolveDocumentRestorePath(_sessionState, hasWorkspaceAccess, out var needsRepick);
         _logger.LogInformation(
@@ -1281,21 +1517,59 @@ public class MainViewModel : INotifyPropertyChanged
         {
             if (needsRepick)
             {
-                return (null, "The previous markdown file needs permission again. Please use Open to re-pick it.");
+                return (null, "The previous markdown file needs permission again. Please use Open to re-pick it.", true);
             }
 
-            return (null, null);
+            return (null, null, false);
         }
 
         try
         {
-            return (await _documentService.LoadDocumentAsync(filePath), null);
+            return (await _documentService.LoadDocumentAsync(filePath), null, false);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Unable to restore previous session document {FilePath} because access was denied.", filePath);
+            return (null, "The previous markdown file needs permission again. Please use Open to re-pick it.", true);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Unable to restore previous session document {FilePath}", filePath);
-            return (null, "The previous markdown file could not be reopened. Please use Open to re-pick it.");
+            return (null, "The previous markdown file could not be reopened. Please use Open to re-pick it.", false);
         }
+    }
+
+    private void ClearInvalidRestoreTargets(bool clearWorkspace, bool clearDocument)
+    {
+        if (clearWorkspace)
+        {
+            _sessionState.WorkspaceRootPath = null;
+            _sessionState.WorkspaceRootBookmark = null;
+            _sessionState.CurrentFolderPath = null;
+        }
+
+        if (clearDocument)
+        {
+            _sessionState.DocumentFilePath = null;
+            _sessionState.DocumentFileBookmark = null;
+        }
+
+        _sessionRestoreCoordinator.Save(new SessionPersistenceRequest
+        {
+            WorkspaceRootPath = _sessionState.WorkspaceRootPath,
+            DocumentFilePath = _sessionState.DocumentFilePath,
+            CurrentFolderPath = _sessionState.CurrentFolderPath,
+            ViewMode = _sessionState.LastViewMode,
+            IsWorkspacePanelVisible = _sessionState.IsWorkspacePanelVisible,
+            WorkspacePanelWidth = _sessionState.WorkspacePanelWidth
+        });
+
+        _logger.LogInformation(
+            "Cleared invalid session restore targets. ClearWorkspace: {ClearWorkspace}, ClearDocument: {ClearDocument}, WorkspaceRootPath: {WorkspaceRootPath}, DocumentFilePath: {DocumentFilePath}",
+            clearWorkspace,
+            clearDocument,
+            _sessionState.WorkspaceRootPath,
+            _sessionState.DocumentFilePath);
     }
 
     private void PersistSessionState()

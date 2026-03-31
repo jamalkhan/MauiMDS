@@ -17,6 +17,7 @@ public static class MauiProgram
         var snackbarService = new SnackbarService();
         var preferencesService = new EditorPreferencesService();
         var preferences = preferencesService.Load();
+        var fileLogLevelSwitch = new FileLogLevelSwitch(preferences.FileLogLevel);
         var maxLogFileSizeBytes = (long)Math.Max(1, preferences.MaxLogFileSizeMb) * 1024 * 1024;
 
 		builder
@@ -29,13 +30,14 @@ public static class MauiProgram
 
 		builder.Logging.ClearProviders();
 		builder.Logging.AddDebug();
-		builder.Logging.AddProvider(new FileLoggerProvider(LogPaths.AppLogFilePath, LogLevel.Debug, maxLogFileSizeBytes));
+		builder.Logging.AddProvider(new FileLoggerProvider(LogPaths.AppLogFilePath, fileLogLevelSwitch, maxLogFileSizeBytes));
         builder.Logging.AddProvider(new SnackbarLoggerProvider(snackbarService, LogLevel.Information));
 
 		// Register our services for Dependency Injection
 		builder.Services.AddSingleton(snackbarService);
 		builder.Services.AddSingleton<MdsParser>();
 		builder.Services.AddSingleton<IEditorPreferencesService>(preferencesService);
+		builder.Services.AddSingleton(fileLogLevelSwitch);
 		builder.Services.AddSingleton<IDocumentWatchService, DocumentWatchService>();
 		builder.Services.AddSingleton<ISessionStateService, SessionStateService>();
 		builder.Services.AddSingleton<MarkdownFileAccessService>();

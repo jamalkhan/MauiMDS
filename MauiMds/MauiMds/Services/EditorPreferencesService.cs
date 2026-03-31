@@ -28,7 +28,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 AutoSaveDelaySeconds = Math.Max(5, preferences.AutoSaveDelaySeconds),
                 MaxLogFileSizeMb = Math.Max(1, preferences.MaxLogFileSizeMb),
                 InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount),
-                Use24HourTime = preferences.Use24HourTime
+                Use24HourTime = preferences.Use24HourTime,
+                FileLogLevel = NormalizeLogLevel(preferences.FileLogLevel)
             };
         }
         catch
@@ -51,7 +52,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             AutoSaveDelaySeconds = Math.Max(5, preferences.AutoSaveDelaySeconds),
             MaxLogFileSizeMb = Math.Max(1, preferences.MaxLogFileSizeMb),
             InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount),
-            Use24HourTime = preferences.Use24HourTime
+            Use24HourTime = preferences.Use24HourTime,
+            FileLogLevel = NormalizeLogLevel(preferences.FileLogLevel)
         };
 
         var json = JsonSerializer.Serialize(normalized, JsonOptions);
@@ -66,7 +68,15 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             AutoSaveDelaySeconds = 30,
             MaxLogFileSizeMb = 2,
             InitialViewerRenderLineCount = 20,
-            Use24HourTime = false
+            Use24HourTime = false,
+            FileLogLevel = Microsoft.Extensions.Logging.LogLevel.Information
         };
+    }
+
+    private static Microsoft.Extensions.Logging.LogLevel NormalizeLogLevel(Microsoft.Extensions.Logging.LogLevel logLevel)
+    {
+        return Enum.IsDefined(logLevel) && logLevel != Microsoft.Extensions.Logging.LogLevel.None
+            ? logLevel
+            : Microsoft.Extensions.Logging.LogLevel.Information;
     }
 }

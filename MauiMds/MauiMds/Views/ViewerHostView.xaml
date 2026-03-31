@@ -17,6 +17,26 @@
                                    Blocks="{Binding ParsedBlocks}"
                                    SourceFilePath="{Binding FilePath}" />
 
+            <Border IsVisible="{Binding IsViewerLoading}"
+                    InputTransparent="True"
+                    BackgroundColor="{AppThemeBinding Light=#F7F2E8CC, Dark=#2D2E30CC}"
+                    StrokeThickness="0"
+                    Padding="18,14"
+                    Margin="0"
+                    StrokeShape="RoundRectangle 14"
+                    VerticalOptions="End"
+                    HorizontalOptions="End">
+                <HorizontalStackLayout Spacing="12">
+                    <ActivityIndicator IsRunning="{Binding IsViewerLoading}"
+                                       Color="{AppThemeBinding Light=#6F6250, Dark=#E6DED2}"
+                                       VerticalOptions="Center" />
+                    <Label Text="Loading preview..."
+                           VerticalTextAlignment="Center"
+                           FontSize="13"
+                           TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
+                </HorizontalStackLayout>
+            </Border>
+
             <controls:MarkdownSyntaxEditorView x:Name="MarkdownTextEditor"
                                                IsVisible="{Binding IsEditorMode}"
                                                Text="{Binding EditorText, Mode=TwoWay}"

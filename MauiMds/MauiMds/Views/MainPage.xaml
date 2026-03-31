@@ -25,7 +25,7 @@
                         StrokeShape="RoundRectangle 18"
                         IsVisible="{Binding IsPreferencesVisible}">
                     <Grid ColumnDefinitions="*,Auto"
-                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                           ColumnSpacing="12"
                           RowSpacing="12">
                         <Label Text="Preferences"
@@ -77,6 +77,21 @@
 
                         <HorizontalStackLayout Grid.Row="4"
                                                Spacing="12">
+                            <Label Text="File Log Level"
+                                   VerticalTextAlignment="Center"
+                                   TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                            <Picker WidthRequest="160"
+                                    Title="Log level"
+                                    ItemsSource="{Binding AvailableFileLogLevels}"
+                                    SelectedItem="{Binding PreferencesFileLogLevelText}" />
+                            <Label Text="Default is Info"
+                                   VerticalTextAlignment="Center"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                        </HorizontalStackLayout>
+
+                        <HorizontalStackLayout Grid.Row="5"
+                                               Spacing="12">
                             <Label Text="24-Hour Time"
                                    VerticalTextAlignment="Center"
                                    TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
@@ -87,7 +102,7 @@
                                    TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
                         </HorizontalStackLayout>
 
-                        <HorizontalStackLayout Grid.Row="5"
+                        <HorizontalStackLayout Grid.Row="6"
                                                Grid.ColumnSpan="2"
                                                Spacing="10">
                             <Button Text="Save Preferences"

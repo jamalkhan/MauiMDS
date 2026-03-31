@@ -46,55 +46,62 @@ public sealed class SessionRestoreCoordinator
     {
         repickMessage = null;
 
-#if MACCATALYST
-        if (!string.IsNullOrWhiteSpace(sessionState.WorkspaceRootBookmark))
+        if (OperatingSystem.IsMacCatalyst())
         {
-            if (_workspaceBrowserService.TryRestorePersistentAccessFromBookmark(sessionState.WorkspaceRootBookmark, out var restoredPath, out var isStale) &&
-                !string.IsNullOrWhiteSpace(restoredPath))
+            if (!string.IsNullOrWhiteSpace(sessionState.WorkspaceRootBookmark))
             {
-                if (isStale)
+                if (_workspaceBrowserService.TryRestorePersistentAccessFromBookmark(sessionState.WorkspaceRootBookmark, out var restoredPath, out var isStale) &&
+                    !string.IsNullOrWhiteSpace(restoredPath))
                 {
-                    _logger.LogWarning("Workspace bookmark resolved but is stale. WorkspaceRootPath: {WorkspaceRootPath}", restoredPath);
+                    if (isStale)
+                    {
+                        _logger.LogWarning("Workspace bookmark resolved but is stale. WorkspaceRootPath: {WorkspaceRootPath}", restoredPath);
+                    }
+
+                    return restoredPath;
                 }
 
-                return restoredPath;
+                repickMessage = "The previous workspace folder needs permission again. Please use Open Folder to re-pick it.";
+                return null;
             }
 
-            repickMessage = "The previous workspace folder needs permission again. Please use Open Folder to re-pick it.";
+            if (!string.IsNullOrWhiteSpace(sessionState.WorkspaceRootPath))
+            {
+                repickMessage = "The previous workspace folder needs permission again. Please use Open Folder to re-pick it.";
+            }
+
             return null;
         }
 
-        return null;
-#else
         return sessionState.WorkspaceRootPath;
-#endif
     }
 
     public string? ResolveDocumentRestorePath(SessionState sessionState, bool hasWorkspaceAccess, out bool needsRepick)
     {
         needsRepick = false;
 
-#if MACCATALYST
-        if (!string.IsNullOrWhiteSpace(sessionState.DocumentFileBookmark))
+        if (OperatingSystem.IsMacCatalyst())
         {
-            if (_documentService.TryRestorePersistentAccessFromBookmark(sessionState.DocumentFileBookmark, out var restoredPath, out var isStale) &&
-                !string.IsNullOrWhiteSpace(restoredPath))
+            if (!string.IsNullOrWhiteSpace(sessionState.DocumentFileBookmark))
             {
-                if (isStale)
+                if (_documentService.TryRestorePersistentAccessFromBookmark(sessionState.DocumentFileBookmark, out var restoredPath, out var isStale) &&
+                    !string.IsNullOrWhiteSpace(restoredPath))
                 {
-                    _logger.LogWarning("Document bookmark resolved but is stale. DocumentFilePath: {DocumentFilePath}", restoredPath);
+                    if (isStale)
+                    {
+                        _logger.LogWarning("Document bookmark resolved but is stale. DocumentFilePath: {DocumentFilePath}", restoredPath);
+                    }
+
+                    return restoredPath;
                 }
 
-                return restoredPath;
+                needsRepick = true;
+                return null;
             }
 
-            needsRepick = true;
-            return null;
+            return hasWorkspaceAccess ? sessionState.DocumentFilePath : null;
         }
 
-        return hasWorkspaceAccess ? sessionState.DocumentFilePath : null;
-#else
         return sessionState.DocumentFilePath;
-#endif
     }
 }

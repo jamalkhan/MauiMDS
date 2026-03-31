@@ -15,7 +15,19 @@ public class MdsParser
 
     public List<MarkdownBlock> Parse(string content)
     {
-        _logger.LogInformation("Starting markdown parse. CharacterCount: {CharacterCount}", content.Length);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var codeBlockCount = 0;
+        var tableCount = 0;
+        var blockQuoteCount = 0;
+        var headerCount = 0;
+        var imageCount = 0;
+        var taskListCount = 0;
+        var orderedListCount = 0;
+        var bulletListCount = 0;
+        var horizontalRuleCount = 0;
+        var footnoteDefinitionCount = 0;
+
+        _logger.LogDebug("Starting markdown parse. CharacterCount: {CharacterCount}", content.Length);
 
         var normalizedContent = NormalizeNewLines(content);
         var lines = normalizedContent.Split('\n');
@@ -31,6 +43,7 @@ public class MdsParser
                 Type = BlockType.FrontMatter,
                 Content = frontMatter
             });
+            _logger.LogTrace("Detected front matter block. Length: {Length}", frontMatter.Length);
         }
 
         while (index < lines.Length)
@@ -48,6 +61,7 @@ public class MdsParser
             if (TryExtractFootnote(lines, ref index, trimmedLine, footnotes))
             {
                 FlushParagraph(blocks, currentParagraph);
+                footnoteDefinitionCount++;
                 continue;
             }
 
@@ -55,6 +69,7 @@ public class MdsParser
             {
                 FlushParagraph(blocks, currentParagraph);
                 blocks.Add(ParseCodeBlock(lines, ref index, trimmedLine));
+                codeBlockCount++;
                 continue;
             }
 
@@ -62,6 +77,7 @@ public class MdsParser
             {
                 FlushParagraph(blocks, currentParagraph);
                 blocks.Add(ParseTable(lines, ref index));
+                tableCount++;
                 continue;
             }
 
@@ -69,6 +85,7 @@ public class MdsParser
             {
                 FlushParagraph(blocks, currentParagraph);
                 blocks.Add(ParseBlockQuote(lines, ref index));
+                blockQuoteCount++;
                 continue;
             }
 
@@ -76,6 +93,7 @@ public class MdsParser
             {
                 FlushParagraph(blocks, currentParagraph);
                 blocks.Add(new MarkdownBlock { Type = BlockType.HorizontalRule });
+                horizontalRuleCount++;
                 index++;
                 continue;
             }
@@ -84,6 +102,7 @@ public class MdsParser
             {
                 FlushParagraph(blocks, currentParagraph);
                 blocks.Add(headerBlock);
+                headerCount++;
                 index++;
                 continue;
             }
@@ -92,6 +111,7 @@ public class MdsParser
             {
                 FlushParagraph(blocks, currentParagraph);
                 blocks.Add(imageBlock);
+                imageCount++;
                 index++;
                 continue;
             }
@@ -102,6 +122,7 @@ public class MdsParser
             {
                 FlushParagraph(blocks, currentParagraph);
                 blocks.Add(taskBlock);
+                taskListCount++;
                 index++;
                 continue;
             }
@@ -110,6 +131,7 @@ public class MdsParser
             {
                 FlushParagraph(blocks, currentParagraph);
                 blocks.Add(orderedBlock);
+                orderedListCount++;
                 index++;
                 continue;
             }
@@ -118,6 +140,7 @@ public class MdsParser
             {
                 FlushParagraph(blocks, currentParagraph);
                 blocks.Add(bulletBlock);
+                bulletListCount++;
                 index++;
                 continue;
             }
@@ -129,7 +152,23 @@ public class MdsParser
         FlushParagraph(blocks, currentParagraph);
         AppendFootnotes(blocks, footnotes);
 
-        _logger.LogInformation("Completed markdown parse. LineCount: {LineCount}, BlockCount: {BlockCount}", lines.Length, blocks.Count);
+        _logger.LogDebug(
+            "Completed markdown parse. LineCount: {LineCount}, BlockCount: {BlockCount}, Paragraphs: {ParagraphCount}, Headers: {HeaderCount}, BulletItems: {BulletListCount}, OrderedItems: {OrderedListCount}, TaskItems: {TaskListCount}, BlockQuotes: {BlockQuoteCount}, Tables: {TableCount}, CodeBlocks: {CodeBlockCount}, Images: {ImageCount}, HorizontalRules: {HorizontalRuleCount}, FootnoteDefinitions: {FootnoteDefinitionCount}, FootnoteBlocks: {FootnoteBlockCount}, ElapsedMs: {ElapsedMs}",
+            lines.Length,
+            blocks.Count,
+            blocks.Count(block => block.Type == BlockType.Paragraph),
+            headerCount,
+            bulletListCount,
+            orderedListCount,
+            taskListCount,
+            blockQuoteCount,
+            tableCount,
+            codeBlockCount,
+            imageCount,
+            horizontalRuleCount,
+            footnoteDefinitionCount,
+            blocks.Count(block => block.Type == BlockType.Footnote),
+            stopwatch.ElapsedMilliseconds);
         return blocks;
     }
 

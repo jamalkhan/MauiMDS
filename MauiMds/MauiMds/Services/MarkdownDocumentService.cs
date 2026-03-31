@@ -28,9 +28,14 @@ public sealed class MarkdownDocumentService : IMarkdownDocumentService
         return _storageService.LoadDocumentAsync(filePath, cancellationToken);
     }
 
+    public Task<string?> PickDocumentPathAsync()
+    {
+        return _pickerService.PickDocumentPathAsync();
+    }
+
     public async Task<MarkdownDocument?> PickDocumentAsync()
     {
-        var filePath = await _pickerService.PickDocumentPathAsync();
+        var filePath = await PickDocumentPathAsync();
         if (string.IsNullOrWhiteSpace(filePath))
         {
             return null;
