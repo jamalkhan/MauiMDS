@@ -37,6 +37,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton(snackbarService);
 		builder.Services.AddSingleton<MdsParser>();
 		builder.Services.AddSingleton<IEditorPreferencesService>(preferencesService);
+		builder.Services.AddSingleton<IClock, SystemClock>();
+		builder.Services.AddSingleton<IDelayScheduler, TaskDelayScheduler>();
 		builder.Services.AddSingleton(fileLogLevelSwitch);
 		builder.Services.AddSingleton<IDocumentWatchService, DocumentWatchService>();
 		builder.Services.AddSingleton<ISessionStateService, SessionStateService>();
@@ -48,6 +50,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IWorkspaceBrowserService, WorkspaceBrowserService>();
 		builder.Services.AddSingleton<WorkspaceExplorerState>();
 		builder.Services.AddSingleton<DocumentWorkflowController>();
+		builder.Services.AddSingleton<DocumentApplyController>();
+		builder.Services.AddSingleton<PreviewPipelineController>();
 		builder.Services.AddSingleton<AutosaveCoordinator>();
 		builder.Services.AddSingleton<SessionRestoreCoordinator>();
 		builder.Services.AddSingleton<MainViewModel>();

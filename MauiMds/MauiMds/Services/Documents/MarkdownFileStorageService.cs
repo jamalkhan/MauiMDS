@@ -17,7 +17,7 @@ public sealed class MarkdownFileStorageService : IMarkdownFileStorageService
 
     public async Task<MarkdownDocument?> LoadInitialDocumentAsync()
     {
-        _logger.LogInformation("Loading initial markdown document from the app package: {DocumentName}", MarkdownFileConventions.ExampleDocumentName);
+        _logger.LogDebug("Loading initial markdown document from the app package: {DocumentName}", MarkdownFileConventions.ExampleDocumentName);
 
         await using var stream = await FileSystem.Current.OpenAppPackageFileAsync(MarkdownFileConventions.ExampleDocumentName);
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
@@ -61,7 +61,7 @@ public sealed class MarkdownFileStorageService : IMarkdownFileStorageService
         var encoding = MarkdownFileConventions.DetectEncoding(bytes);
         var content = encoding.GetString(bytes);
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Loaded markdown document. FileName: {FileName}, FilePath: {FilePath}, SizeKB: {SizeKb:F2}, LastModified: {LastModified}, Encoding: {Encoding}",
             fileInfo.Name,
             fileInfo.FullName,

@@ -67,22 +67,16 @@
             </Border>
 
             <controls:MarkdownSyntaxEditorView x:Name="MarkdownTextEditor"
-                                               IsVisible="{Binding IsEditorMode}"
+                                               IsVisible="{Binding IsTextEditorMode}"
                                                Text="{Binding EditorText, Mode=TwoWay}"
                                                Placeholder="Edit Markdown here..."
                                                IsSyntaxHighlightingEnabled="False" />
 
-            <Border IsVisible="{Binding IsRichTextEditorMode}"
-                    BackgroundColor="{AppThemeBinding Light=#EFE6D6, Dark=#3A3632}"
-                    StrokeThickness="0"
-                    Padding="12,10"
-                    Margin="0,0,0,12"
-                    VerticalOptions="Start"
-                    StrokeShape="RoundRectangle 12">
-                <Label Text="Rich text mode is currently stubbed with a plaintext editor. Markdown parsing stays active behind the scenes."
-                       FontSize="12"
-                       TextColor="{AppThemeBinding Light=#4A443C, Dark=#E6DED2}" />
-            </Border>
+            <controls:RichTextEditorView x:Name="RichTextEditor"
+                                         IsVisible="{Binding IsRichTextEditorMode}"
+                                         Blocks="{Binding ParsedBlocks}"
+                                         Text="{Binding EditorText, Mode=TwoWay}"
+                                         FallbackToMarkdownCommand="{Binding FallbackToMarkdownEditorCommand}" />
         </Grid>
     </Border>
 </ContentView>

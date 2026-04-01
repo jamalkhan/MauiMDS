@@ -27,7 +27,7 @@ public sealed class MarkdownDocumentPickerService : IMarkdownDocumentPickerServi
 
     public async Task<string?> PickDocumentPathAsync()
     {
-        _logger.LogInformation("Opening file picker for markdown documents.");
+        _logger.LogDebug("Opening file picker for markdown documents.");
 
 #if MACCATALYST
         var pickedUrl = await PickDocumentUrlMacCatalystAsync();

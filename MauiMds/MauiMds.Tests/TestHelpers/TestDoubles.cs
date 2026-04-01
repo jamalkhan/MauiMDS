@@ -3,6 +3,110 @@ using MauiMds.Services;
 
 namespace MauiMds.Tests.TestHelpers;
 
+internal sealed class FakeClock : IClock
+{
+    public FakeClock(DateTimeOffset? initialUtcNow = null)
+    {
+        UtcNow = initialUtcNow ?? new DateTimeOffset(2026, 4, 1, 12, 0, 0, TimeSpan.Zero);
+    }
+
+    public DateTimeOffset UtcNow { get; private set; }
+    public DateTimeOffset Now => UtcNow.ToLocalTime();
+
+    public void Advance(TimeSpan by)
+    {
+        if (by < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(by), "Fake time cannot move backwards.");
+        }
+
+        UtcNow = UtcNow.Add(by);
+    }
+}
+
+internal sealed class FakeDelayScheduler : IDelayScheduler
+{
+    private readonly FakeClock _clock;
+    private readonly List<ScheduledDelay> _scheduledDelays = [];
+
+    public FakeDelayScheduler(FakeClock clock)
+    {
+        _clock = clock;
+    }
+
+    public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+
+        if (delay <= TimeSpan.Zero)
+        {
+            return Task.CompletedTask;
+        }
+
+        var scheduledDelay = new ScheduledDelay(_clock.UtcNow.Add(delay), cancellationToken);
+        _scheduledDelays.Add(scheduledDelay);
+        return scheduledDelay.Task;
+    }
+
+    public void AdvanceBy(TimeSpan by)
+    {
+        _clock.Advance(by);
+        CompleteDueDelays();
+    }
+
+    private void CompleteDueDelays()
+    {
+        for (var i = _scheduledDelays.Count - 1; i >= 0; i--)
+        {
+            var scheduledDelay = _scheduledDelays[i];
+            if (scheduledDelay.CancellationToken.IsCancellationRequested)
+            {
+                scheduledDelay.TrySetCanceled();
+                _scheduledDelays.RemoveAt(i);
+                continue;
+            }
+
+            if (scheduledDelay.DueUtc <= _clock.UtcNow)
+            {
+                scheduledDelay.TrySetResult();
+                _scheduledDelays.RemoveAt(i);
+            }
+        }
+    }
+
+    private sealed class ScheduledDelay
+    {
+        private readonly TaskCompletionSource _completionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly CancellationTokenRegistration _cancellationRegistration;
+
+        public ScheduledDelay(DateTimeOffset dueUtc, CancellationToken cancellationToken)
+        {
+            DueUtc = dueUtc;
+            CancellationToken = cancellationToken;
+            _cancellationRegistration = cancellationToken.Register(() => _completionSource.TrySetCanceled(cancellationToken));
+        }
+
+        public DateTimeOffset DueUtc { get; }
+        public CancellationToken CancellationToken { get; }
+        public Task Task => _completionSource.Task;
+
+        public void TrySetResult()
+        {
+            _cancellationRegistration.Dispose();
+            _completionSource.TrySetResult();
+        }
+
+        public void TrySetCanceled()
+        {
+            _cancellationRegistration.Dispose();
+            _completionSource.TrySetCanceled(CancellationToken);
+        }
+    }
+}
+
 internal sealed class FakeWorkspaceBrowserService : IWorkspaceBrowserService
 {
     public string? BookmarkToReturn { get; set; }

@@ -30,9 +30,12 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IWorkspaceBrowserService _workspaceBrowserService;
     private readonly IEditorPreferencesService _preferencesService;
     private readonly IDocumentWatchService _documentWatchService;
+    private readonly IClock _clock;
     private readonly ILogger<MainViewModel> _logger;
     private readonly FileLogLevelSwitch _fileLogLevelSwitch;
+    private readonly DocumentApplyController _documentApplyController;
     private readonly DocumentWorkflowController _documentWorkflowController;
+    private readonly PreviewPipelineController _previewPipelineController;
     private readonly AutosaveCoordinator _autosaveCoordinator;
     private readonly SessionRestoreCoordinator _sessionRestoreCoordinator;
 
@@ -62,18 +65,23 @@ public class MainViewModel : INotifyPropertyChanged
     private DateTimeOffset? _lastParsedBlocksAssignedUtc;
     private string? _pendingDocumentFilePath;
     private string? _pendingDocumentFileName;
-    private CancellationTokenSource? _parseCancellationSource;
-    private long _previewGeneration;
-    private DateTimeOffset _lastSaveUtc;
+    private IReadOnlyList<MarkdownBlock> _deferredPreviewBlocks = Array.Empty<MarkdownBlock>();
+    private string _deferredPreviewInlineErrorMessage = string.Empty;
+    private string _deferredPreviewContent = string.Empty;
+    private string _deferredPreviewFilePath = string.Empty;
+    private EditorViewMode? _deferredPreviewViewMode;
 
     public MainViewModel(
         IMarkdownDocumentService documentService,
         IWorkspaceBrowserService workspaceBrowserService,
         IEditorPreferencesService preferencesService,
         IDocumentWatchService documentWatchService,
+        IClock clock,
         FileLogLevelSwitch fileLogLevelSwitch,
         WorkspaceExplorerState workspaceExplorerState,
+        DocumentApplyController documentApplyController,
         DocumentWorkflowController documentWorkflowController,
+        PreviewPipelineController previewPipelineController,
         AutosaveCoordinator autosaveCoordinator,
         SessionRestoreCoordinator sessionRestoreCoordinator,
         ILogger<MainViewModel> logger)
@@ -82,8 +90,11 @@ public class MainViewModel : INotifyPropertyChanged
         _workspaceBrowserService = workspaceBrowserService;
         _preferencesService = preferencesService;
         _documentWatchService = documentWatchService;
+        _clock = clock;
         _fileLogLevelSwitch = fileLogLevelSwitch;
+        _documentApplyController = documentApplyController;
         _documentWorkflowController = documentWorkflowController;
+        _previewPipelineController = previewPipelineController;
         _autosaveCoordinator = autosaveCoordinator;
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
         _logger = logger;
@@ -129,6 +140,7 @@ public class MainViewModel : INotifyPropertyChanged
         FormatHeader1Command = new Command(() => RequestEditorAction(EditorActionType.Header1));
         FormatHeader2Command = new Command(() => RequestEditorAction(EditorActionType.Header2));
         FormatHeader3Command = new Command(() => RequestEditorAction(EditorActionType.Header3));
+        FallbackToMarkdownEditorCommand = new Command(() => SetViewMode(EditorViewMode.TextEditor));
     }
 
     public IReadOnlyList<MarkdownBlock> ParsedBlocks
@@ -142,7 +154,7 @@ public class MainViewModel : INotifyPropertyChanged
             }
 
             _parsedBlocks = value;
-            _lastParsedBlocksAssignedUtc = DateTimeOffset.UtcNow;
+            _lastParsedBlocksAssignedUtc = _clock.UtcNow;
             _logger.LogDebug(
                 "ParsedBlocks assigned. BlockCount: {BlockCount}, FilePath: {FilePath}, AssignedUtc: {AssignedUtc:O}",
                 value.Count,
@@ -182,6 +194,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand FormatHeader1Command { get; }
     public ICommand FormatHeader2Command { get; }
     public ICommand FormatHeader3Command { get; }
+    public ICommand FallbackToMarkdownEditorCommand { get; }
 
     public string FilePath
     {
@@ -222,7 +235,7 @@ public class MainViewModel : INotifyPropertyChanged
     {
         EditorViewMode.Viewer => "Read-Only Viewer",
         EditorViewMode.TextEditor => "Plaintext Markdown Editor",
-        _ => "Rich Text Editor (Plaintext Stub)"
+        _ => "Rich Text Editor"
     };
 
     public string EditorText
@@ -273,6 +286,11 @@ public class MainViewModel : INotifyPropertyChanged
 
             if (_isInitialized && !string.IsNullOrWhiteSpace(_document.Content))
             {
+                if (value == EditorViewMode.Viewer && TryApplyDeferredPreview())
+                {
+                    return;
+                }
+
                 ScheduleParse();
             }
         }
@@ -855,7 +873,7 @@ public class MainViewModel : INotifyPropertyChanged
         var previousIsDirty = _document.IsDirty;
 
         _documentWorkflowController.ApplySaveResult(_document, result);
-        _lastSaveUtc = DateTimeOffset.UtcNow;
+        _previewPipelineController.MarkSaved();
 
         if (!string.Equals(previousFilePath, _document.FilePath, StringComparison.Ordinal))
         {
@@ -892,27 +910,25 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            var previousFilePath = _document.FilePath;
-            var previousFileName = _document.FileName;
-            var previousIsUntitled = _document.IsUntitled;
-            var previousIsDirty = _document.IsDirty;
             var currentViewMode = SelectedViewMode;
-            var previewGeneration = BeginNewPreviewGeneration();
-            _document = _documentWorkflowController.CreateDocumentState(document);
+            _previewPipelineController.CancelPreview();
+            ClearDeferredPreview();
+            var applyResult = _documentApplyController.PrepareApply(_document, document);
+            _document = applyResult.DocumentState;
 
             var uiStateStopwatch = Stopwatch.StartNew();
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 ClearPendingDocumentShell(raiseNotifications: false);
 
-                if (!string.Equals(previousFilePath, _document.FilePath, StringComparison.Ordinal))
+                if (applyResult.FilePathChanged)
                 {
                     OnPropertyChanged(nameof(FilePath));
                     OnPropertyChanged(nameof(HeaderPathDisplay));
                     OnPropertyChanged(nameof(HasFilePath));
                 }
 
-                if (!string.Equals(previousFileName, _document.FileName, StringComparison.Ordinal))
+                if (applyResult.FileNameChanged)
                 {
                     OnPropertyChanged(nameof(FileName));
                 }
@@ -920,12 +936,12 @@ public class MainViewModel : INotifyPropertyChanged
                 EditorText = _document.Content;
                 InlineErrorMessage = string.Empty;
                 ViewerLoadingPreviewText = BuildViewerLoadingPreview(document.Content);
-                if (previousIsDirty != _document.IsDirty)
+                if (applyResult.IsDirtyChanged)
                 {
                     OnPropertyChanged(nameof(IsDirty));
                 }
 
-                if (previousIsUntitled != _document.IsUntitled)
+                if (applyResult.IsUntitledChanged)
                 {
                     OnPropertyChanged(nameof(IsUntitled));
                 }
@@ -936,13 +952,13 @@ public class MainViewModel : INotifyPropertyChanged
             uiStateStopwatch.Stop();
 
             var watchStopwatch = Stopwatch.StartNew();
-            if (_document.IsUntitled || string.IsNullOrWhiteSpace(_document.FilePath))
+            if (!applyResult.ShouldWatchDocument || string.IsNullOrWhiteSpace(applyResult.WatchFilePath))
             {
                 _documentWatchService.Stop();
             }
             else
             {
-                _documentWatchService.Watch(_document.FilePath);
+                _documentWatchService.Watch(applyResult.WatchFilePath);
             }
             watchStopwatch.Stop();
 
@@ -953,7 +969,7 @@ public class MainViewModel : INotifyPropertyChanged
             }
             sessionStopwatch.Stop();
 
-            StartPreviewPreparation(document, currentViewMode, previewGeneration);
+            StartPreviewPreparation(document, currentViewMode);
 
             _logger.LogInformation(
                 "Document load/apply pipeline completed. FilePath: {FilePath}, ContentLength: {ContentLength}, UiStateMs: {UiStateMs}, WatchMs: {WatchMs}, SessionPersistMs: {SessionPersistMs}, TotalElapsedMs: {TotalElapsedMs}, ViewMode: {ViewMode}",
@@ -971,15 +987,12 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task ParseAndApplyPreviewAsync(string text)
+    private async Task ApplyPreparedPreviewAsync(MarkdownDocument snapshot, DocumentPreviewResult preparedPreview, TimeSpan parseElapsed)
     {
         var pipelineStopwatch = Stopwatch.StartNew();
-        var parseStopwatch = Stopwatch.StartNew();
-        var snapshot = CreateCurrentDocumentSnapshot(text);
-        var preparedPreview = _documentWorkflowController.PreparePreview(snapshot, SelectedViewMode);
-        parseStopwatch.Stop();
-
         var applyStopwatch = Stopwatch.StartNew();
+        var previewChanged = false;
+        var previewDeferred = false;
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
             if (SelectedViewMode != preparedPreview.ViewMode)
@@ -987,18 +1000,42 @@ public class MainViewModel : INotifyPropertyChanged
                 SelectedViewMode = preparedPreview.ViewMode;
             }
 
-            ParsedBlocks = preparedPreview.Blocks;
-            InlineErrorMessage = preparedPreview.InlineErrorMessage ?? string.Empty;
+            if (preparedPreview.ViewMode == EditorViewMode.TextEditor)
+            {
+                CacheDeferredPreview(snapshot, preparedPreview);
+                previewDeferred = true;
+            }
+            else
+            {
+                ClearDeferredPreview();
+                if (!AreEquivalentBlocks(_parsedBlocks, preparedPreview.Blocks))
+                {
+                    ParsedBlocks = preparedPreview.Blocks;
+                    previewChanged = true;
+                }
+            }
+
+            var inlineErrorMessage = preparedPreview.InlineErrorMessage ?? string.Empty;
+            if (!string.Equals(InlineErrorMessage, inlineErrorMessage, StringComparison.Ordinal))
+            {
+                InlineErrorMessage = inlineErrorMessage;
+            }
+
             IsViewerLoading = false;
-            DocumentApplied?.Invoke(this, snapshot);
+            if (!previewDeferred)
+            {
+                DocumentApplied?.Invoke(this, snapshot);
+            }
         });
         applyStopwatch.Stop();
 
-        _logger.LogInformation(
-            "Preview parse/apply completed. FilePath: {FilePath}, BlockCount: {BlockCount}, ParseElapsedMs: {ParseElapsedMs}, UiApplyElapsedMs: {UiApplyElapsedMs}, TotalElapsedMs: {TotalElapsedMs}, ViewMode: {ViewMode}",
+        _logger.LogDebug(
+            "Preview parse/apply completed. FilePath: {FilePath}, BlockCount: {BlockCount}, PreviewChanged: {PreviewChanged}, PreviewDeferred: {PreviewDeferred}, ParseElapsedMs: {ParseElapsedMs}, UiApplyElapsedMs: {UiApplyElapsedMs}, TotalElapsedMs: {TotalElapsedMs}, ViewMode: {ViewMode}",
             _document.FilePath,
             preparedPreview.Blocks.Count,
-            parseStopwatch.ElapsedMilliseconds,
+            previewChanged,
+            previewDeferred,
+            parseElapsed.TotalMilliseconds,
             applyStopwatch.ElapsedMilliseconds,
             pipelineStopwatch.ElapsedMilliseconds,
             SelectedViewMode);
@@ -1006,29 +1043,67 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void ScheduleParse()
     {
-        var token = ResetParseCancellationToken();
         var snapshot = CreateCurrentDocumentSnapshot(_document.Content);
-        var previewGeneration = Interlocked.Increment(ref _previewGeneration);
-            IsViewerLoading = IsViewerMode;
-            ViewerLoadingPreviewText = BuildViewerLoadingPreview(snapshot.Content);
+        IsViewerLoading = IsViewerMode;
+        ViewerLoadingPreviewText = BuildViewerLoadingPreview(snapshot.Content);
 
-        _ = Task.Run(async () =>
+        _ = _previewPipelineController.SchedulePreviewAsync(
+            snapshot,
+            SelectedViewMode,
+            IsViewerMode ? ViewerParseDebounceDelay : EditorParseDebounceDelay,
+            ApplyPreparedPreviewAsync);
+    }
+
+    private void CacheDeferredPreview(MarkdownDocument snapshot, DocumentPreviewResult preparedPreview)
+    {
+        _deferredPreviewBlocks = preparedPreview.Blocks;
+        _deferredPreviewInlineErrorMessage = preparedPreview.InlineErrorMessage ?? string.Empty;
+        _deferredPreviewContent = snapshot.Content;
+        _deferredPreviewFilePath = snapshot.FilePath ?? string.Empty;
+        _deferredPreviewViewMode = preparedPreview.ViewMode;
+    }
+
+    private bool TryApplyDeferredPreview()
+    {
+        if (_deferredPreviewViewMode is null
+            || _deferredPreviewViewMode == EditorViewMode.Viewer
+            || !string.Equals(_deferredPreviewContent, _document.Content, StringComparison.Ordinal)
+            || !string.Equals(_deferredPreviewFilePath, _document.FilePath ?? string.Empty, StringComparison.Ordinal))
         {
-            try
-            {
-                await Task.Delay(IsViewerMode ? ViewerParseDebounceDelay : EditorParseDebounceDelay, token);
-                token.ThrowIfCancellationRequested();
-                if (previewGeneration != Interlocked.Read(ref _previewGeneration))
-                {
-                    return;
-                }
+            return false;
+        }
 
-                await ParseAndApplyPreviewAsync(snapshot.Content);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, token);
+        var previewChanged = false;
+        if (!AreEquivalentBlocks(_parsedBlocks, _deferredPreviewBlocks))
+        {
+            ParsedBlocks = _deferredPreviewBlocks;
+            previewChanged = true;
+        }
+
+        if (!string.Equals(InlineErrorMessage, _deferredPreviewInlineErrorMessage, StringComparison.Ordinal))
+        {
+            InlineErrorMessage = _deferredPreviewInlineErrorMessage;
+        }
+
+        IsViewerLoading = false;
+        DocumentApplied?.Invoke(this, CreateCurrentDocumentSnapshot(_document.Content));
+        ClearDeferredPreview();
+
+        _logger.LogDebug(
+            "Applied deferred preview for current document. FilePath: {FilePath}, BlockCount: {BlockCount}, PreviewChanged: {PreviewChanged}",
+            _document.FilePath,
+            _parsedBlocks.Count,
+            previewChanged);
+        return true;
+    }
+
+    private void ClearDeferredPreview()
+    {
+        _deferredPreviewBlocks = Array.Empty<MarkdownBlock>();
+        _deferredPreviewInlineErrorMessage = string.Empty;
+        _deferredPreviewContent = string.Empty;
+        _deferredPreviewFilePath = string.Empty;
+        _deferredPreviewViewMode = null;
     }
 
     private void ScheduleAutoSave()
@@ -1049,29 +1124,30 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        if (_isSavingDocument || DateTimeOffset.UtcNow - _lastSaveUtc < TimeSpan.FromSeconds(1))
+        if (_previewPipelineController.ShouldSuppressExternalReload(_isSavingDocument, TimeSpan.FromSeconds(1)))
         {
             return;
         }
 
         try
         {
-            await Task.Delay(ExternalChangeDebounceDelay);
-
-            if (_document.IsDirty)
+            await _previewPipelineController.ScheduleExternalReloadAsync(ExternalChangeDebounceDelay, async () =>
             {
+                if (_document.IsDirty)
+                {
+                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        InlineErrorMessage = "The file changed on disk while you have unsaved edits. Save or revert to reconcile it.";
+                    });
+                    return;
+                }
+
+                var updatedDocument = await _documentService.LoadDocumentAsync(_document.FilePath);
+                await LoadDocumentIntoStateAsync(updatedDocument);
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
-                    InlineErrorMessage = "The file changed on disk while you have unsaved edits. Save or revert to reconcile it.";
+                    InlineErrorMessage = "The file changed on disk and was automatically reloaded.";
                 });
-                return;
-            }
-
-            var updatedDocument = await _documentService.LoadDocumentAsync(_document.FilePath);
-            await LoadDocumentIntoStateAsync(updatedDocument);
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                InlineErrorMessage = "The file changed on disk and was automatically reloaded.";
             });
         }
         catch (Exception ex)
@@ -1137,20 +1213,6 @@ public class MainViewModel : INotifyPropertyChanged
         return string.Join(" • ", parts);
     }
 
-    private long BeginNewPreviewGeneration()
-    {
-        ResetParseCancellationToken();
-        return Interlocked.Increment(ref _previewGeneration);
-    }
-
-    private CancellationToken ResetParseCancellationToken()
-    {
-        _parseCancellationSource?.Cancel();
-        _parseCancellationSource?.Dispose();
-        _parseCancellationSource = new CancellationTokenSource();
-        return _parseCancellationSource.Token;
-    }
-
     private MarkdownDocument CreateCurrentDocumentSnapshot(string content)
     {
         return new MarkdownDocument
@@ -1206,9 +1268,8 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StatusText));
     }
 
-    private void StartPreviewPreparation(MarkdownDocument document, EditorViewMode currentViewMode, long previewGeneration)
+    private void StartPreviewPreparation(MarkdownDocument document, EditorViewMode currentViewMode)
     {
-        var token = _parseCancellationSource?.Token ?? CancellationToken.None;
         var snapshot = new MarkdownDocument
         {
             FilePath = document.FilePath,
@@ -1221,47 +1282,21 @@ public class MainViewModel : INotifyPropertyChanged
             NewLine = document.NewLine
         };
 
-        _ = Task.Run(async () =>
-        {
-            try
+        _ = _previewPipelineController.SchedulePreviewAsync(
+            snapshot,
+            currentViewMode,
+            TimeSpan.Zero,
+            async (preparedSnapshot, preparedPreview, parseElapsed) =>
             {
-                token.ThrowIfCancellationRequested();
                 var pipelineStopwatch = Stopwatch.StartNew();
-                var parseStopwatch = Stopwatch.StartNew();
-                var preparedPreview = _documentWorkflowController.PreparePreview(snapshot, currentViewMode);
-                parseStopwatch.Stop();
-
-                token.ThrowIfCancellationRequested();
-                await MainThread.InvokeOnMainThreadAsync(() =>
-                {
-                    if (token.IsCancellationRequested || previewGeneration != Interlocked.Read(ref _previewGeneration))
-                    {
-                        return;
-                    }
-
-                    if (SelectedViewMode != preparedPreview.ViewMode)
-                    {
-                        SelectedViewMode = preparedPreview.ViewMode;
-                    }
-
-                    ParsedBlocks = preparedPreview.Blocks;
-                    InlineErrorMessage = preparedPreview.InlineErrorMessage ?? string.Empty;
-                    IsViewerLoading = false;
-                    ViewerLoadingPreviewText = string.Empty;
-                    DocumentApplied?.Invoke(this, snapshot);
-                });
-
-                _logger.LogInformation(
+                await ApplyPreparedPreviewAsync(preparedSnapshot, preparedPreview, parseElapsed);
+                _logger.LogDebug(
                     "Initial preview preparation completed. FilePath: {FilePath}, BlockCount: {BlockCount}, ParseElapsedMs: {ParseElapsedMs}, TotalElapsedMs: {TotalElapsedMs}",
-                    snapshot.FilePath,
+                    preparedSnapshot.FilePath,
                     preparedPreview.Blocks.Count,
-                    parseStopwatch.ElapsedMilliseconds,
+                    parseElapsed.TotalMilliseconds,
                     pipelineStopwatch.ElapsedMilliseconds);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, token);
+            });
     }
 
     private Task PersistSessionStateAsync()
@@ -1565,7 +1600,7 @@ public class MainViewModel : INotifyPropertyChanged
     private async Task<(MarkdownDocument? Document, string? RepickMessage, bool ClearRestoreTarget)> TryRestoreSessionDocumentAsync(bool hasWorkspaceAccess)
     {
         var filePath = _sessionRestoreCoordinator.ResolveDocumentRestorePath(_sessionState, hasWorkspaceAccess, out var needsRepick);
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Resolved session document restore path. FilePath: {FilePath}, HasWorkspaceAccess: {HasWorkspaceAccess}, NeedsRepick: {NeedsRepick}, SavedDocumentFilePath: {SavedDocumentFilePath}, HasDocumentBookmark: {HasDocumentBookmark}",
             filePath,
             hasWorkspaceAccess,
@@ -1653,7 +1688,7 @@ public class MainViewModel : INotifyPropertyChanged
             IsWorkspacePanelVisible = _sessionState.IsWorkspacePanelVisible,
             WorkspacePanelWidth = _sessionState.WorkspacePanelWidth
         });
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Persisted session state. WorkspaceRootPath: {WorkspaceRootPath}, CurrentFolderPath: {CurrentFolderPath}, DocumentFilePath: {DocumentFilePath}, HasWorkspaceBookmark: {HasWorkspaceBookmark}, HasDocumentBookmark: {HasDocumentBookmark}, ViewMode: {ViewMode}",
             _sessionState.WorkspaceRootPath,
             _sessionState.CurrentFolderPath,
@@ -1677,7 +1712,7 @@ public class MainViewModel : INotifyPropertyChanged
         _sessionState.WorkspacePanelWidth = WorkspacePanelWidth;
         PersistSessionState();
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Remembered opened document for session restore. DocumentFilePath: {DocumentFilePath}, HasDocumentBookmark: {HasDocumentBookmark}",
             _sessionState.DocumentFilePath,
             !string.IsNullOrWhiteSpace(_sessionState.DocumentFilePath));
@@ -1724,5 +1759,64 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         return Math.Clamp(width, MinWorkspacePanelWidth, MaxWorkspacePanelWidth);
+    }
+
+    private static bool AreEquivalentBlocks(IReadOnlyList<MarkdownBlock> current, IReadOnlyList<MarkdownBlock> next)
+    {
+        if (ReferenceEquals(current, next))
+        {
+            return true;
+        }
+
+        if (current.Count != next.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < current.Count; index++)
+        {
+            if (!AreEquivalentBlocks(current[index], next[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool AreEquivalentBlocks(MarkdownBlock current, MarkdownBlock next)
+    {
+        return current.Type == next.Type
+            && current.HeaderLevel == next.HeaderLevel
+            && string.Equals(current.Content, next.Content, StringComparison.Ordinal)
+            && string.Equals(current.CodeLanguage, next.CodeLanguage, StringComparison.Ordinal)
+            && current.ListLevel == next.ListLevel
+            && current.OrderedNumber == next.OrderedNumber
+            && current.IsChecked == next.IsChecked
+            && current.QuoteLevel == next.QuoteLevel
+            && string.Equals(current.ImageSource, next.ImageSource, StringComparison.Ordinal)
+            && string.Equals(current.ImageAltText, next.ImageAltText, StringComparison.Ordinal)
+            && string.Equals(current.FootnoteId, next.FootnoteId, StringComparison.Ordinal)
+            && current.TableHeaders.SequenceEqual(next.TableHeaders, StringComparer.Ordinal)
+            && current.TableAlignments.SequenceEqual(next.TableAlignments)
+            && AreEquivalentTableRows(current.TableRows, next.TableRows);
+    }
+
+    private static bool AreEquivalentTableRows(IReadOnlyList<List<string>> current, IReadOnlyList<List<string>> next)
+    {
+        if (current.Count != next.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < current.Count; index++)
+        {
+            if (!current[index].SequenceEqual(next[index], StringComparer.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

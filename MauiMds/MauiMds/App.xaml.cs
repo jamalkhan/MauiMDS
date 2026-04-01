@@ -24,13 +24,13 @@ public partial class App : Application
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
-        _logger.LogInformation("Creating application window.");
+        _logger.LogDebug("Creating application window.");
 
         try
         {
             var rootPage = new NavigationPage(_mainPage);
             AttachMenuBar(rootPage);
-            _logger.LogInformation("Root page created successfully.");
+            _logger.LogDebug("Root page created successfully.");
             return new Window(rootPage);
         }
         catch (Exception ex)
@@ -102,7 +102,7 @@ public partial class App : Application
         rootPage.MenuBarItems.Add(formatMenu);
         rootPage.MenuBarItems.Add(viewMenu);
         rootPage.MenuBarItems.Add(toolsMenu);
-        _logger.LogInformation("Attached File, Edit, Format, View, and Tools menus to the root navigation page.");
+        _logger.LogDebug("Attached File, Edit, Format, View, and Tools menus to the root navigation page.");
     }
 
     private static MenuFlyoutItem CreateMenuItem(string text, ICommand command, object? commandParameter = null, string? key = null, bool primaryModifier = false, bool includeShift = false)

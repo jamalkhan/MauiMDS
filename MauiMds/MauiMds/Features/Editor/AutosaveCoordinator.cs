@@ -1,8 +1,16 @@
+using MauiMds.Services;
+
 namespace MauiMds.Features.Editor;
 
 public sealed class AutosaveCoordinator : IDisposable
 {
+    private readonly IDelayScheduler _delayScheduler;
     private CancellationTokenSource? _autosaveCancellationSource;
+
+    public AutosaveCoordinator(IDelayScheduler delayScheduler)
+    {
+        _delayScheduler = delayScheduler;
+    }
 
     public void Schedule(
         bool isEnabled,
@@ -26,7 +34,7 @@ public sealed class AutosaveCoordinator : IDisposable
         {
             try
             {
-                await Task.Delay(delay, token);
+                await _delayScheduler.DelayAsync(delay, token);
                 token.ThrowIfCancellationRequested();
                 await MainThread.InvokeOnMainThreadAsync(saveAction);
             }

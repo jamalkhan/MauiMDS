@@ -28,7 +28,7 @@ public partial class MainPage : ContentPage
     {
         _logger = logger;
         _snackbarService = snackbarService;
-        _logger.LogInformation("Constructing MainPage.");
+        _logger.LogDebug("Constructing MainPage.");
 
         try
         {
@@ -64,7 +64,7 @@ public partial class MainPage : ContentPage
 
             Loaded += OnLoaded;
             SizeChanged += OnPageSizeChanged;
-            _logger.LogInformation("MainPage initialized successfully.");
+            _logger.LogDebug("MainPage initialized successfully.");
         }
         catch (Exception ex)
         {
@@ -75,7 +75,7 @@ public partial class MainPage : ContentPage
 
     private void OnLoaded(object? sender, EventArgs e)
     {
-        _logger.LogInformation("MainPage loaded.");
+        _logger.LogDebug("MainPage loaded.");
 
         if (BindingContext is MainViewModel vm)
         {
@@ -256,17 +256,27 @@ public partial class MainPage : ContentPage
             vm.InlineErrorMessage);
     }
 
-    private MarkdownSyntaxEditorView? GetActiveEditor()
+    private IEditorSurface? GetActiveEditor()
     {
         if (BindingContext is not MainViewModel vm)
         {
             return null;
         }
 
-        return vm.IsEditorMode ? ViewerHost.MarkdownEditor : null;
+        if (vm.IsTextEditorMode)
+        {
+            return ViewerHost.MarkdownEditor;
+        }
+
+        if (vm.IsRichTextEditorMode)
+        {
+            return ViewerHost.RichTextEditorSurface;
+        }
+
+        return null;
     }
 
-    private async Task HandleFindAsync(MarkdownSyntaxEditorView editor)
+    private async Task HandleFindAsync(IEditorSurface editor)
     {
         var query = await DisplayPromptAsync("Find", "Find text in the current document:", "Find", "Cancel", maxLength: 200);
         if (string.IsNullOrWhiteSpace(query))

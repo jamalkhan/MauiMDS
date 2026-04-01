@@ -56,6 +56,8 @@ public sealed class MarkdownView : ContentView
     private DateTimeOffset? _lastBlocksChangedUtc;
     private DateTimeOffset? _lastRenderQueuedUtc;
     private readonly List<RenderSlot> _renderSlots = [];
+    private IReadOnlyList<MarkdownBlock>? _lastRenderedBlocks;
+    private string _lastRenderedSourceFilePath = string.Empty;
 
     public MarkdownView()
     {
@@ -131,7 +133,7 @@ public sealed class MarkdownView : ContentView
     private static void OnSourceFilePathChanged(BindableObject bindable, object? oldValue, object? newValue)
     {
         var view = (MarkdownView)bindable;
-        view._logger?.LogInformation(
+        view._logger?.LogDebug(
             "MarkdownView source file path updated without rerender. SourceFilePath: {SourceFilePath}, BlockCount: {BlockCount}",
             view.SourceFilePath,
             view.Blocks?.Count ?? 0);
@@ -144,17 +146,24 @@ public sealed class MarkdownView : ContentView
 
         if (isEnabled)
         {
-            view._logger?.LogInformation(
+            view._logger?.LogDebug(
                 "MarkdownView rendering enabled. PendingRender: {PendingRender}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
                 view._hasPendingRender,
                 view.Blocks?.Count ?? 0,
                 view.SourceFilePath);
 
-            view.RequestRender("rendering enabled");
+            if (view._hasPendingRender || view.NeedsRenderForCurrentState())
+            {
+                view.RequestRender("rendering enabled");
+            }
+            else
+            {
+                view.ScheduleViewportUpgrades();
+            }
             return;
         }
 
-        view._logger?.LogInformation(
+        view._logger?.LogDebug(
             "MarkdownView rendering disabled. BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}",
             view.Blocks?.Count ?? 0,
             view.SourceFilePath);
@@ -176,7 +185,7 @@ public sealed class MarkdownView : ContentView
         if (!IsRenderingEnabled)
         {
             _hasPendingRender = true;
-            _logger?.LogInformation(
+            _logger?.LogDebug(
                 "MarkdownView render deferred. Reason: {Reason}, RequestVersion: {RequestVersion}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}, BlocksChangedToQueueMs: {BlocksChangedToQueueMs}",
                 reason,
                 requestVersion,
@@ -187,10 +196,8 @@ public sealed class MarkdownView : ContentView
         }
 
         _hasPendingRender = false;
-        _renderCancellationSource?.Cancel();
-        _renderCancellationSource?.Dispose();
-        _upgradeCancellationSource?.Cancel();
-        _upgradeCancellationSource?.Dispose();
+        CancelAndDispose(ref _renderCancellationSource);
+        CancelAndDispose(ref _upgradeCancellationSource);
         _renderCancellationSource = new CancellationTokenSource();
         var token = _renderCancellationSource.Token;
 
@@ -208,6 +215,21 @@ public sealed class MarkdownView : ContentView
         }, token);
     }
 
+    private bool NeedsRenderForCurrentState()
+    {
+        if (_contentStack.Children.Count == 0)
+        {
+            return true;
+        }
+
+        if (!ReferenceEquals(_lastRenderedBlocks, Blocks))
+        {
+            return true;
+        }
+
+        return !string.Equals(_lastRenderedSourceFilePath, SourceFilePath, StringComparison.Ordinal);
+    }
+
     private async Task RenderMarkdownCoreAsync(CancellationToken cancellationToken, int requestVersion)
     {
         var mainThreadRenderStartUtc = DateTimeOffset.UtcNow;
@@ -220,7 +242,7 @@ public sealed class MarkdownView : ContentView
 
         if (requestVersion != _requestedRenderVersion)
         {
-            _logger?.LogInformation(
+            _logger?.LogDebug(
                 "MarkdownView render skipped before start because a newer request exists. RequestVersion: {RequestVersion}, CurrentRequestVersion: {CurrentRequestVersion}, SourceFilePath: {SourceFilePath}",
                 requestVersion,
                 _requestedRenderVersion,
@@ -230,7 +252,7 @@ public sealed class MarkdownView : ContentView
 
         var stopwatch = Stopwatch.StartNew();
         var renderVersion = Interlocked.Increment(ref _renderVersion);
-        _logger?.LogInformation(
+        _logger?.LogDebug(
             "MarkdownView rendering started. RequestVersion: {RequestVersion}, BlockCount: {BlockCount}, SourceFilePath: {SourceFilePath}, QueuedToMainThreadMs: {QueuedToMainThreadMs}, BlocksChangedToMainThreadMs: {BlocksChangedToMainThreadMs}",
             requestVersion,
             Blocks?.Count ?? 0,
@@ -246,13 +268,15 @@ public sealed class MarkdownView : ContentView
 
         if (Blocks.Count == 0)
         {
+            _lastRenderedBlocks = Blocks;
+            _lastRenderedSourceFilePath = SourceFilePath;
             CompleteRender(stopwatch);
             return;
         }
 
         if (requestVersion != _requestedRenderVersion)
         {
-            _logger?.LogInformation(
+            _logger?.LogDebug(
                 "MarkdownView render canceled before clearing old content. RequestVersion: {RequestVersion}, CurrentRequestVersion: {CurrentRequestVersion}, SourceFilePath: {SourceFilePath}",
                 requestVersion,
                 _requestedRenderVersion,
@@ -312,6 +336,8 @@ public sealed class MarkdownView : ContentView
             return;
         }
 
+        _lastRenderedBlocks = blocks;
+        _lastRenderedSourceFilePath = SourceFilePath;
         ScheduleViewportUpgrades();
         CompleteRender(stopwatch);
     }
@@ -345,7 +371,7 @@ public sealed class MarkdownView : ContentView
             {
                 if (renderVersion != _renderVersion || requestVersion != _requestedRenderVersion || !IsRenderingEnabled)
                 {
-                    _logger?.LogInformation(
+                    _logger?.LogDebug(
                         "MarkdownView incremental render canceled. RenderVersion: {RenderVersion}, CurrentVersion: {CurrentVersion}, RequestVersion: {RequestVersion}, CurrentRequestVersion: {CurrentRequestVersion}, SourceFilePath: {SourceFilePath}",
                         renderVersion,
                         _renderVersion,
@@ -380,6 +406,8 @@ public sealed class MarkdownView : ContentView
 
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
+            _lastRenderedBlocks = blocks;
+            _lastRenderedSourceFilePath = SourceFilePath;
             ScheduleViewportUpgrades();
             CompleteRender(stopwatch);
         });
@@ -569,11 +597,22 @@ public sealed class MarkdownView : ContentView
 
     private void CompleteRender(Stopwatch stopwatch)
     {
-        _logger?.LogInformation(
+        var elapsedMs = stopwatch.ElapsedMilliseconds;
+        if (elapsedMs >= 1500)
+        {
+            _logger?.LogInformation(
+                "MarkdownView rendering completed. RenderedChildCount: {RenderedChildCount}, SourceFilePath: {SourceFilePath}, ElapsedMs: {ElapsedMs}",
+                _contentStack.Children.Count,
+                SourceFilePath,
+                elapsedMs);
+            return;
+        }
+
+        _logger?.LogDebug(
             "MarkdownView rendering completed. RenderedChildCount: {RenderedChildCount}, SourceFilePath: {SourceFilePath}, ElapsedMs: {ElapsedMs}",
             _contentStack.Children.Count,
             SourceFilePath,
-            stopwatch.ElapsedMilliseconds);
+            elapsedMs);
     }
 
     private void OnScrollViewScrolled(object? sender, ScrolledEventArgs e)
@@ -593,8 +632,7 @@ public sealed class MarkdownView : ContentView
             return;
         }
 
-        _upgradeCancellationSource?.Cancel();
-        _upgradeCancellationSource?.Dispose();
+        CancelAndDispose(ref _upgradeCancellationSource);
         _upgradeCancellationSource = new CancellationTokenSource();
         var token = _upgradeCancellationSource.Token;
 
@@ -725,6 +763,27 @@ public sealed class MarkdownView : ContentView
         border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#FBE0DD"), Color.FromArgb("#432524"));
         border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#D27A72"), Color.FromArgb("#B65A54"));
         return border;
+    }
+
+    private static void CancelAndDispose(ref CancellationTokenSource? cancellationTokenSource)
+    {
+        var source = Interlocked.Exchange(ref cancellationTokenSource, null);
+        if (source is null)
+        {
+            return;
+        }
+
+        try
+        {
+            source.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            source.Dispose();
+        }
     }
 
     private sealed class RenderSlot

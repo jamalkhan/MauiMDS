@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace MauiMds.Controls;
 
-public sealed class MarkdownSyntaxEditorView : ContentView
+public sealed class MarkdownSyntaxEditorView : ContentView, IEditorSurface
 {
     // DEPRECATED: Syntax highlighting is intentionally disabled in the active editor path
     // because the current implementation is too slow for a good editing experience.
@@ -205,16 +205,9 @@ public sealed class MarkdownSyntaxEditorView : ContentView
         {
             view.SetTextInternal(newText, recordHistory: false);
         }
-        else
+        else if (view.IsSyntaxHighlightingEnabled)
         {
-            if (view.IsSyntaxHighlightingEnabled)
-            {
-                view.ScheduleHighlightRefresh();
-            }
-            else
-            {
-                view.RefreshHighlighting();
-            }
+            view.ScheduleHighlightRefresh();
         }
     }
 
@@ -263,20 +256,25 @@ public sealed class MarkdownSyntaxEditorView : ContentView
             _undoStack.Push(Text ?? string.Empty);
             _redoStack.Clear();
         }
+        else if (!recordHistory)
+        {
+            _undoStack.Clear();
+            _redoStack.Clear();
+        }
 
         _isApplyingText = true;
         _isUpdatingHistory = !recordHistory;
         try
         {
             _editor.Text = text;
-            SetValue(TextProperty, text);
+            if (!string.Equals(Text, text, StringComparison.Ordinal))
+            {
+                SetValue(TextProperty, text);
+            }
+
             if (IsSyntaxHighlightingEnabled)
             {
                 ScheduleHighlightRefresh();
-            }
-            else
-            {
-                RefreshHighlighting();
             }
         }
         finally
