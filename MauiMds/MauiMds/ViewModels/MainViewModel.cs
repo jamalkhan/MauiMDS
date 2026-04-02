@@ -31,6 +31,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IEditorPreferencesService _preferencesService;
     private readonly IDocumentWatchService _documentWatchService;
     private readonly IClock _clock;
+    private readonly SnackbarService _snackbarService;
     private readonly ILogger<MainViewModel> _logger;
     private readonly FileLogLevelSwitch _fileLogLevelSwitch;
     private readonly DocumentApplyController _documentApplyController;
@@ -77,6 +78,7 @@ public class MainViewModel : INotifyPropertyChanged
         IEditorPreferencesService preferencesService,
         IDocumentWatchService documentWatchService,
         IClock clock,
+        SnackbarService snackbarService,
         FileLogLevelSwitch fileLogLevelSwitch,
         WorkspaceExplorerState workspaceExplorerState,
         DocumentApplyController documentApplyController,
@@ -91,6 +93,7 @@ public class MainViewModel : INotifyPropertyChanged
         _preferencesService = preferencesService;
         _documentWatchService = documentWatchService;
         _clock = clock;
+        _snackbarService = snackbarService;
         _fileLogLevelSwitch = fileLogLevelSwitch;
         _documentApplyController = documentApplyController;
         _documentWorkflowController = documentWorkflowController;
@@ -281,6 +284,8 @@ public class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsTextEditorMode));
             OnPropertyChanged(nameof(IsRichTextEditorMode));
             OnPropertyChanged(nameof(IsEditorMode));
+            OnPropertyChanged(nameof(IsRichTextEditorSupported));
+            OnPropertyChanged(nameof(RichTextEditorUnavailableMessage));
             OnPropertyChanged(nameof(CurrentViewLabel));
             OnPropertyChanged(nameof(StatusText));
 
@@ -300,6 +305,8 @@ public class MainViewModel : INotifyPropertyChanged
     public bool IsTextEditorMode => SelectedViewMode == EditorViewMode.TextEditor;
     public bool IsRichTextEditorMode => SelectedViewMode == EditorViewMode.RichTextEditor;
     public bool IsEditorMode => SelectedViewMode != EditorViewMode.Viewer;
+    public bool IsRichTextEditorSupported => DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst;
+    public string RichTextEditorUnavailableMessage => "Coming Soon: Rich Text editing is currently available on macOS only.";
 
     public bool IsBusy => _isOpeningDocument || _isSavingDocument;
     public bool IsDirty => _document.IsDirty;
@@ -814,9 +821,26 @@ public class MainViewModel : INotifyPropertyChanged
         return Enum.TryParse(text, ignoreCase: true, out logLevel) && logLevel != LogLevel.None;
     }
 
+    private EditorViewMode ResolveSupportedViewMode(EditorViewMode requestedMode, bool showUnsupportedSnackbar)
+    {
+        if (requestedMode != EditorViewMode.RichTextEditor || IsRichTextEditorSupported)
+        {
+            return requestedMode;
+        }
+
+        if (showUnsupportedSnackbar)
+        {
+            var message = "Rich Text editing is not available on this platform yet. Switched to Markdown editor.";
+            _snackbarService.EnqueueMessage(SnackbarMessageLevel.Error, nameof(MainViewModel), message);
+            _logger.LogWarning("Attempted to activate Rich Text editor on unsupported platform {Platform}. Falling back to Markdown editor.", DeviceInfo.Current.Platform);
+        }
+
+        return EditorViewMode.TextEditor;
+    }
+
     private void SetViewMode(EditorViewMode mode)
     {
-        SelectedViewMode = mode;
+        SelectedViewMode = ResolveSupportedViewMode(mode, showUnsupportedSnackbar: true);
         PersistSessionState();
     }
 
@@ -1524,7 +1548,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             IsWorkspacePanelVisible = _sessionState.IsWorkspacePanelVisible;
             WorkspacePanelWidth = _sessionState.WorkspacePanelWidth;
-            SelectedViewMode = _sessionState.LastViewMode;
+            SelectedViewMode = ResolveSupportedViewMode(_sessionState.LastViewMode, showUnsupportedSnackbar: true);
 
             var restoredWorkspacePath = _sessionRestoreCoordinator.ResolveWorkspaceRestorePath(_sessionState, out var workspaceRepickMessage);
             var hasWorkspaceAccess = !string.IsNullOrWhiteSpace(restoredWorkspacePath) && Directory.Exists(restoredWorkspacePath);

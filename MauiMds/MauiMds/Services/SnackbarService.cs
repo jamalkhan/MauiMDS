@@ -79,6 +79,19 @@ public sealed class SnackbarService : INotifyPropertyChanged, IDisposable
         });
     }
 
+    public void EnqueueMessage(SnackbarMessageLevel level, string category, string message, string? exceptionMessage = null, string? exceptionDetails = null)
+    {
+        Enqueue(new SnackbarMessage
+        {
+            Level = level,
+            Category = category,
+            Message = message,
+            Timestamp = DateTimeOffset.Now,
+            ExceptionMessage = exceptionMessage,
+            ExceptionDetails = exceptionDetails
+        });
+    }
+
     public void Dispose()
     {
         if (_disposed)

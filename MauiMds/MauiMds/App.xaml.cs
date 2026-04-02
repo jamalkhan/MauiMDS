@@ -92,7 +92,7 @@ public partial class App : Application
         var viewMenu = new MenuBarItem { Text = "View" };
         viewMenu.Add(CreateMenuItem("Read-Only Viewer", viewModel.SetViewModeCommand, EditorViewMode.Viewer));
         viewMenu.Add(CreateMenuItem("Markdown Editor", viewModel.SetViewModeCommand, EditorViewMode.TextEditor));
-        viewMenu.Add(CreateMenuItem("Rich Text Editor", viewModel.SetViewModeCommand, EditorViewMode.RichTextEditor));
+        viewMenu.Add(CreateMenuItem("Rich Text Editor", viewModel.SetViewModeCommand, EditorViewMode.RichTextEditor, isEnabled: viewModel.IsRichTextEditorSupported));
 
         var toolsMenu = new MenuBarItem { Text = "Tools" };
         toolsMenu.Add(CreateMenuItem("Preferences", viewModel.ShowPreferencesCommand));
@@ -105,13 +105,14 @@ public partial class App : Application
         _logger.LogDebug("Attached File, Edit, Format, View, and Tools menus to the root navigation page.");
     }
 
-    private static MenuFlyoutItem CreateMenuItem(string text, ICommand command, object? commandParameter = null, string? key = null, bool primaryModifier = false, bool includeShift = false)
+    private static MenuFlyoutItem CreateMenuItem(string text, ICommand command, object? commandParameter = null, string? key = null, bool primaryModifier = false, bool includeShift = false, bool isEnabled = true)
     {
         var item = new MenuFlyoutItem
         {
             Text = text,
             Command = command,
-            CommandParameter = commandParameter
+            CommandParameter = commandParameter,
+            IsEnabled = isEnabled
         };
 
         if (!string.IsNullOrWhiteSpace(key))

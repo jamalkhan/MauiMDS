@@ -111,6 +111,8 @@
                         Text="Rich Text"
                         Command="{Binding SetViewModeCommand}"
                         CommandParameter="{x:Static models:EditorViewMode.RichTextEditor}"
+                        IsEnabled="{Binding IsRichTextEditorSupported}"
+                        ToolTipProperties.Text="{Binding RichTextEditorUnavailableMessage}"
                         Padding="14,8">
                     <Button.Triggers>
                         <DataTrigger TargetType="Button"
@@ -118,6 +120,11 @@
                                      Value="True">
                             <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
                             <Setter Property="TextColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#1D1D1B}" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Button"
+                                     Binding="{Binding IsRichTextEditorSupported}"
+                                     Value="False">
+                            <Setter Property="Opacity" Value="0.55" />
                         </DataTrigger>
                     </Button.Triggers>
                 </Button>
