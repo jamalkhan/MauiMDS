@@ -8,7 +8,12 @@ public enum EditorActionType
     Copy,
     Paste,
     Find,
+    Paragraph,
     Header1,
     Header2,
-    Header3
+    Header3,
+    Bullet,
+    Checklist,
+    Quote,
+    Code
 }

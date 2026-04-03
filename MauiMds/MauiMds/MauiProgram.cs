@@ -52,6 +52,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<DocumentWorkflowController>();
 		builder.Services.AddSingleton<DocumentApplyController>();
 		builder.Services.AddSingleton<PreviewPipelineController>();
+		builder.Services.AddSingleton<EditorModeSupportController>();
 		builder.Services.AddSingleton<AutosaveCoordinator>();
 		builder.Services.AddSingleton<SessionRestoreCoordinator>();
 		builder.Services.AddSingleton<MainViewModel>();

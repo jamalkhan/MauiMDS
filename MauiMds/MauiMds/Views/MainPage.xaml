@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:models="clr-namespace:MauiMds.Models;assembly=MauiMds.Core"
              xmlns:views="clr-namespace:MauiMds.Views"
              x:Class="MauiMds.Views.MainPage"
              BackgroundColor="{AppThemeBinding Light=#E7E4DE, Dark=#232321}">
@@ -12,7 +13,7 @@
                                          Margin="0,0,20,0" />
 
             <Grid Grid.Column="1"
-                  RowDefinitions="Auto,Auto,*,Auto"
+                  RowDefinitions="Auto,Auto,Auto,*,Auto"
                   RowSpacing="12">
                 <views:DocumentHeaderView x:Name="DocumentHeader"
                                           Grid.Row="0" />
@@ -113,11 +114,134 @@
                     </Grid>
                 </Border>
 
+                <Border Grid.Row="2"
+                        BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#32302D}"
+                        Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
+                        StrokeThickness="1"
+                        Padding="16,12,16,12"
+                        StrokeShape="RoundRectangle 18,18,0,0">
+                    <HorizontalStackLayout Spacing="8">
+                        <Border Padding="22,12"
+                                Margin="0,4,0,0"
+                                BackgroundColor="{AppThemeBinding Light=#DDD4C4, Dark=#3B3834}"
+                                Stroke="{AppThemeBinding Light=#CFC4B2, Dark=#4A4743}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 16,16,0,0">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SetViewModeCommand}"
+                                                      CommandParameter="{x:Static models:EditorViewMode.Viewer}" />
+                            </Border.GestureRecognizers>
+                            <Border.Triggers>
+                                <DataTrigger TargetType="Border"
+                                             Binding="{Binding IsReaderMode}"
+                                             Value="True">
+                                    <Setter Property="Margin" Value="0,0,0,-1" />
+                                    <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}" />
+                                    <Setter Property="Stroke" Value="{AppThemeBinding Light=#D5CCBC, Dark=#45474B}" />
+                                </DataTrigger>
+                            </Border.Triggers>
+                            <Label Text="Reader"
+                                   FontSize="15"
+                                   FontAttributes="Bold"
+                                   TextColor="{AppThemeBinding Light=#4E483F, Dark=#D6CEC2}" />
+                            <Border.Resources>
+                                <Style TargetType="Label">
+                                    <Style.Triggers>
+                                        <DataTrigger TargetType="Label"
+                                                     Binding="{Binding IsReaderMode}"
+                                                     Value="True">
+                                            <Setter Property="TextColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Resources>
+                        </Border>
+
+                        <Border Padding="22,12"
+                                Margin="0,4,0,0"
+                                BackgroundColor="{AppThemeBinding Light=#DDD4C4, Dark=#3B3834}"
+                                Stroke="{AppThemeBinding Light=#CFC4B2, Dark=#4A4743}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 16,16,0,0">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SetViewModeCommand}"
+                                                      CommandParameter="{x:Static models:EditorViewMode.TextEditor}" />
+                            </Border.GestureRecognizers>
+                            <Border.Triggers>
+                                <DataTrigger TargetType="Border"
+                                             Binding="{Binding IsTextEditorMode}"
+                                             Value="True">
+                                    <Setter Property="Margin" Value="0,0,0,-1" />
+                                    <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}" />
+                                    <Setter Property="Stroke" Value="{AppThemeBinding Light=#D5CCBC, Dark=#45474B}" />
+                                </DataTrigger>
+                            </Border.Triggers>
+                            <Label Text="Text Editor"
+                                   FontSize="15"
+                                   FontAttributes="Bold"
+                                   TextColor="{AppThemeBinding Light=#4E483F, Dark=#D6CEC2}" />
+                            <Border.Resources>
+                                <Style TargetType="Label">
+                                    <Style.Triggers>
+                                        <DataTrigger TargetType="Label"
+                                                     Binding="{Binding IsTextEditorMode}"
+                                                     Value="True">
+                                            <Setter Property="TextColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Resources>
+                        </Border>
+
+                        <Border Padding="22,12"
+                                Margin="0,4,0,0"
+                                BackgroundColor="{AppThemeBinding Light=#DDD4C4, Dark=#3B3834}"
+                                Stroke="{AppThemeBinding Light=#CFC4B2, Dark=#4A4743}"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 16,16,0,0"
+                                ToolTipProperties.Text="{Binding VisualEditorUnavailableMessage}">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SetViewModeCommand}"
+                                                      CommandParameter="{x:Static models:EditorViewMode.RichTextEditor}" />
+                            </Border.GestureRecognizers>
+                            <Border.Triggers>
+                                <DataTrigger TargetType="Border"
+                                             Binding="{Binding IsVisualEditorMode}"
+                                             Value="True">
+                                    <Setter Property="Margin" Value="0,0,0,-1" />
+                                    <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#2D2E30}" />
+                                    <Setter Property="Stroke" Value="{AppThemeBinding Light=#D5CCBC, Dark=#45474B}" />
+                                </DataTrigger>
+                                <DataTrigger TargetType="Border"
+                                             Binding="{Binding IsVisualEditorSupported}"
+                                             Value="False">
+                                    <Setter Property="Opacity" Value="0.58" />
+                                </DataTrigger>
+                            </Border.Triggers>
+                            <Label Text="Visual Editor"
+                                   FontSize="15"
+                                   FontAttributes="Bold"
+                                   TextColor="{AppThemeBinding Light=#4E483F, Dark=#D6CEC2}" />
+                            <Border.Resources>
+                                <Style TargetType="Label">
+                                    <Style.Triggers>
+                                        <DataTrigger TargetType="Label"
+                                                     Binding="{Binding IsVisualEditorMode}"
+                                                     Value="True">
+                                            <Setter Property="TextColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Resources>
+                        </Border>
+                    </HorizontalStackLayout>
+                </Border>
+
                 <views:ViewerHostView x:Name="ViewerHost"
-                                      Grid.Row="2" />
+                                      Grid.Row="3" />
 
                 <views:LogsDockView x:Name="LogsDock"
-                                    Grid.Row="3" />
+                                    Grid.Row="4" />
             </Grid>
         </Grid>
     </Grid>

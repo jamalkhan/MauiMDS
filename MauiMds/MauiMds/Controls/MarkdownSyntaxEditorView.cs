@@ -35,6 +35,7 @@ public sealed class MarkdownSyntaxEditorView : ContentView, IEditorSurface
         propertyChanged: OnSyntaxHighlightingChanged);
 
     private readonly MarkdownSyntaxHighlighter _highlighter = new();
+    private readonly VisualEditorDocumentController _documentController = new();
     private readonly Editor _editor;
     private readonly Label _highlightLabel;
     private readonly Stack<string> _undoStack = new();
@@ -96,6 +97,11 @@ public sealed class MarkdownSyntaxEditorView : ContentView, IEditorSurface
     public void FocusEditor()
     {
         _editor.Focus();
+    }
+
+    public void ApplyParagraphStyle()
+    {
+        ApplyBlockTransform(RichTextBlockKind.Paragraph);
     }
 
     public void Undo()
@@ -169,6 +175,26 @@ public sealed class MarkdownSyntaxEditorView : ContentView, IEditorSurface
         SetTextInternal(updatedText, recordHistory: true);
         _editor.CursorPosition = Math.Min(lineStart + newLine.Length, _editor.Text?.Length ?? 0);
         _editor.SelectionLength = 0;
+    }
+
+    public void ApplyBulletStyle()
+    {
+        ApplyBlockTransform(RichTextBlockKind.Bullet);
+    }
+
+    public void ApplyChecklistStyle()
+    {
+        ApplyBlockTransform(RichTextBlockKind.Task);
+    }
+
+    public void ApplyQuoteStyle()
+    {
+        ApplyBlockTransform(RichTextBlockKind.Quote);
+    }
+
+    public void ApplyCodeStyle()
+    {
+        ApplyBlockTransform(RichTextBlockKind.Code);
     }
 
     public bool FindNext(string query)
@@ -247,6 +273,19 @@ public sealed class MarkdownSyntaxEditorView : ContentView, IEditorSurface
         {
             ScheduleHighlightRefresh();
         }
+    }
+
+    private void ApplyBlockTransform(RichTextBlockKind kind)
+    {
+        var result = _documentController.ApplyBlockTransform(Text ?? string.Empty, _editor.CursorPosition, _editor.SelectionLength, kind);
+        if (!result.Changed)
+        {
+            return;
+        }
+
+        SetTextInternal(result.Text, recordHistory: true);
+        _editor.CursorPosition = Math.Clamp(result.CursorPosition, 0, _editor.Text?.Length ?? 0);
+        _editor.SelectionLength = Math.Clamp(result.SelectionLength, 0, Math.Max(0, (_editor.Text?.Length ?? 0) - _editor.CursorPosition));
     }
 
     private void SetTextInternal(string text, bool recordHistory)

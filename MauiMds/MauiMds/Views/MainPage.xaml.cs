@@ -129,6 +129,9 @@ public partial class MainPage : ContentPage
             case EditorActionType.Find:
                 await HandleFindAsync(editor);
                 break;
+            case EditorActionType.Paragraph:
+                editor.ApplyParagraphStyle();
+                break;
             case EditorActionType.Header1:
                 editor.ApplyHeaderPrefix(1);
                 break;
@@ -137,6 +140,18 @@ public partial class MainPage : ContentPage
                 break;
             case EditorActionType.Header3:
                 editor.ApplyHeaderPrefix(3);
+                break;
+            case EditorActionType.Bullet:
+                editor.ApplyBulletStyle();
+                break;
+            case EditorActionType.Checklist:
+                editor.ApplyChecklistStyle();
+                break;
+            case EditorActionType.Quote:
+                editor.ApplyQuoteStyle();
+                break;
+            case EditorActionType.Code:
+                editor.ApplyCodeStyle();
                 break;
         }
     }
@@ -265,12 +280,12 @@ public partial class MainPage : ContentPage
 
         if (vm.IsTextEditorMode)
         {
-            return ViewerHost.MarkdownEditor;
+            return ViewerHost.TextEditorSurface;
         }
 
-        if (vm.IsRichTextEditorMode)
+        if (vm.IsVisualEditorMode)
         {
-            return ViewerHost.RichTextEditorSurface;
+            return ViewerHost.VisualEditorSurface;
         }
 
         return null;

@@ -31,7 +31,6 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IEditorPreferencesService _preferencesService;
     private readonly IDocumentWatchService _documentWatchService;
     private readonly IClock _clock;
-    private readonly SnackbarService _snackbarService;
     private readonly ILogger<MainViewModel> _logger;
     private readonly FileLogLevelSwitch _fileLogLevelSwitch;
     private readonly DocumentApplyController _documentApplyController;
@@ -39,6 +38,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly PreviewPipelineController _previewPipelineController;
     private readonly AutosaveCoordinator _autosaveCoordinator;
     private readonly SessionRestoreCoordinator _sessionRestoreCoordinator;
+    private readonly EditorModeSupportController _editorModeSupportController;
 
     private EditorDocumentState _document = new();
     private EditorViewMode _selectedViewMode = EditorViewMode.Viewer;
@@ -78,12 +78,12 @@ public class MainViewModel : INotifyPropertyChanged
         IEditorPreferencesService preferencesService,
         IDocumentWatchService documentWatchService,
         IClock clock,
-        SnackbarService snackbarService,
         FileLogLevelSwitch fileLogLevelSwitch,
         WorkspaceExplorerState workspaceExplorerState,
         DocumentApplyController documentApplyController,
         DocumentWorkflowController documentWorkflowController,
         PreviewPipelineController previewPipelineController,
+        EditorModeSupportController editorModeSupportController,
         AutosaveCoordinator autosaveCoordinator,
         SessionRestoreCoordinator sessionRestoreCoordinator,
         ILogger<MainViewModel> logger)
@@ -93,11 +93,11 @@ public class MainViewModel : INotifyPropertyChanged
         _preferencesService = preferencesService;
         _documentWatchService = documentWatchService;
         _clock = clock;
-        _snackbarService = snackbarService;
         _fileLogLevelSwitch = fileLogLevelSwitch;
         _documentApplyController = documentApplyController;
         _documentWorkflowController = documentWorkflowController;
         _previewPipelineController = previewPipelineController;
+        _editorModeSupportController = editorModeSupportController;
         _autosaveCoordinator = autosaveCoordinator;
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
         _logger = logger;
@@ -140,10 +140,14 @@ public class MainViewModel : INotifyPropertyChanged
         CopyCommand = new Command(() => RequestEditorAction(EditorActionType.Copy));
         PasteCommand = new Command(() => RequestEditorAction(EditorActionType.Paste));
         FindCommand = new Command(() => RequestEditorAction(EditorActionType.Find));
+        FormatParagraphCommand = new Command(() => RequestEditorAction(EditorActionType.Paragraph));
         FormatHeader1Command = new Command(() => RequestEditorAction(EditorActionType.Header1));
         FormatHeader2Command = new Command(() => RequestEditorAction(EditorActionType.Header2));
         FormatHeader3Command = new Command(() => RequestEditorAction(EditorActionType.Header3));
-        FallbackToMarkdownEditorCommand = new Command(() => SetViewMode(EditorViewMode.TextEditor));
+        FormatBulletCommand = new Command(() => RequestEditorAction(EditorActionType.Bullet));
+        FormatChecklistCommand = new Command(() => RequestEditorAction(EditorActionType.Checklist));
+        FormatQuoteCommand = new Command(() => RequestEditorAction(EditorActionType.Quote));
+        FormatCodeCommand = new Command(() => RequestEditorAction(EditorActionType.Code));
     }
 
     public IReadOnlyList<MarkdownBlock> ParsedBlocks
@@ -194,10 +198,14 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand CopyCommand { get; }
     public ICommand PasteCommand { get; }
     public ICommand FindCommand { get; }
+    public ICommand FormatParagraphCommand { get; }
     public ICommand FormatHeader1Command { get; }
     public ICommand FormatHeader2Command { get; }
     public ICommand FormatHeader3Command { get; }
-    public ICommand FallbackToMarkdownEditorCommand { get; }
+    public ICommand FormatBulletCommand { get; }
+    public ICommand FormatChecklistCommand { get; }
+    public ICommand FormatQuoteCommand { get; }
+    public ICommand FormatCodeCommand { get; }
 
     public string FilePath
     {
@@ -236,9 +244,9 @@ public class MainViewModel : INotifyPropertyChanged
     public string HeaderPathDisplay => IsUntitled ? "Unsaved document" : FilePath;
     public string CurrentViewLabel => SelectedViewMode switch
     {
-        EditorViewMode.Viewer => "Read-Only Viewer",
-        EditorViewMode.TextEditor => "Plaintext Markdown Editor",
-        _ => "Rich Text Editor"
+        EditorViewMode.Viewer => "Reader",
+        EditorViewMode.TextEditor => "Text Editor",
+        _ => "Visual Editor"
     };
 
     public string EditorText
@@ -280,12 +288,12 @@ public class MainViewModel : INotifyPropertyChanged
 
             _selectedViewMode = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(IsViewerMode));
+            OnPropertyChanged(nameof(IsReaderMode));
             OnPropertyChanged(nameof(IsTextEditorMode));
-            OnPropertyChanged(nameof(IsRichTextEditorMode));
+            OnPropertyChanged(nameof(IsVisualEditorMode));
             OnPropertyChanged(nameof(IsEditorMode));
-            OnPropertyChanged(nameof(IsRichTextEditorSupported));
-            OnPropertyChanged(nameof(RichTextEditorUnavailableMessage));
+            OnPropertyChanged(nameof(IsVisualEditorSupported));
+            OnPropertyChanged(nameof(VisualEditorUnavailableMessage));
             OnPropertyChanged(nameof(CurrentViewLabel));
             OnPropertyChanged(nameof(StatusText));
 
@@ -301,12 +309,12 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool IsViewerMode => SelectedViewMode == EditorViewMode.Viewer;
+    public bool IsReaderMode => SelectedViewMode == EditorViewMode.Viewer;
     public bool IsTextEditorMode => SelectedViewMode == EditorViewMode.TextEditor;
-    public bool IsRichTextEditorMode => SelectedViewMode == EditorViewMode.RichTextEditor;
+    public bool IsVisualEditorMode => SelectedViewMode == EditorViewMode.RichTextEditor;
     public bool IsEditorMode => SelectedViewMode != EditorViewMode.Viewer;
-    public bool IsRichTextEditorSupported => DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst;
-    public string RichTextEditorUnavailableMessage => "Coming Soon: Rich Text editing is currently available on macOS only.";
+    public bool IsVisualEditorSupported => _editorModeSupportController.IsVisualEditorSupported;
+    public string VisualEditorUnavailableMessage => _editorModeSupportController.VisualEditorUnavailableMessage;
 
     public bool IsBusy => _isOpeningDocument || _isSavingDocument;
     public bool IsDirty => _document.IsDirty;
@@ -821,26 +829,9 @@ public class MainViewModel : INotifyPropertyChanged
         return Enum.TryParse(text, ignoreCase: true, out logLevel) && logLevel != LogLevel.None;
     }
 
-    private EditorViewMode ResolveSupportedViewMode(EditorViewMode requestedMode, bool showUnsupportedSnackbar)
-    {
-        if (requestedMode != EditorViewMode.RichTextEditor || IsRichTextEditorSupported)
-        {
-            return requestedMode;
-        }
-
-        if (showUnsupportedSnackbar)
-        {
-            var message = "Rich Text editing is not available on this platform yet. Switched to Markdown editor.";
-            _snackbarService.EnqueueMessage(SnackbarMessageLevel.Error, nameof(MainViewModel), message);
-            _logger.LogWarning("Attempted to activate Rich Text editor on unsupported platform {Platform}. Falling back to Markdown editor.", DeviceInfo.Current.Platform);
-        }
-
-        return EditorViewMode.TextEditor;
-    }
-
     private void SetViewMode(EditorViewMode mode)
     {
-        SelectedViewMode = ResolveSupportedViewMode(mode, showUnsupportedSnackbar: true);
+        SelectedViewMode = _editorModeSupportController.ResolveSupportedViewMode(mode, showUnsupportedSnackbar: true);
         PersistSessionState();
     }
 
@@ -970,7 +961,7 @@ public class MainViewModel : INotifyPropertyChanged
                     OnPropertyChanged(nameof(IsUntitled));
                 }
 
-                IsViewerLoading = IsViewerMode;
+                IsViewerLoading = IsReaderMode;
                 OnPropertyChanged(nameof(StatusText));
             });
             uiStateStopwatch.Stop();
@@ -1068,13 +1059,13 @@ public class MainViewModel : INotifyPropertyChanged
     private void ScheduleParse()
     {
         var snapshot = CreateCurrentDocumentSnapshot(_document.Content);
-        IsViewerLoading = IsViewerMode;
+        IsViewerLoading = IsReaderMode;
         ViewerLoadingPreviewText = BuildViewerLoadingPreview(snapshot.Content);
 
         _ = _previewPipelineController.SchedulePreviewAsync(
             snapshot,
             SelectedViewMode,
-            IsViewerMode ? ViewerParseDebounceDelay : EditorParseDebounceDelay,
+            IsReaderMode ? ViewerParseDebounceDelay : EditorParseDebounceDelay,
             ApplyPreparedPreviewAsync);
     }
 
@@ -1229,9 +1220,9 @@ public class MainViewModel : INotifyPropertyChanged
         parts.Add(_preferences.AutoSaveEnabled ? $"Autosave {_preferences.AutoSaveDelaySeconds}s" : "Autosave off");
         parts.Add(SelectedViewMode switch
         {
-            EditorViewMode.Viewer => "Viewer",
-            EditorViewMode.TextEditor => "Markdown editor",
-            _ => "Rich text editor"
+            EditorViewMode.Viewer => "Reader",
+            EditorViewMode.TextEditor => "Text Editor",
+            _ => "Visual Editor"
         });
 
         return string.Join(" • ", parts);
@@ -1259,7 +1250,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            IsViewerLoading = IsViewerMode;
+            IsViewerLoading = IsReaderMode;
             OnPropertyChanged(nameof(FilePath));
             OnPropertyChanged(nameof(FileName));
             OnPropertyChanged(nameof(HasFilePath));
@@ -1548,7 +1539,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             IsWorkspacePanelVisible = _sessionState.IsWorkspacePanelVisible;
             WorkspacePanelWidth = _sessionState.WorkspacePanelWidth;
-            SelectedViewMode = ResolveSupportedViewMode(_sessionState.LastViewMode, showUnsupportedSnackbar: true);
+            SelectedViewMode = _editorModeSupportController.ResolveSupportedViewMode(_sessionState.LastViewMode, showUnsupportedSnackbar: true);
 
             var restoredWorkspacePath = _sessionRestoreCoordinator.ResolveWorkspaceRestorePath(_sessionState, out var workspaceRepickMessage);
             var hasWorkspaceAccess = !string.IsNullOrWhiteSpace(restoredWorkspacePath) && Directory.Exists(restoredWorkspacePath);

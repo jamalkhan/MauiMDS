@@ -85,14 +85,19 @@ public partial class App : Application
         editMenu.Add(CreateMenuItem("Find", viewModel.FindCommand, key: "F", primaryModifier: true));
 
         var formatMenu = new MenuBarItem { Text = "Format" };
-        formatMenu.Add(CreateMenuItem("Header 1", viewModel.FormatHeader1Command, key: "1", primaryModifier: true));
-        formatMenu.Add(CreateMenuItem("Header 2", viewModel.FormatHeader2Command, key: "2", primaryModifier: true));
-        formatMenu.Add(CreateMenuItem("Header 3", viewModel.FormatHeader3Command, key: "3", primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("Paragraph", viewModel.FormatParagraphCommand));
+        formatMenu.Add(CreateMenuItem("H1", viewModel.FormatHeader1Command, key: "1", primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("H2", viewModel.FormatHeader2Command, key: "2", primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("H3", viewModel.FormatHeader3Command, key: "3", primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("Bullet", viewModel.FormatBulletCommand));
+        formatMenu.Add(CreateMenuItem("Checklist", viewModel.FormatChecklistCommand));
+        formatMenu.Add(CreateMenuItem("Quote", viewModel.FormatQuoteCommand));
+        formatMenu.Add(CreateMenuItem("Code", viewModel.FormatCodeCommand));
 
         var viewMenu = new MenuBarItem { Text = "View" };
-        viewMenu.Add(CreateMenuItem("Read-Only Viewer", viewModel.SetViewModeCommand, EditorViewMode.Viewer));
-        viewMenu.Add(CreateMenuItem("Markdown Editor", viewModel.SetViewModeCommand, EditorViewMode.TextEditor));
-        viewMenu.Add(CreateMenuItem("Rich Text Editor", viewModel.SetViewModeCommand, EditorViewMode.RichTextEditor, isEnabled: viewModel.IsRichTextEditorSupported));
+        viewMenu.Add(CreateMenuItem("Reader", viewModel.SetViewModeCommand, EditorViewMode.Viewer));
+        viewMenu.Add(CreateMenuItem("Text Editor", viewModel.SetViewModeCommand, EditorViewMode.TextEditor));
+        viewMenu.Add(CreateMenuItem("Visual Editor", viewModel.SetViewModeCommand, EditorViewMode.RichTextEditor, isEnabled: viewModel.IsVisualEditorSupported));
 
         var toolsMenu = new MenuBarItem { Text = "Tools" };
         toolsMenu.Add(CreateMenuItem("Preferences", viewModel.ShowPreferencesCommand));

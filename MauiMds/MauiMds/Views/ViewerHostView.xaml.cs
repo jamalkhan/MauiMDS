@@ -9,6 +9,6 @@ public partial class ViewerHostView : ContentView
         InitializeComponent();
     }
 
-    public IEditorSurface MarkdownEditor => MarkdownTextEditor;
-    public IEditorSurface RichTextEditorSurface => RichTextEditor;
+    public IEditorSurface TextEditorSurface => TextEditor;
+    public IEditorSurface VisualEditorSurface => VisualEditor;
 }

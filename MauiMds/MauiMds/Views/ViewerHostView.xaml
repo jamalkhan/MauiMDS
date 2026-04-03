@@ -8,11 +8,12 @@
             Stroke="{AppThemeBinding Light=#D5CCBC, Dark=#45474B}"
             StrokeThickness="1"
             Padding="30,26"
-            StrokeShape="RoundRectangle 18">
+            Margin="0,-13,0,0"
+            StrokeShape="RoundRectangle 0,0,18,18">
         <Grid>
-            <markdown:MarkdownView x:Name="MarkdownViewer"
-                                   IsVisible="{Binding IsViewerMode}"
-                                   IsRenderingEnabled="{Binding IsViewerMode}"
+            <markdown:MarkdownView x:Name="ReaderView"
+                                   IsVisible="{Binding IsReaderMode}"
+                                   IsRenderingEnabled="{Binding IsReaderMode}"
                                    InitialRenderLineCount="{Binding InitialViewerRenderLineCount}"
                                    Blocks="{Binding ParsedBlocks}"
                                    SourceFilePath="{Binding FilePath}" />
@@ -66,17 +67,16 @@
                 </HorizontalStackLayout>
             </Border>
 
-            <controls:MarkdownSyntaxEditorView x:Name="MarkdownTextEditor"
+            <controls:MarkdownSyntaxEditorView x:Name="TextEditor"
                                                IsVisible="{Binding IsTextEditorMode}"
                                                Text="{Binding EditorText, Mode=TwoWay}"
                                                Placeholder="Edit Markdown here..."
                                                IsSyntaxHighlightingEnabled="False" />
 
-            <controls:RichTextEditorView x:Name="RichTextEditor"
-                                         IsVisible="{Binding IsRichTextEditorMode}"
+            <controls:VisualEditorView x:Name="VisualEditor"
+                                       IsVisible="{Binding IsVisualEditorMode}"
                                          Blocks="{Binding ParsedBlocks}"
-                                         Text="{Binding EditorText, Mode=TwoWay}"
-                                         FallbackToMarkdownCommand="{Binding FallbackToMarkdownEditorCommand}" />
+                                         Text="{Binding EditorText, Mode=TwoWay}" />
         </Grid>
     </Border>
 </ContentView>

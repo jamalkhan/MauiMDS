@@ -76,72 +76,21 @@
             </Grid>
 
             <Grid Grid.Row="1"
-                  ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                  ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                   ColumnSpacing="10">
-                <Button Text="Viewer"
-                        Command="{Binding SetViewModeCommand}"
-                        CommandParameter="{x:Static models:EditorViewMode.Viewer}"
-                        Padding="14,8">
-                    <Button.Triggers>
-                        <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsViewerMode}"
-                                     Value="True">
-                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
-                            <Setter Property="TextColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#1D1D1B}" />
-                        </DataTrigger>
-                    </Button.Triggers>
-                </Button>
-
-                <Button Grid.Column="1"
-                        Text="Markdown"
-                        Command="{Binding SetViewModeCommand}"
-                        CommandParameter="{x:Static models:EditorViewMode.TextEditor}"
-                        Padding="14,8">
-                    <Button.Triggers>
-                        <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsTextEditorMode}"
-                                     Value="True">
-                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
-                            <Setter Property="TextColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#1D1D1B}" />
-                        </DataTrigger>
-                    </Button.Triggers>
-                </Button>
-
-                <Button Grid.Column="2"
-                        Text="Rich Text"
-                        Command="{Binding SetViewModeCommand}"
-                        CommandParameter="{x:Static models:EditorViewMode.RichTextEditor}"
-                        IsEnabled="{Binding IsRichTextEditorSupported}"
-                        ToolTipProperties.Text="{Binding RichTextEditorUnavailableMessage}"
-                        Padding="14,8">
-                    <Button.Triggers>
-                        <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsRichTextEditorMode}"
-                                     Value="True">
-                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#1D1D1B, Dark=#F3EDE2}" />
-                            <Setter Property="TextColor" Value="{AppThemeBinding Light=#F7F2E8, Dark=#1D1D1B}" />
-                        </DataTrigger>
-                        <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsRichTextEditorSupported}"
-                                     Value="False">
-                            <Setter Property="Opacity" Value="0.55" />
-                        </DataTrigger>
-                    </Button.Triggers>
-                </Button>
-
-                <Label Grid.Column="3"
+                <Label Grid.Column="0"
                        Text="{Binding CurrentViewLabel}"
                        VerticalTextAlignment="Center"
                        FontSize="12"
                        TextColor="{AppThemeBinding Light=#635D54, Dark=#C7C0B5}" />
 
-                <Button Grid.Column="4" Text="New" Command="{Binding NewDocumentCommand}" Padding="14,8" />
-                <Button Grid.Column="5" Text="Save As" Command="{Binding SaveAsCommand}" Padding="14,8" />
-                <Button Grid.Column="6" Text="Revert" Command="{Binding RevertCommand}" Padding="14,8" />
-                <Button Grid.Column="7" Text="Close" Command="{Binding CloseDocumentCommand}" Padding="14,8" />
-                <Button Grid.Column="8" Text="Undo" Command="{Binding UndoCommand}" Padding="14,8" />
-                <Button Grid.Column="9" Text="Redo" Command="{Binding RedoCommand}" Padding="14,8" />
-                <Button Grid.Column="10" Text="Find" Command="{Binding FindCommand}" Padding="14,8" />
+                <Button Grid.Column="2" Text="New" Command="{Binding NewDocumentCommand}" Padding="14,8" />
+                <Button Grid.Column="3" Text="Save As" Command="{Binding SaveAsCommand}" Padding="14,8" />
+                <Button Grid.Column="4" Text="Revert" Command="{Binding RevertCommand}" Padding="14,8" />
+                <Button Grid.Column="5" Text="Close" Command="{Binding CloseDocumentCommand}" Padding="14,8" />
+                <Button Grid.Column="6" Text="Undo" Command="{Binding UndoCommand}" Padding="14,8" />
+                <Button Grid.Column="7" Text="Redo" Command="{Binding RedoCommand}" Padding="14,8" />
+                <Button Grid.Column="8" Text="Find" Command="{Binding FindCommand}" Padding="14,8" />
             </Grid>
         </Grid>
     </Border>
