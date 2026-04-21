@@ -14,7 +14,7 @@ internal sealed class MarkdownSyntaxHighlighter
     private static readonly Regex OrderedPattern = new(@"^(?<indent>\s*)(?<marker>\d+\.) (?<content>.*)$", RegexOptions.Compiled);
     private static readonly Regex FrontMatterKeyPattern = new(@"^(?<key>[A-Za-z0-9_-]+)(?<colon>\s*:\s*)(?<value>.*)$", RegexOptions.Compiled);
     private static readonly Regex FencePattern = new(@"^(?<indent>\s*)(?<marker>`{3,}|~{3,})(?<lang>[A-Za-z0-9_-]*)\s*$", RegexOptions.Compiled);
-    private static readonly Regex TokenPattern = new(@"(!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|\[\^[^\]]+\]|`[^`]+`|\*\*[^*]+\*\*|~~[^~]+~~|(?<!\*)\*[^*]+\*(?!\*)|https?://\S+)", RegexOptions.Compiled);
+    private static readonly Regex TokenPattern = new(@"(!\[[^\]]*\]\([^)]*\)|\[[^\]]+\]\([^)]*\)|\[[^\]]+\]\[[^\]]*\]|\[\^[^\]]+\]|`[^`]+`|\*\*[^*]+\*\*|~~[^~]+~~|==[^=]+=+|__[^_]+__|(?<!\*)\*[^*]+\*(?!\*)|\^[^\^]+\^|(?<!~)~[^~]+~(?!~)|https?://\S+)", RegexOptions.Compiled);
     private readonly Features.Markdown.MarkdownInlineFormatter _inlineFormatter = new();
 
     public FormattedString BuildFormattedText(string text)
@@ -75,8 +75,28 @@ internal sealed class MarkdownSyntaxHighlighter
         return formatted;
     }
 
+    private static readonly Regex AdmonitionPattern = new(@"^>\s*\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION|INFO|DANGER|SUCCESS|BUG|EXAMPLE|QUESTION|ABSTRACT|TLDR)\]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex DefinitionDetailPattern = new(@"^:\s+", RegexOptions.Compiled);
+
     private bool TryAppendStructuredLine(FormattedString formatted, string line)
     {
+        // Admonition: > [!NOTE]
+        var admonitionMatch = AdmonitionPattern.Match(line);
+        if (admonitionMatch.Success)
+        {
+            AppendToken(formatted, admonitionMatch.Value, SyntaxColor.HeaderMarker);
+            AppendInlineTokens(formatted, line[admonitionMatch.Length..]);
+            return true;
+        }
+
+        // Definition detail: : term
+        if (DefinitionDetailPattern.IsMatch(line))
+        {
+            AppendToken(formatted, ": ", SyntaxColor.ListMarker);
+            AppendInlineTokens(formatted, line[2..]);
+            return true;
+        }
+
         if (AppendPatternMatch(formatted, HeaderPattern.Match(line), SyntaxColor.HeaderMarker))
         {
             return true;
@@ -196,7 +216,13 @@ internal sealed class MarkdownSyntaxHighlighter
             return SyntaxColor.InlineCode;
         }
 
-        if (token.StartsWith("**", StringComparison.Ordinal) || token.StartsWith("*", StringComparison.Ordinal) || token.StartsWith("~~", StringComparison.Ordinal))
+        if (token.StartsWith("**", StringComparison.Ordinal) ||
+            token.StartsWith("*", StringComparison.Ordinal) ||
+            token.StartsWith("~~", StringComparison.Ordinal) ||
+            token.StartsWith("==", StringComparison.Ordinal) ||
+            token.StartsWith("__", StringComparison.Ordinal) ||
+            token.StartsWith("^", StringComparison.Ordinal) ||
+            (token.StartsWith("~", StringComparison.Ordinal) && !token.StartsWith("~~", StringComparison.Ordinal)))
         {
             return SyntaxColor.Emphasis;
         }

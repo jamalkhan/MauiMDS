@@ -14,10 +14,18 @@ public sealed class CodeBlockRenderer : IMarkdownBlockRenderer
             FontSize = 15,
             LineBreakMode = LineBreakMode.NoWrap,
             Margin = new Thickness(0),
-            Padding = new Thickness(0),
-            Text = block.Content
+            Padding = new Thickness(0)
         };
-        codeLabel.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#1E1E1E"), Color.FromArgb("#F5F1E8"));
+
+        if (!string.IsNullOrWhiteSpace(block.CodeLanguage))
+        {
+            codeLabel.FormattedText = context.InlineFormatter.BuildCodeFormattedText(block.Content, block.CodeLanguage);
+        }
+        else
+        {
+            codeLabel.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#1E1E1E"), Color.FromArgb("#F5F1E8"));
+            codeLabel.Text = block.Content;
+        }
 
         var stack = new VerticalStackLayout
         {

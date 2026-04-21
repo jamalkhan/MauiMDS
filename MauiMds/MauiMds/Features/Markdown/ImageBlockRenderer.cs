@@ -11,7 +11,7 @@ public sealed class ImageBlockRenderer : IMarkdownBlockRenderer
         var image = new Image
         {
             Aspect = Aspect.AspectFit,
-            MaximumHeightRequest = 360,
+            MaximumHeightRequest = 480,
             Margin = new Thickness(0)
         };
 
@@ -23,13 +23,17 @@ public sealed class ImageBlockRenderer : IMarkdownBlockRenderer
 
         var stack = new VerticalStackLayout
         {
-            Spacing = 8,
+            Spacing = 6,
             Children = { image }
         };
 
-        if (!string.IsNullOrWhiteSpace(block.ImageAltText))
+        var captionText = !string.IsNullOrWhiteSpace(block.ImageTitle)
+            ? block.ImageTitle
+            : block.ImageAltText;
+
+        if (!string.IsNullOrWhiteSpace(captionText))
         {
-            stack.Children.Add(MarkdownViewFactory.CreateRichTextLabel(block.ImageAltText, 12, FontAttributes.Italic, new Thickness(0), context.InlineFormatter));
+            stack.Children.Add(MarkdownViewFactory.CreateRichTextLabel(captionText, 12, FontAttributes.Italic, new Thickness(0), context.InlineFormatter));
         }
 
         return MarkdownViewFactory.CreateThemedBorder(stack, new Thickness(14), new Thickness(0, 6, 0, 12));

@@ -1,4 +1,5 @@
 ﻿using MauiMds.Features.Editor;
+using MauiMds.Features.Export;
 using MauiMds.Features.Session;
 using MauiMds.Features.Workspace;
 using MauiMds.Logging;
@@ -55,6 +56,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<EditorModeSupportController>();
 		builder.Services.AddSingleton<AutosaveCoordinator>();
 		builder.Services.AddSingleton<SessionRestoreCoordinator>();
+		builder.Services.AddSingleton<IPdfExportService, PdfExportService>();
 		builder.Services.AddSingleton<MainViewModel>();
 		builder.Services.AddSingleton<Views.MainPage>();
 

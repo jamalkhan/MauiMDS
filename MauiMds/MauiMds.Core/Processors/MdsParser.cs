@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using MauiMds.Models;
 using Microsoft.Extensions.Logging;
 
@@ -6,6 +7,17 @@ namespace MauiMds.Processors;
 
 public class MdsParser
 {
+    private static readonly Regex ReferenceLinkDefinitionPattern = new(
+        @"^\[([^\]]+)\]:\s+(\S+)(?:\s+""([^""]*)"")?$",
+        RegexOptions.Compiled);
+
+    private static readonly Regex ReferenceLinkUsagePattern = new(
+        @"\[([^\]]+)\]\[([^\]]*)\]",
+        RegexOptions.Compiled);
+
+    private static readonly string[] AdmonitionTypes =
+        ["NOTE", "TIP", "WARNING", "IMPORTANT", "CAUTION", "INFO", "DANGER", "SUCCESS", "BUG", "EXAMPLE", "QUESTION", "ABSTRACT", "TLDR"];
+
     private readonly ILogger<MdsParser> _logger;
 
     public MdsParser(ILogger<MdsParser> logger)
@@ -19,6 +31,7 @@ public class MdsParser
         var codeBlockCount = 0;
         var tableCount = 0;
         var blockQuoteCount = 0;
+        var admonitionCount = 0;
         var headerCount = 0;
         var imageCount = 0;
         var taskListCount = 0;
@@ -26,14 +39,18 @@ public class MdsParser
         var bulletListCount = 0;
         var horizontalRuleCount = 0;
         var footnoteDefinitionCount = 0;
+        var definitionCount = 0;
 
         _logger.LogDebug("Starting markdown parse. CharacterCount: {CharacterCount}", content.Length);
 
         var normalizedContent = NormalizeNewLines(content);
         var lines = normalizedContent.Split('\n');
+
+        var referenceLinks = CollectReferenceLinks(lines);
         var blocks = new List<MarkdownBlock>(Math.Max(8, lines.Length / 2));
         var footnotes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var currentParagraph = new StringBuilder();
+        var pendingHardBreak = false;
 
         var index = 0;
         if (TryExtractFrontMatter(lines, ref index, out var frontMatter))
@@ -54,6 +71,15 @@ public class MdsParser
             if (trimmedLine.Length == 0)
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
+                index++;
+                continue;
+            }
+
+            if (IsReferenceLinkDefinition(trimmedLine))
+            {
+                FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 index++;
                 continue;
             }
@@ -61,6 +87,7 @@ public class MdsParser
             if (TryExtractFootnote(lines, ref index, trimmedLine, footnotes))
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 footnoteDefinitionCount++;
                 continue;
             }
@@ -68,6 +95,7 @@ public class MdsParser
             if (IsCodeFence(trimmedLine))
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 blocks.Add(ParseCodeBlock(lines, ref index, trimmedLine));
                 codeBlockCount++;
                 continue;
@@ -76,6 +104,7 @@ public class MdsParser
             if (IsTableHeader(lines, index))
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 blocks.Add(ParseTable(lines, ref index));
                 tableCount++;
                 continue;
@@ -84,14 +113,24 @@ public class MdsParser
             if (trimmedLine[0] == '>')
             {
                 FlushParagraph(blocks, currentParagraph);
-                blocks.Add(ParseBlockQuote(lines, ref index));
-                blockQuoteCount++;
+                pendingHardBreak = false;
+                var quoteBlock = ParseBlockQuote(lines, ref index);
+                if (quoteBlock.Type == BlockType.Admonition)
+                {
+                    admonitionCount++;
+                }
+                else
+                {
+                    blockQuoteCount++;
+                }
+                blocks.Add(quoteBlock);
                 continue;
             }
 
             if (IsHorizontalRule(trimmedLine))
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 blocks.Add(new MarkdownBlock { Type = BlockType.HorizontalRule });
                 horizontalRuleCount++;
                 index++;
@@ -101,6 +140,7 @@ public class MdsParser
             if (TryParseHeader(trimmedLine, out var headerBlock))
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 blocks.Add(headerBlock);
                 headerCount++;
                 index++;
@@ -110,8 +150,27 @@ public class MdsParser
             if (TryParseImage(trimmedLine, out var imageBlock))
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 blocks.Add(imageBlock);
                 imageCount++;
+                index++;
+                continue;
+            }
+
+            if (TryParseDefinitionDetail(trimmedLine, out var defDetailBlock))
+            {
+                if (currentParagraph.Length > 0)
+                {
+                    blocks.Add(new MarkdownBlock
+                    {
+                        Type = BlockType.DefinitionTerm,
+                        Content = currentParagraph.ToString()
+                    });
+                    currentParagraph.Clear();
+                    pendingHardBreak = false;
+                }
+                blocks.Add(defDetailBlock);
+                definitionCount++;
                 index++;
                 continue;
             }
@@ -121,6 +180,7 @@ public class MdsParser
             if (TryParseTaskList(trimmedLine, listLevel, out var taskBlock))
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 blocks.Add(taskBlock);
                 taskListCount++;
                 index++;
@@ -130,6 +190,7 @@ public class MdsParser
             if (TryParseOrderedList(trimmedLine, listLevel, out var orderedBlock))
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 blocks.Add(orderedBlock);
                 orderedListCount++;
                 index++;
@@ -139,21 +200,29 @@ public class MdsParser
             if (TryParseBulletList(trimmedLine, listLevel, out var bulletBlock))
             {
                 FlushParagraph(blocks, currentParagraph);
+                pendingHardBreak = false;
                 blocks.Add(bulletBlock);
                 bulletListCount++;
                 index++;
                 continue;
             }
 
-            AppendParagraphLine(currentParagraph, trimmedLine);
+            var thisLineHardBreak = HasTrailingTwoSpaces(line);
+            AppendParagraphLine(currentParagraph, trimmedLine, pendingHardBreak);
+            pendingHardBreak = thisLineHardBreak;
             index++;
         }
 
         FlushParagraph(blocks, currentParagraph);
         AppendFootnotes(blocks, footnotes);
 
+        if (referenceLinks.Count > 0)
+        {
+            ResolveReferenceLinksInBlocks(blocks, referenceLinks);
+        }
+
         _logger.LogDebug(
-            "Completed markdown parse. LineCount: {LineCount}, BlockCount: {BlockCount}, Paragraphs: {ParagraphCount}, Headers: {HeaderCount}, BulletItems: {BulletListCount}, OrderedItems: {OrderedListCount}, TaskItems: {TaskListCount}, BlockQuotes: {BlockQuoteCount}, Tables: {TableCount}, CodeBlocks: {CodeBlockCount}, Images: {ImageCount}, HorizontalRules: {HorizontalRuleCount}, FootnoteDefinitions: {FootnoteDefinitionCount}, FootnoteBlocks: {FootnoteBlockCount}, ElapsedMs: {ElapsedMs}",
+            "Completed markdown parse. LineCount: {LineCount}, BlockCount: {BlockCount}, Paragraphs: {ParagraphCount}, Headers: {HeaderCount}, BulletItems: {BulletListCount}, OrderedItems: {OrderedListCount}, TaskItems: {TaskListCount}, BlockQuotes: {BlockQuoteCount}, Admonitions: {AdmonitionCount}, Tables: {TableCount}, CodeBlocks: {CodeBlockCount}, Images: {ImageCount}, HorizontalRules: {HorizontalRuleCount}, FootnoteDefinitions: {FootnoteDefinitionCount}, FootnoteBlocks: {FootnoteBlockCount}, Definitions: {DefinitionCount}, ElapsedMs: {ElapsedMs}",
             lines.Length,
             blocks.Count,
             blocks.Count(block => block.Type == BlockType.Paragraph),
@@ -162,12 +231,14 @@ public class MdsParser
             orderedListCount,
             taskListCount,
             blockQuoteCount,
+            admonitionCount,
             tableCount,
             codeBlockCount,
             imageCount,
             horizontalRuleCount,
             footnoteDefinitionCount,
             blocks.Count(block => block.Type == BlockType.Footnote),
+            definitionCount,
             stopwatch.ElapsedMilliseconds);
         return blocks;
     }
@@ -175,6 +246,61 @@ public class MdsParser
     private static string NormalizeNewLines(string content)
     {
         return content.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+    }
+
+    private static Dictionary<string, (string Url, string Title)> CollectReferenceLinks(string[] lines)
+    {
+        var refs = new Dictionary<string, (string Url, string Title)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            var match = ReferenceLinkDefinitionPattern.Match(trimmed);
+            if (match.Success)
+            {
+                refs[match.Groups[1].Value] = (match.Groups[2].Value, match.Groups[3].Value);
+            }
+        }
+        return refs;
+    }
+
+    private static bool IsReferenceLinkDefinition(string trimmedLine)
+    {
+        return ReferenceLinkDefinitionPattern.IsMatch(trimmedLine);
+    }
+
+    private static void ResolveReferenceLinksInBlocks(List<MarkdownBlock> blocks, Dictionary<string, (string Url, string Title)> refs)
+    {
+        foreach (var block in blocks)
+        {
+            if (!string.IsNullOrEmpty(block.Content))
+            {
+                block.Content = ResolveReferenceLinksInText(block.Content, refs);
+            }
+            if (block.Children.Count > 0)
+            {
+                ResolveReferenceLinksInBlocks(block.Children, refs);
+            }
+        }
+    }
+
+    private static string ResolveReferenceLinksInText(string text, Dictionary<string, (string Url, string Title)> refs)
+    {
+        return ReferenceLinkUsagePattern.Replace(text, match =>
+        {
+            var label = match.Groups[1].Value;
+            var key = match.Groups[2].Value;
+            if (string.IsNullOrEmpty(key))
+            {
+                key = label;
+            }
+            if (refs.TryGetValue(key, out var refData))
+            {
+                return string.IsNullOrEmpty(refData.Title)
+                    ? $"[{label}]({refData.Url})"
+                    : $"[{label}]({refData.Url} \"{refData.Title}\")";
+            }
+            return match.Value;
+        });
     }
 
     private static bool TryExtractFrontMatter(string[] lines, ref int index, out string frontMatter)
@@ -229,14 +355,19 @@ public class MdsParser
         paragraphBuilder.Clear();
     }
 
-    private static void AppendParagraphLine(StringBuilder paragraphBuilder, string line)
+    private static void AppendParagraphLine(StringBuilder paragraphBuilder, string line, bool precededByHardBreak)
     {
         if (paragraphBuilder.Length > 0)
         {
-            paragraphBuilder.Append(' ');
+            paragraphBuilder.Append(precededByHardBreak ? '\n' : ' ');
         }
 
         paragraphBuilder.Append(line);
+    }
+
+    private static bool HasTrailingTwoSpaces(string line)
+    {
+        return line.Length >= 2 && line[^1] == ' ' && line[^2] == ' ';
     }
 
     private static bool TryExtractFootnote(string[] lines, ref int index, string trimmedLine, Dictionary<string, string> footnotes)
@@ -362,7 +493,7 @@ public class MdsParser
 
     private static MarkdownBlock ParseBlockQuote(string[] lines, ref int index)
     {
-        var quoteBuilder = new StringBuilder();
+        var innerLines = new List<string>();
         var maxQuoteLevel = 1;
 
         while (index < lines.Length)
@@ -372,11 +503,7 @@ public class MdsParser
 
             if (trimmedLine.Length == 0)
             {
-                if (quoteBuilder.Length > 0)
-                {
-                    quoteBuilder.Append(Environment.NewLine);
-                }
-
+                innerLines.Add(string.Empty);
                 index++;
                 continue;
             }
@@ -400,21 +527,144 @@ public class MdsParser
             }
 
             maxQuoteLevel = Math.Max(maxQuoteLevel, quoteLevel);
-            if (quoteBuilder.Length > 0)
-            {
-                quoteBuilder.Append(Environment.NewLine);
-            }
-
-            quoteBuilder.Append(trimmedLine[contentStart..]);
+            innerLines.Add(trimmedLine[contentStart..]);
             index++;
         }
+
+        // Check for admonition pattern on the first non-empty inner line
+        var firstContent = innerLines.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l)) ?? string.Empty;
+        if (firstContent.StartsWith("[!", StringComparison.Ordinal))
+        {
+            var closeBracket = firstContent.IndexOf(']');
+            if (closeBracket > 2)
+            {
+                var candidate = firstContent[2..closeBracket].ToUpperInvariant();
+                if (Array.IndexOf(AdmonitionTypes, candidate) >= 0)
+                {
+                    var titleSuffix = firstContent[(closeBracket + 1)..].Trim();
+                    var contentLines = innerLines
+                        .SkipWhile(l => string.IsNullOrWhiteSpace(l) || l.StartsWith("[!", StringComparison.Ordinal))
+                        .ToList();
+                    var admonitionContent = string.Join("\n", contentLines).Trim();
+                    var displayContent = string.IsNullOrEmpty(titleSuffix)
+                        ? admonitionContent
+                        : string.IsNullOrEmpty(admonitionContent)
+                            ? titleSuffix
+                            : titleSuffix + "\n" + admonitionContent;
+
+                    return new MarkdownBlock
+                    {
+                        Type = BlockType.Admonition,
+                        AdmonitionType = candidate,
+                        Content = displayContent
+                    };
+                }
+            }
+        }
+
+        // Build content string and check for nested block elements
+        var contentBuilder = new StringBuilder();
+        foreach (var innerLine in innerLines)
+        {
+            if (contentBuilder.Length > 0)
+            {
+                contentBuilder.Append(Environment.NewLine);
+            }
+            contentBuilder.Append(innerLine);
+        }
+
+        var rawContent = contentBuilder.ToString();
+
+        // Parse nested blocks (tables, headers, etc.) within the blockquote
+        var children = ParseInnerBlocks(innerLines.ToArray());
+        var hasStructuredChildren = children.Any(c => c.Type == BlockType.Table || c.Type == BlockType.Header || c.Type == BlockType.CodeBlock);
 
         return new MarkdownBlock
         {
             Type = BlockType.BlockQuote,
-            Content = quoteBuilder.ToString(),
-            QuoteLevel = maxQuoteLevel
+            Content = rawContent.Trim(),
+            QuoteLevel = maxQuoteLevel,
+            Children = hasStructuredChildren ? children : []
         };
+    }
+
+    private static List<MarkdownBlock> ParseInnerBlocks(string[] innerLines)
+    {
+        var blocks = new List<MarkdownBlock>();
+        var paragraphBuilder = new StringBuilder();
+        var index = 0;
+
+        while (index < innerLines.Length)
+        {
+            var line = innerLines[index];
+            var trimmed = line.Trim();
+
+            if (trimmed.Length == 0)
+            {
+                FlushParagraph(blocks, paragraphBuilder);
+                index++;
+                continue;
+            }
+
+            if (IsCodeFence(trimmed))
+            {
+                FlushParagraph(blocks, paragraphBuilder);
+                blocks.Add(ParseCodeBlock(innerLines, ref index, trimmed));
+                continue;
+            }
+
+            if (IsTableHeader(innerLines, index))
+            {
+                FlushParagraph(blocks, paragraphBuilder);
+                blocks.Add(ParseTable(innerLines, ref index));
+                continue;
+            }
+
+            if (TryParseHeader(trimmed, out var headerBlock))
+            {
+                FlushParagraph(blocks, paragraphBuilder);
+                blocks.Add(headerBlock);
+                index++;
+                continue;
+            }
+
+            if (TryParseImage(trimmed, out var imageBlock))
+            {
+                FlushParagraph(blocks, paragraphBuilder);
+                blocks.Add(imageBlock);
+                index++;
+                continue;
+            }
+
+            var listLevel = GetListLevel(line);
+            if (TryParseTaskList(trimmed, listLevel, out var taskBlock))
+            {
+                FlushParagraph(blocks, paragraphBuilder);
+                blocks.Add(taskBlock);
+                index++;
+                continue;
+            }
+            if (TryParseOrderedList(trimmed, listLevel, out var orderedBlock))
+            {
+                FlushParagraph(blocks, paragraphBuilder);
+                blocks.Add(orderedBlock);
+                index++;
+                continue;
+            }
+            if (TryParseBulletList(trimmed, listLevel, out var bulletBlock))
+            {
+                FlushParagraph(blocks, paragraphBuilder);
+                blocks.Add(bulletBlock);
+                index++;
+                continue;
+            }
+
+            AppendParagraphLine(paragraphBuilder, trimmed, precededByHardBreak: false);
+            index++;
+        }
+
+        FlushParagraph(blocks, paragraphBuilder);
+        return blocks;
     }
 
     private static bool TryParseHeader(string trimmedLine, out MarkdownBlock block)
@@ -460,13 +710,49 @@ public class MdsParser
             return false;
         }
 
+        var altText = trimmedLine[2..altEnd];
+        var urlPart = trimmedLine[(altEnd + 2)..^1].Trim();
+        var title = string.Empty;
+
+        // Parse optional title: ![alt](url "title") or ![alt](url 'title')
+        if (urlPart.Length > 2)
+        {
+            var lastChar = urlPart[^1];
+            if (lastChar == '"' || lastChar == '\'')
+            {
+                var titleOpen = urlPart.LastIndexOf(lastChar, urlPart.Length - 2);
+                if (titleOpen > 0 && urlPart[titleOpen - 1] == ' ')
+                {
+                    title = urlPart[(titleOpen + 1)..^1];
+                    urlPart = urlPart[..(titleOpen - 1)].Trim();
+                }
+            }
+        }
+
         block = new MarkdownBlock
         {
             Type = BlockType.Image,
-            ImageAltText = trimmedLine[2..altEnd],
-            ImageSource = trimmedLine[(altEnd + 2)..^1]
+            ImageAltText = altText,
+            ImageSource = urlPart,
+            ImageTitle = title
         };
 
+        return true;
+    }
+
+    private static bool TryParseDefinitionDetail(string trimmedLine, out MarkdownBlock block)
+    {
+        block = null!;
+        if (trimmedLine.Length < 3 || trimmedLine[0] != ':' || trimmedLine[1] != ' ')
+        {
+            return false;
+        }
+
+        block = new MarkdownBlock
+        {
+            Type = BlockType.DefinitionDetail,
+            Content = trimmedLine[2..].Trim()
+        };
         return true;
     }
 

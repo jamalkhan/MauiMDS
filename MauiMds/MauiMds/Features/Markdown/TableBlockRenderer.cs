@@ -71,7 +71,7 @@ public sealed class TableBlockRenderer : IMarkdownBlockRenderer
 
         for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
         {
-            widths[columnIndex] = Math.Min(Math.Max(widths[columnIndex], 6), 32);
+            widths[columnIndex] = Math.Max(widths[columnIndex], 3);
         }
 
         var lines = new List<string>

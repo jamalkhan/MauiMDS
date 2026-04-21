@@ -76,7 +76,7 @@
             </Grid>
 
             <Grid Grid.Row="1"
-                  ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                  ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                   ColumnSpacing="10">
                 <Label Grid.Column="0"
                        Text="{Binding CurrentViewLabel}"
@@ -86,11 +86,14 @@
 
                 <Button Grid.Column="2" Text="New" Command="{Binding NewDocumentCommand}" Padding="14,8" />
                 <Button Grid.Column="3" Text="Save As" Command="{Binding SaveAsCommand}" Padding="14,8" />
-                <Button Grid.Column="4" Text="Revert" Command="{Binding RevertCommand}" Padding="14,8" />
-                <Button Grid.Column="5" Text="Close" Command="{Binding CloseDocumentCommand}" Padding="14,8" />
-                <Button Grid.Column="6" Text="Undo" Command="{Binding UndoCommand}" Padding="14,8" />
-                <Button Grid.Column="7" Text="Redo" Command="{Binding RedoCommand}" Padding="14,8" />
-                <Button Grid.Column="8" Text="Find" Command="{Binding FindCommand}" Padding="14,8" />
+                <Button Grid.Column="4" Text="Export PDF" Command="{Binding ExportPdfCommand}" Padding="14,8"
+                        BackgroundColor="{AppThemeBinding Light=#D4CFDD, Dark=#38354A}"
+                        TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                <Button Grid.Column="5" Text="Revert" Command="{Binding RevertCommand}" Padding="14,8" />
+                <Button Grid.Column="6" Text="Close" Command="{Binding CloseDocumentCommand}" Padding="14,8" />
+                <Button Grid.Column="7" Text="Undo" Command="{Binding UndoCommand}" Padding="14,8" />
+                <Button Grid.Column="8" Text="Redo" Command="{Binding RedoCommand}" Padding="14,8" />
+                <Button Grid.Column="9" Text="Find" Command="{Binding FindCommand}" Padding="14,8" />
             </Grid>
         </Grid>
     </Border>

@@ -47,6 +47,7 @@ public sealed class MarkdownView : ContentView
     private readonly ScrollView _scrollView;
     private readonly MarkdownRenderer _renderer;
     private readonly MarkdownInlineFormatter _inlineFormatter;
+    private readonly Dictionary<string, int> _headerSlugToSlotIndex = new(StringComparer.OrdinalIgnoreCase);
     private ILogger<MarkdownView>? _logger;
     private CancellationTokenSource? _renderCancellationSource;
     private CancellationTokenSource? _upgradeCancellationSource;
@@ -73,7 +74,9 @@ public sealed class MarkdownView : ContentView
             new TableBlockRenderer(),
             new HorizontalRuleBlockRenderer(),
             new ImageBlockRenderer(),
-            new FootnoteBlockRenderer()
+            new FootnoteBlockRenderer(),
+            new AdmonitionBlockRenderer(),
+            new DefinitionListRenderer()
         ]);
 
         _contentStack = new VerticalStackLayout
@@ -286,19 +289,24 @@ public sealed class MarkdownView : ContentView
 
         _contentStack.Children.Clear();
         _renderSlots.Clear();
+        _headerSlugToSlotIndex.Clear();
 
         var blocks = Blocks;
+        _inlineFormatter.AnchorNavigationCallback = NavigateToAnchor;
+
         var fullContext = new MarkdownRenderContext
         {
             SourceFilePath = SourceFilePath,
             InlineFormatter = _inlineFormatter,
-            RenderMode = MarkdownRenderMode.Full
+            RenderMode = MarkdownRenderMode.Full,
+            NavigateToAnchor = NavigateToAnchor
         };
         var simplifiedContext = new MarkdownRenderContext
         {
             SourceFilePath = SourceFilePath,
             InlineFormatter = _inlineFormatter,
-            RenderMode = MarkdownRenderMode.Simplified
+            RenderMode = MarkdownRenderMode.Simplified,
+            NavigateToAnchor = NavigateToAnchor
         };
 
         var initialBatchEnd = CalculateBatchEnd(
@@ -441,8 +449,14 @@ public sealed class MarkdownView : ContentView
                     Content = view
                 };
 
+                var slotIndex = _renderSlots.Count;
                 _renderSlots.Add(new RenderSlot(index, block, host, useSimplified, EstimateBlockVisualHeight(block)));
                 _contentStack.Children.Add(host);
+
+                if (block.Type == BlockType.Header)
+                {
+                    _headerSlugToSlotIndex[GenerateAnchorSlug(block.Content)] = slotIndex;
+                }
             }
             catch (Exception ex)
             {
@@ -542,6 +556,9 @@ public sealed class MarkdownView : ContentView
             BlockType.Table => 92,
             BlockType.Image => 140,
             BlockType.BlockQuote => 56,
+            BlockType.Admonition => 64,
+            BlockType.DefinitionTerm => 32,
+            BlockType.DefinitionDetail => 28,
             _ => 28
         };
 
@@ -556,6 +573,7 @@ public sealed class MarkdownView : ContentView
             BlockType.CodeBlock => 4,
             BlockType.Image => 4,
             BlockType.BlockQuote => 3,
+            BlockType.Admonition => 3,
             BlockType.Footnote => 3,
             BlockType.BulletListItem => 2,
             BlockType.OrderedListItem => 2,
@@ -763,6 +781,43 @@ public sealed class MarkdownView : ContentView
         border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#FBE0DD"), Color.FromArgb("#432524"));
         border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#D27A72"), Color.FromArgb("#B65A54"));
         return border;
+    }
+
+    private void NavigateToAnchor(string anchor)
+    {
+        var slug = GenerateAnchorSlug(anchor.TrimStart('#'));
+        if (!_headerSlugToSlotIndex.TryGetValue(slug, out var slotIndex))
+        {
+            return;
+        }
+
+        var cumulativeY = 0d;
+        for (var i = 0; i < _renderSlots.Count; i++)
+        {
+            if (i == slotIndex)
+            {
+                _ = _scrollView.ScrollToAsync(0, cumulativeY, animated: true);
+                return;
+            }
+            cumulativeY += _renderSlots[i].EstimatedHeight;
+        }
+    }
+
+    private static string GenerateAnchorSlug(string content)
+    {
+        var builder = new System.Text.StringBuilder(content.Length);
+        foreach (var ch in content.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                builder.Append(ch);
+            }
+            else if (ch == ' ' || ch == '-')
+            {
+                builder.Append('-');
+            }
+        }
+        return builder.ToString().Trim('-');
     }
 
     private static void CancelAndDispose(ref CancellationTokenSource? cancellationTokenSource)

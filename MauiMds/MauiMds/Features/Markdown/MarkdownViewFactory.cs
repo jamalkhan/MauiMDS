@@ -69,8 +69,18 @@ internal static class MarkdownViewFactory
             MauiMds.Models.BlockType.Image => CreateSimpleImagePlaceholder(block),
             MauiMds.Models.BlockType.HorizontalRule => CreateSimpleRule(),
             MauiMds.Models.BlockType.Footnote => CreateSimpleLabel($"[{block.FootnoteId}] {block.Content}", 14, FontAttributes.None, new Thickness(0, 4, 0, 8), monospace: false),
+            MauiMds.Models.BlockType.Admonition => CreateSimpleAdmonitionView(block),
+            MauiMds.Models.BlockType.DefinitionTerm => CreateSimpleLabel(block.Content, 17, FontAttributes.Bold, new Thickness(0, 8, 0, 2), monospace: false),
+            MauiMds.Models.BlockType.DefinitionDetail => CreateSimpleLabel($"  : {block.Content}", 17, FontAttributes.None, new Thickness(0, 0, 0, 4), monospace: false),
             _ => CreateSimpleLabel(block.Content, 18, FontAttributes.None, new Thickness(0, 0, 0, 8), monospace: false)
         };
+    }
+
+    private static View CreateSimpleAdmonitionView(MauiMds.Models.MarkdownBlock block)
+    {
+        var label = CreateSimpleLabel($"{block.AdmonitionType}: {block.Content}", 17, FontAttributes.None, new Thickness(0), monospace: false);
+        var border = CreateThemedBorder(label, new Thickness(14, 10), new Thickness(0, 4, 0, 10));
+        return border;
     }
 
     private static View CreateSimpleQuoteView(MauiMds.Models.MarkdownBlock block)

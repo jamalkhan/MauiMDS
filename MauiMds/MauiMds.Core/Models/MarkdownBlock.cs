@@ -13,7 +13,10 @@ public enum BlockType
     Table,
     HorizontalRule,
     Image,
-    Footnote
+    Footnote,
+    Admonition,
+    DefinitionTerm,
+    DefinitionDetail
 }
 
 public enum MarkdownAlignment
@@ -35,8 +38,11 @@ public class MarkdownBlock
     public int QuoteLevel { get; set; } = 1;
     public string ImageSource { get; set; } = string.Empty;
     public string ImageAltText { get; set; } = string.Empty;
+    public string ImageTitle { get; set; } = string.Empty;
     public string FootnoteId { get; set; } = string.Empty;
+    public string AdmonitionType { get; set; } = string.Empty;
     public List<string> TableHeaders { get; set; } = [];
     public List<List<string>> TableRows { get; set; } = [];
     public List<MarkdownAlignment> TableAlignments { get; set; } = [];
+    public List<MarkdownBlock> Children { get; set; } = [];
 }

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using MauiMds.Features.Editor;
+using MauiMds.Features.Export;
 using MauiMds.Features.Session;
 using MauiMds.Features.Workspace;
 using MauiMds.Logging;
@@ -39,6 +40,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly AutosaveCoordinator _autosaveCoordinator;
     private readonly SessionRestoreCoordinator _sessionRestoreCoordinator;
     private readonly EditorModeSupportController _editorModeSupportController;
+    private readonly IPdfExportService _pdfExportService;
 
     private EditorDocumentState _document = new();
     private EditorViewMode _selectedViewMode = EditorViewMode.Viewer;
@@ -86,6 +88,7 @@ public class MainViewModel : INotifyPropertyChanged
         EditorModeSupportController editorModeSupportController,
         AutosaveCoordinator autosaveCoordinator,
         SessionRestoreCoordinator sessionRestoreCoordinator,
+        IPdfExportService pdfExportService,
         ILogger<MainViewModel> logger)
     {
         _documentService = documentService;
@@ -100,6 +103,7 @@ public class MainViewModel : INotifyPropertyChanged
         _editorModeSupportController = editorModeSupportController;
         _autosaveCoordinator = autosaveCoordinator;
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
+        _pdfExportService = pdfExportService;
         _logger = logger;
         _preferences = _preferencesService.Load();
         _sessionState = _sessionRestoreCoordinator.Load();
@@ -121,6 +125,7 @@ public class MainViewModel : INotifyPropertyChanged
         SaveAsCommand = new Command(async () => await SaveDocumentAsAsync(), () => !IsBusy);
         RevertCommand = new Command(async () => await RevertDocumentAsync(), () => !IsBusy);
         CloseDocumentCommand = new Command(async () => await CloseDocumentAsync(), () => !IsBusy);
+        ExportPdfCommand = new Command(async () => await ExportAsPdfAsync(), () => !IsBusy && _parsedBlocks.Count > 0);
         ShowPreferencesCommand = new Command(ShowPreferences);
         SavePreferencesCommand = new Command(async () => await SavePreferencesAsync());
         CancelPreferencesCommand = new Command(CancelPreferences);
@@ -168,6 +173,7 @@ public class MainViewModel : INotifyPropertyChanged
                 _document.FilePath,
                 _lastParsedBlocksAssignedUtc);
             OnPropertyChanged();
+            (ExportPdfCommand as Command)?.ChangeCanExecute();
         }
     }
     public WorkspaceExplorerState Workspace { get; }
@@ -179,6 +185,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand SaveAsCommand { get; }
     public ICommand RevertCommand { get; }
     public ICommand CloseDocumentCommand { get; }
+    public ICommand ExportPdfCommand { get; }
     public ICommand ShowPreferencesCommand { get; }
     public ICommand SavePreferencesCommand { get; }
     public ICommand CancelPreferencesCommand { get; }
@@ -1374,6 +1381,41 @@ public class MainViewModel : INotifyPropertyChanged
         };
     }
 
+    private async Task ExportAsPdfAsync()
+    {
+        if (IsBusy) return;
+
+        _isSavingDocument = true;
+        OnPropertyChanged(nameof(IsBusy));
+
+        try
+        {
+            var blocks = _parsedBlocks;
+            if (blocks.Count == 0)
+            {
+                await ReportErrorAsync("Nothing to export.", null, "The document has no content to export as PDF.");
+                return;
+            }
+
+            var suggestedName = _document.IsUntitled ? "document" : Path.GetFileNameWithoutExtension(_document.FileName);
+            var exported = await _pdfExportService.ExportAsync(blocks, suggestedName);
+
+            if (!exported)
+            {
+                _logger.LogDebug("PDF export was cancelled.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ReportErrorAsync("PDF export failed.", ex, ex is InvalidOperationException ? ex.Message : "The document could not be exported as PDF.");
+        }
+        finally
+        {
+            _isSavingDocument = false;
+            OnPropertyChanged(nameof(IsBusy));
+        }
+    }
+
     private void RefreshCommandStates()
     {
         (OpenFileCommand as Command)?.ChangeCanExecute();
@@ -1382,6 +1424,7 @@ public class MainViewModel : INotifyPropertyChanged
         (SaveAsCommand as Command)?.ChangeCanExecute();
         (RevertCommand as Command)?.ChangeCanExecute();
         (CloseDocumentCommand as Command)?.ChangeCanExecute();
+        (ExportPdfCommand as Command)?.ChangeCanExecute();
         (CreateMdsCommand as Command)?.ChangeCanExecute();
         (NavigateUpWorkspaceCommand as Command)?.ChangeCanExecute();
         (SetWorkspaceFolderToCurrentCommand as Command)?.ChangeCanExecute();

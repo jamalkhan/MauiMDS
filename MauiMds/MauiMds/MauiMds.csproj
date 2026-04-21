@@ -64,6 +64,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\MauiMds.Core\MauiMds.Core.csproj" />
+		<ProjectReference Include="..\MauiMds.Pdf\MauiMds.Pdf.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

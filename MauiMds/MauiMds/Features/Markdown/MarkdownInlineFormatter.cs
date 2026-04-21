@@ -19,6 +19,8 @@ public sealed class MarkdownInlineFormatter
     private readonly Dictionary<CodeCacheKey, IReadOnlyList<CodeToken>> _codeTokenCache = [];
     private ILogger<MarkdownInlineFormatter>? _logger;
 
+    public Action<string>? AnchorNavigationCallback { get; set; }
+
     public void AttachLogger(ILogger<MarkdownInlineFormatter>? logger)
     {
         _logger = logger;
@@ -41,10 +43,13 @@ public sealed class MarkdownInlineFormatter
                                      source.Contains('`', StringComparison.Ordinal) ||
                                      source.Contains('[', StringComparison.Ordinal) ||
                                      source.Contains('~', StringComparison.Ordinal) ||
+                                     source.Contains('=', StringComparison.Ordinal) ||
+                                     source.Contains('^', StringComparison.Ordinal) ||
+                                     source.Contains('_', StringComparison.Ordinal) ||
+                                     source.Contains('<', StringComparison.Ordinal) ||
                                      source.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
                                      source.Contains("https://", StringComparison.OrdinalIgnoreCase) ||
-                                     source.Contains('@', StringComparison.Ordinal) ||
-                                     source.Contains('<', StringComparison.Ordinal));
+                                     source.Contains('@', StringComparison.Ordinal));
 
         lock (_cacheLock)
         {
@@ -166,10 +171,14 @@ public sealed class MarkdownInlineFormatter
             if (TryAppendEscapedCharacter(tokens, text, ref index) ||
                 TryAppendDelimitedToken(tokens, text, ref index, "**", InlineTokenStyle.Bold) ||
                 TryAppendDelimitedToken(tokens, text, ref index, "~~", InlineTokenStyle.Strikethrough) ||
+                TryAppendDelimitedToken(tokens, text, ref index, "==", InlineTokenStyle.Highlight) ||
+                TryAppendDelimitedToken(tokens, text, ref index, "__", InlineTokenStyle.Underline) ||
                 TryAppendDelimitedToken(tokens, text, ref index, "*", InlineTokenStyle.Italic) ||
                 TryAppendInlineCode(tokens, text, ref index) ||
                 TryAppendLink(tokens, text, ref index) ||
-                TryAppendFootnoteReference(tokens, text, ref index))
+                TryAppendFootnoteReference(tokens, text, ref index) ||
+                TryAppendSuperscript(tokens, text, ref index) ||
+                TryAppendSubscript(tokens, text, ref index))
             {
                 continue;
             }
@@ -187,6 +196,16 @@ public sealed class MarkdownInlineFormatter
 
         foreach (var line in code.Split(Environment.NewLine))
         {
+            // Handle full-line comments for languages that use # or //
+            var trimmedLine = line.TrimStart();
+            if (trimmedLine.StartsWith("//", StringComparison.Ordinal) ||
+                (IsHashCommentLanguage(language) && trimmedLine.StartsWith('#')))
+            {
+                tokens.Add(new CodeToken(line, "comment"));
+                tokens.Add(new CodeToken(Environment.NewLine, null));
+                continue;
+            }
+
             var lineIndex = 0;
 
             foreach (Match match in CodeTokenRegex.Matches(line))
@@ -196,8 +215,27 @@ public sealed class MarkdownInlineFormatter
                     tokens.Add(new CodeToken(line.Substring(lineIndex, match.Index - lineIndex), null));
                 }
 
-                var tokenType = keywords.Contains(match.Value) ? "keyword" : ClassifyCodeToken(match.Value);
-                tokens.Add(new CodeToken(match.Value, tokenType));
+                var val = match.Value;
+                string? tokenType;
+
+                if ((val.StartsWith('"') && val.EndsWith('"')) || (val.StartsWith('\'') && val.EndsWith('\'')))
+                {
+                    tokenType = "string";
+                }
+                else if (val.StartsWith("//", StringComparison.Ordinal) || val.StartsWith('#'))
+                {
+                    tokenType = "comment";
+                }
+                else if (keywords.Contains(val))
+                {
+                    tokenType = "keyword";
+                }
+                else
+                {
+                    tokenType = ClassifyCodeToken(val);
+                }
+
+                tokens.Add(new CodeToken(val, tokenType));
                 lineIndex = match.Index + match.Length;
             }
 
@@ -210,6 +248,12 @@ public sealed class MarkdownInlineFormatter
         }
 
         return tokens;
+    }
+
+    private static bool IsHashCommentLanguage(string language)
+    {
+        var norm = language.Trim().ToLowerInvariant();
+        return norm is "bash" or "sh" or "python" or "py" or "ruby" or "rb" or "yaml" or "yml";
     }
 
     private string NormalizeInlineHtml(string source)
@@ -227,7 +271,21 @@ public sealed class MarkdownInlineFormatter
             .Replace("<i>", "*", StringComparison.OrdinalIgnoreCase)
             .Replace("</i>", "*", StringComparison.OrdinalIgnoreCase)
             .Replace("<code>", "`", StringComparison.OrdinalIgnoreCase)
-            .Replace("</code>", "`", StringComparison.OrdinalIgnoreCase);
+            .Replace("</code>", "`", StringComparison.OrdinalIgnoreCase)
+            .Replace("<u>", "__", StringComparison.OrdinalIgnoreCase)
+            .Replace("</u>", "__", StringComparison.OrdinalIgnoreCase)
+            .Replace("<ins>", "__", StringComparison.OrdinalIgnoreCase)
+            .Replace("</ins>", "__", StringComparison.OrdinalIgnoreCase)
+            .Replace("<mark>", "==", StringComparison.OrdinalIgnoreCase)
+            .Replace("</mark>", "==", StringComparison.OrdinalIgnoreCase)
+            .Replace("<del>", "~~", StringComparison.OrdinalIgnoreCase)
+            .Replace("</del>", "~~", StringComparison.OrdinalIgnoreCase)
+            .Replace("<s>", "~~", StringComparison.OrdinalIgnoreCase)
+            .Replace("</s>", "~~", StringComparison.OrdinalIgnoreCase)
+            .Replace("<sub>", "~", StringComparison.OrdinalIgnoreCase)
+            .Replace("</sub>", "~", StringComparison.OrdinalIgnoreCase)
+            .Replace("<sup>", "^", StringComparison.OrdinalIgnoreCase)
+            .Replace("</sup>", "^", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryAppendEscapedCharacter(List<InlineToken> tokens, string text, ref int index)
@@ -299,7 +357,23 @@ public sealed class MarkdownInlineFormatter
         }
 
         var label = text.Substring(index + 1, labelEnd - index - 1);
-        var url = text.Substring(labelEnd + 2, urlEnd - labelEnd - 2);
+        var urlPart = text.Substring(labelEnd + 2, urlEnd - labelEnd - 2);
+
+        // Strip optional title from URL part: [text](url "title")
+        var url = urlPart;
+        if (urlPart.Length > 2)
+        {
+            var lastChar = urlPart[^1];
+            if (lastChar == '"' || lastChar == '\'')
+            {
+                var titleOpen = urlPart.LastIndexOf(lastChar, urlPart.Length - 2);
+                if (titleOpen > 0 && urlPart[titleOpen - 1] == ' ')
+                {
+                    url = urlPart[..(titleOpen - 1)].Trim();
+                }
+            }
+        }
+
         tokens.Add(new InlineToken(label, InlineTokenStyle.Link, url));
         index = urlEnd + 1;
         return true;
@@ -320,6 +394,43 @@ public sealed class MarkdownInlineFormatter
 
         var reference = text.Substring(index + 2, closingIndex - index - 2);
         tokens.Add(new InlineToken($"[{reference}]", InlineTokenStyle.FootnoteReference));
+        index = closingIndex + 1;
+        return true;
+    }
+
+    private static bool TryAppendSuperscript(List<InlineToken> tokens, string text, ref int index)
+    {
+        if (text[index] != '^')
+        {
+            return false;
+        }
+
+        var closingIndex = text.IndexOf('^', index + 1);
+        if (closingIndex < 0 || closingIndex == index + 1)
+        {
+            return false;
+        }
+
+        tokens.Add(new InlineToken(text.Substring(index + 1, closingIndex - index - 1), InlineTokenStyle.Superscript));
+        index = closingIndex + 1;
+        return true;
+    }
+
+    private static bool TryAppendSubscript(List<InlineToken> tokens, string text, ref int index)
+    {
+        if (text[index] != '~')
+        {
+            return false;
+        }
+
+        // Only match single tilde (double tilde is handled by ~~ strikethrough before this)
+        var closingIndex = text.IndexOf('~', index + 1);
+        if (closingIndex < 0 || closingIndex == index + 1)
+        {
+            return false;
+        }
+
+        tokens.Add(new InlineToken(text.Substring(index + 1, closingIndex - index - 1), InlineTokenStyle.Subscript));
         index = closingIndex + 1;
         return true;
     }
@@ -364,7 +475,7 @@ public sealed class MarkdownInlineFormatter
 
     private static int FindNextSpecialIndex(string text, int startIndex)
     {
-        var specials = new[] { '\\', '*', '`', '[', '~' };
+        var specials = new[] { '\\', '*', '`', '[', '~', '=', '^', '_' };
         var nextIndexes = specials
             .Select(ch => text.IndexOf(ch, startIndex))
             .Where(idx => idx >= 0)
@@ -392,6 +503,20 @@ public sealed class MarkdownInlineFormatter
                 break;
             case InlineTokenStyle.Strikethrough:
                 span.TextDecorations = TextDecorations.Strikethrough;
+                break;
+            case InlineTokenStyle.Underline:
+                span.TextDecorations = TextDecorations.Underline;
+                break;
+            case InlineTokenStyle.Highlight:
+                span.SetAppThemeColor(Span.BackgroundColorProperty, Color.FromArgb("#FFF176"), Color.FromArgb("#665B00"));
+                break;
+            case InlineTokenStyle.Superscript:
+                span.FontSize = Math.Max(10, fontSize - 4);
+                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#5C6BC0"), Color.FromArgb("#9FA8DA"));
+                break;
+            case InlineTokenStyle.Subscript:
+                span.FontSize = Math.Max(10, fontSize - 4);
+                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#5C6BC0"), Color.FromArgb("#9FA8DA"));
                 break;
             case InlineTokenStyle.FootnoteReference:
                 span.FontSize = Math.Max(10, fontSize - 4);
@@ -428,6 +553,18 @@ public sealed class MarkdownInlineFormatter
         span.TextColor = Color.FromArgb("#2B6CB0");
         span.TextDecorations = TextDecorations.Underline;
 
+        // Anchor links (#heading) are handled via AnchorNavigationCallback
+        if (url.StartsWith('#') && AnchorNavigationCallback is not null)
+        {
+            var anchor = url;
+            var callback = AnchorNavigationCallback;
+            span.GestureRecognizers.Add(new TapGestureRecognizer
+            {
+                Command = new Command(() => callback(anchor))
+            });
+            return span;
+        }
+
         if (DeviceInfo.Platform == DevicePlatform.MacCatalyst)
         {
             return span;
@@ -445,12 +582,17 @@ public sealed class MarkdownInlineFormatter
         var normalized = language.Trim().ToLowerInvariant();
         return normalized switch
         {
-            "csharp" or "cs" => ["public", "private", "class", "void", "string", "int", "var", "return", "if", "else", "foreach", "async", "await", "new", "using", "namespace"],
-            "javascript" or "js" or "typescript" or "ts" => ["function", "const", "let", "var", "return", "if", "else", "class", "import", "export", "async", "await", "new"],
+            "csharp" or "cs" => ["abstract", "as", "async", "await", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else", "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock", "long", "namespace", "new", "null", "object", "operator", "out", "override", "params", "private", "protected", "public", "readonly", "record", "ref", "return", "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "var", "virtual", "void", "volatile", "while"],
+            "javascript" or "js" => ["break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "export", "extends", "finally", "for", "function", "if", "import", "in", "instanceof", "let", "new", "null", "of", "return", "static", "super", "switch", "this", "throw", "true", "false", "try", "typeof", "undefined", "var", "void", "while", "with", "yield", "async", "await", "from"],
+            "typescript" or "ts" => ["abstract", "any", "as", "async", "await", "boolean", "break", "case", "catch", "class", "const", "continue", "declare", "default", "delete", "do", "else", "enum", "export", "extends", "false", "finally", "for", "from", "function", "if", "implements", "import", "in", "instanceof", "interface", "keyof", "let", "namespace", "never", "new", "null", "number", "of", "override", "private", "protected", "public", "readonly", "return", "static", "string", "super", "switch", "this", "throw", "true", "try", "type", "typeof", "undefined", "unknown", "var", "void", "while", "yield"],
+            "python" or "py" => ["and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "False", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "None", "nonlocal", "not", "or", "pass", "raise", "return", "True", "try", "while", "with", "yield"],
             "json" => [],
-            "sql" => ["select", "from", "where", "order", "by", "group", "insert", "update", "delete", "join", "left", "right"],
-            "bash" or "sh" => ["if", "then", "fi", "for", "do", "done", "echo", "export"],
+            "sql" => ["add", "all", "alter", "and", "as", "asc", "between", "by", "case", "column", "constraint", "create", "cross", "database", "delete", "desc", "distinct", "drop", "else", "end", "exists", "foreign", "from", "full", "group", "having", "in", "index", "inner", "insert", "into", "is", "join", "key", "left", "like", "limit", "not", "null", "on", "or", "order", "outer", "primary", "references", "right", "rownum", "select", "set", "table", "then", "top", "truncate", "union", "unique", "update", "values", "view", "when", "where"],
+            "bash" or "sh" => ["break", "case", "continue", "do", "done", "echo", "elif", "else", "esac", "eval", "exec", "exit", "export", "fi", "for", "function", "if", "in", "local", "read", "readonly", "return", "select", "set", "shift", "source", "then", "unset", "until", "while"],
             "xml" or "html" => [],
+            "rust" => ["as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "union", "unsafe", "use", "where", "while"],
+            "go" => ["break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"],
+            "java" or "kotlin" => ["abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class", "const", "continue", "default", "do", "double", "else", "enum", "extends", "false", "final", "finally", "float", "for", "goto", "if", "implements", "import", "instanceof", "int", "interface", "long", "native", "new", "null", "package", "private", "protected", "public", "return", "short", "static", "strictfp", "super", "switch", "synchronized", "this", "throw", "throws", "transient", "true", "try", "void", "volatile", "while"],
             _ => ["true", "false", "null"]
         };
     }
@@ -464,14 +606,29 @@ public sealed class MarkdownInlineFormatter
             FontSize = 15
         };
 
-        span.TextColor = tokenType switch
+        switch (tokenType)
         {
-            "keyword" => Color.FromArgb("#8B3F96"),
-            "string" => Color.FromArgb("#2F855A"),
-            "comment" => Color.FromArgb("#718096"),
-            "number" => Color.FromArgb("#B7791F"),
-            _ => Color.FromArgb("#1E1E1E")
-        };
+            case "keyword":
+                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#8B3F96"), Color.FromArgb("#C792EA"));
+                span.FontAttributes = FontAttributes.Bold;
+                break;
+            case "string":
+                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#2F855A"), Color.FromArgb("#9ECE6A"));
+                break;
+            case "comment":
+                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#718096"), Color.FromArgb("#637777"));
+                span.FontAttributes = FontAttributes.Italic;
+                break;
+            case "number":
+                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#B7791F"), Color.FromArgb("#FF9E3B"));
+                break;
+            case "type":
+                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#2B6CB0"), Color.FromArgb("#7DB6FF"));
+                break;
+            default:
+                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#1E1E1E"), Color.FromArgb("#A9B1D6"));
+                break;
+        }
 
         return span;
     }
@@ -493,6 +650,12 @@ public sealed class MarkdownInlineFormatter
             return "number";
         }
 
+        // Heuristic: PascalCase identifiers are likely types
+        if (value.Length > 1 && char.IsUpper(value[0]) && value.Any(char.IsLower))
+        {
+            return "type";
+        }
+
         return null;
     }
 
@@ -506,6 +669,10 @@ public sealed class MarkdownInlineFormatter
         Bold,
         Italic,
         Strikethrough,
+        Underline,
+        Highlight,
+        Superscript,
+        Subscript,
         InlineCode,
         Link,
         FootnoteReference

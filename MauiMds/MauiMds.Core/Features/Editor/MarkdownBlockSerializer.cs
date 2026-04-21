@@ -41,8 +41,11 @@ public sealed class MarkdownBlockSerializer
             BlockType.CodeBlock => SerializeCodeBlock(block, newLine),
             BlockType.Table => SerializeTable(block, newLine),
             BlockType.HorizontalRule => "---",
-            BlockType.Image => $"![{block.ImageAltText}]({block.ImageSource})",
+            BlockType.Image => SerializeImage(block),
             BlockType.Footnote => $"[^{block.FootnoteId}]: {block.Content}".TrimEnd(),
+            BlockType.Admonition => SerializeAdmonition(block, newLine),
+            BlockType.DefinitionTerm => block.Content.TrimEnd(),
+            BlockType.DefinitionDetail => $": {block.Content}".TrimEnd(),
             _ => block.Content
         };
     }
@@ -117,6 +120,27 @@ public sealed class MarkdownBlockSerializer
                 _ => ":---"
             };
         });
+    }
+
+    private static string SerializeImage(MarkdownBlock block)
+    {
+        return string.IsNullOrEmpty(block.ImageTitle)
+            ? $"![{block.ImageAltText}]({block.ImageSource})"
+            : $"![{block.ImageAltText}]({block.ImageSource} \"{block.ImageTitle}\")";
+    }
+
+    private static string SerializeAdmonition(MarkdownBlock block, string newLine)
+    {
+        var lines = Normalize(block.Content).Split('\n');
+        var builder = new StringBuilder();
+        builder.Append($"> [!{block.AdmonitionType}]");
+        foreach (var line in lines)
+        {
+            builder.Append(newLine);
+            builder.Append("> ");
+            builder.Append(line);
+        }
+        return builder.ToString();
     }
 
     private static string Normalize(string content)
