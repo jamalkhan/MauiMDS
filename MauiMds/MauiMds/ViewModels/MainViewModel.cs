@@ -63,6 +63,12 @@ public class MainViewModel : INotifyPropertyChanged
     private string _preferencesFileLogLevelText = "Info";
     private bool _preferencesAutoSaveEnabled = true;
     private bool _preferencesUse24HourTime;
+    private bool _isShortcutsTabActive;
+    private string _shortcutKeyHeader1 = "1";
+    private string _shortcutKeyHeader2 = "2";
+    private string _shortcutKeyHeader3 = "3";
+    private string _shortcutKeyBold = "B";
+    private string _shortcutKeyItalic = "I";
     private bool _isViewerLoading;
     private string _viewerLoadingPreviewText = string.Empty;
     private DateTimeOffset? _lastParsedBlocksAssignedUtc;
@@ -153,7 +159,14 @@ public class MainViewModel : INotifyPropertyChanged
         FormatChecklistCommand = new Command(() => RequestEditorAction(EditorActionType.Checklist));
         FormatQuoteCommand = new Command(() => RequestEditorAction(EditorActionType.Quote));
         FormatCodeCommand = new Command(() => RequestEditorAction(EditorActionType.Code));
+        FormatBoldCommand = new Command(() => RequestEditorAction(EditorActionType.Bold));
+        FormatItalicCommand = new Command(() => RequestEditorAction(EditorActionType.Italic));
+        ShowGeneralTabCommand = new Command(() => IsShortcutsTabActive = false);
+        ShowShortcutsTabCommand = new Command(() => IsShortcutsTabActive = true);
+        LoadShortcutKeyFields();
     }
+
+    public event EventHandler? KeyboardShortcutsChanged;
 
     public IReadOnlyList<MarkdownBlock> ParsedBlocks
     {
@@ -213,6 +226,10 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand FormatChecklistCommand { get; }
     public ICommand FormatQuoteCommand { get; }
     public ICommand FormatCodeCommand { get; }
+    public ICommand FormatBoldCommand { get; }
+    public ICommand FormatItalicCommand { get; }
+    public ICommand ShowGeneralTabCommand { get; }
+    public ICommand ShowShortcutsTabCommand { get; }
 
     public string FilePath
     {
@@ -507,6 +524,52 @@ public class MainViewModel : INotifyPropertyChanged
 
     public string PreferredTimeFormat => _preferences.Use24HourTime ? "HH:mm:ss" : "h:mm:ss tt";
 
+    public bool IsShortcutsTabActive
+    {
+        get => _isShortcutsTabActive;
+        set
+        {
+            if (_isShortcutsTabActive == value) return;
+            _isShortcutsTabActive = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsGeneralTabActive));
+        }
+    }
+
+    public bool IsGeneralTabActive => !_isShortcutsTabActive;
+
+    public string ShortcutKeyHeader1
+    {
+        get => _shortcutKeyHeader1;
+        set { if (_shortcutKeyHeader1 != value) { _shortcutKeyHeader1 = value; OnPropertyChanged(); } }
+    }
+
+    public string ShortcutKeyHeader2
+    {
+        get => _shortcutKeyHeader2;
+        set { if (_shortcutKeyHeader2 != value) { _shortcutKeyHeader2 = value; OnPropertyChanged(); } }
+    }
+
+    public string ShortcutKeyHeader3
+    {
+        get => _shortcutKeyHeader3;
+        set { if (_shortcutKeyHeader3 != value) { _shortcutKeyHeader3 = value; OnPropertyChanged(); } }
+    }
+
+    public string ShortcutKeyBold
+    {
+        get => _shortcutKeyBold;
+        set { if (_shortcutKeyBold != value) { _shortcutKeyBold = value; OnPropertyChanged(); } }
+    }
+
+    public string ShortcutKeyItalic
+    {
+        get => _shortcutKeyItalic;
+        set { if (_shortcutKeyItalic != value) { _shortcutKeyItalic = value; OnPropertyChanged(); } }
+    }
+
+    public IReadOnlyList<KeyboardShortcutDefinition> CurrentShortcuts => _preferences.KeyboardShortcuts;
+
     public string PreferencesFileLogLevelText
     {
         get => _preferencesFileLogLevelText;
@@ -765,7 +828,24 @@ public class MainViewModel : INotifyPropertyChanged
         PreferencesMaxLogFileSizeMbText = _preferences.MaxLogFileSizeMb.ToString();
         PreferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
         PreferencesFileLogLevelText = FormatLogLevel(_preferences.FileLogLevel);
+        IsShortcutsTabActive = false;
+        LoadShortcutKeyFields();
         IsPreferencesVisible = true;
+    }
+
+    private void LoadShortcutKeyFields()
+    {
+        ShortcutKeyHeader1 = GetShortcutKey(EditorActionType.Header1);
+        ShortcutKeyHeader2 = GetShortcutKey(EditorActionType.Header2);
+        ShortcutKeyHeader3 = GetShortcutKey(EditorActionType.Header3);
+        ShortcutKeyBold = GetShortcutKey(EditorActionType.Bold);
+        ShortcutKeyItalic = GetShortcutKey(EditorActionType.Italic);
+    }
+
+    private string GetShortcutKey(EditorActionType action)
+    {
+        return _preferences.KeyboardShortcuts
+            .FirstOrDefault(s => s.Action == action)?.Key.ToUpperInvariant() ?? string.Empty;
     }
 
     private async Task SavePreferencesAsync()
@@ -801,10 +881,12 @@ public class MainViewModel : INotifyPropertyChanged
             MaxLogFileSizeMb = maxLogFileSizeMb,
             InitialViewerRenderLineCount = initialViewerRenderLineCount,
             Use24HourTime = PreferencesUse24HourTime,
-            FileLogLevel = fileLogLevel
+            FileLogLevel = fileLogLevel,
+            KeyboardShortcuts = BuildShortcutsFromFields()
         };
 
         _preferencesService.Save(_preferences);
+        KeyboardShortcutsChanged?.Invoke(this, EventArgs.Empty);
         _fileLogLevelSwitch.MinimumLevel = fileLogLevel;
         IsPreferencesVisible = false;
         OnPropertyChanged(nameof(InitialViewerRenderLineCount));
@@ -818,6 +900,24 @@ public class MainViewModel : INotifyPropertyChanged
     private void CancelPreferences()
     {
         IsPreferencesVisible = false;
+    }
+
+    private List<KeyboardShortcutDefinition> BuildShortcutsFromFields()
+    {
+        return
+        [
+            new KeyboardShortcutDefinition { Action = EditorActionType.Header1, Key = NormalizeShortcutKey(ShortcutKeyHeader1, "1") },
+            new KeyboardShortcutDefinition { Action = EditorActionType.Header2, Key = NormalizeShortcutKey(ShortcutKeyHeader2, "2") },
+            new KeyboardShortcutDefinition { Action = EditorActionType.Header3, Key = NormalizeShortcutKey(ShortcutKeyHeader3, "3") },
+            new KeyboardShortcutDefinition { Action = EditorActionType.Bold,    Key = NormalizeShortcutKey(ShortcutKeyBold, "B") },
+            new KeyboardShortcutDefinition { Action = EditorActionType.Italic,  Key = NormalizeShortcutKey(ShortcutKeyItalic, "I") },
+        ];
+    }
+
+    private static string NormalizeShortcutKey(string raw, string fallback)
+    {
+        var trimmed = raw.Trim().ToUpperInvariant();
+        return trimmed.Length > 0 && (char.IsLetterOrDigit(trimmed[0])) ? trimmed[0].ToString() : fallback;
     }
 
     private static string FormatLogLevel(LogLevel logLevel)

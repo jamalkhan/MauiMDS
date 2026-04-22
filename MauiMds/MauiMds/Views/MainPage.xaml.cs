@@ -153,6 +153,12 @@ public partial class MainPage : ContentPage
             case EditorActionType.Code:
                 editor.ApplyCodeStyle();
                 break;
+            case EditorActionType.Bold:
+                editor.ApplyBoldStyle();
+                break;
+            case EditorActionType.Italic:
+                editor.ApplyItalicStyle();
+                break;
         }
     }
 

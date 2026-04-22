@@ -209,6 +209,38 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
         ApplyBlockTransform(RichTextBlockKind.Code);
     }
 
+    public void ApplyBoldStyle() => ApplyInlineDelimiter("**");
+
+    public void ApplyItalicStyle() => ApplyInlineDelimiter("_");
+
+    private void ApplyInlineDelimiter(string delimiter)
+    {
+        var text = Text ?? string.Empty;
+        var start = Math.Clamp(_editor.CursorPosition, 0, text.Length);
+        var length = Math.Clamp(_editor.SelectionLength, 0, text.Length - start);
+
+        if (length == 0)
+        {
+            var inserted = delimiter + delimiter;
+            ApplyUpdatedText(text[..start] + inserted + text[start..], start + delimiter.Length, 0);
+            return;
+        }
+
+        var selected = text.Substring(start, length);
+        if (selected.StartsWith(delimiter, StringComparison.Ordinal) &&
+            selected.EndsWith(delimiter, StringComparison.Ordinal) &&
+            selected.Length > delimiter.Length * 2)
+        {
+            var inner = selected[delimiter.Length..(selected.Length - delimiter.Length)];
+            ApplyUpdatedText(text[..start] + inner + text[(start + length)..], start, inner.Length);
+        }
+        else
+        {
+            var wrapped = delimiter + selected + delimiter;
+            ApplyUpdatedText(text[..start] + wrapped + text[(start + length)..], start, wrapped.Length);
+        }
+    }
+
     public bool FindNext(string query)
     {
         var result = _documentController.FindNext(Text ?? string.Empty, _editor.CursorPosition, _editor.SelectionLength, query);

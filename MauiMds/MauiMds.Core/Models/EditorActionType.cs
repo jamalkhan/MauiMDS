@@ -15,5 +15,7 @@ public enum EditorActionType
     Bullet,
     Checklist,
     Quote,
-    Code
+    Code,
+    Bold,
+    Italic
 }

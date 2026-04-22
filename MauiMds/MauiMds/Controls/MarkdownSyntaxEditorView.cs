@@ -197,6 +197,47 @@ public sealed class MarkdownSyntaxEditorView : ContentView, IEditorSurface
         ApplyBlockTransform(RichTextBlockKind.Code);
     }
 
+    public void ApplyBoldStyle() => ApplyInlineDelimiter("**");
+
+    public void ApplyItalicStyle() => ApplyInlineDelimiter("_");
+
+    private void ApplyInlineDelimiter(string delimiter)
+    {
+        var text = Text ?? string.Empty;
+        var cursor = Math.Clamp(_editor.CursorPosition, 0, text.Length);
+        var selectionLength = Math.Clamp(_editor.SelectionLength, 0, text.Length - cursor);
+
+        if (selectionLength == 0)
+        {
+            var inserted = delimiter + delimiter;
+            SetTextInternal(text[..cursor] + inserted + text[cursor..], recordHistory: true);
+            _editor.CursorPosition = cursor + delimiter.Length;
+            _editor.SelectionLength = 0;
+            _editor.Focus();
+            return;
+        }
+
+        var selected = text.Substring(cursor, selectionLength);
+        if (selected.StartsWith(delimiter, StringComparison.Ordinal) &&
+            selected.EndsWith(delimiter, StringComparison.Ordinal) &&
+            selected.Length > delimiter.Length * 2)
+        {
+            var inner = selected[delimiter.Length..(selected.Length - delimiter.Length)];
+            SetTextInternal(text[..cursor] + inner + text[(cursor + selectionLength)..], recordHistory: true);
+            _editor.CursorPosition = cursor;
+            _editor.SelectionLength = inner.Length;
+        }
+        else
+        {
+            var wrapped = delimiter + selected + delimiter;
+            SetTextInternal(text[..cursor] + wrapped + text[(cursor + selectionLength)..], recordHistory: true);
+            _editor.CursorPosition = cursor;
+            _editor.SelectionLength = wrapped.Length;
+        }
+
+        _editor.Focus();
+    }
+
     public bool FindNext(string query)
     {
         if (string.IsNullOrWhiteSpace(query) || string.IsNullOrEmpty(Text))

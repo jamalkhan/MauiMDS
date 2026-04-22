@@ -1,4 +1,4 @@
-﻿using MauiMds.Logging;
+using MauiMds.Logging;
 using MauiMds.Models;
 using MauiMds.ViewModels;
 using MauiMds.Views;
@@ -11,6 +11,8 @@ public partial class App : Application
 {
     private readonly ILogger<App> _logger;
     private readonly MainPage _mainPage;
+    private NavigationPage? _rootPage;
+    private MenuBarItem? _formatMenu;
 
     public App(MainPage mainPage, ILogger<App> logger)
     {
@@ -28,20 +30,48 @@ public partial class App : Application
 
         try
         {
-            var rootPage = new NavigationPage(_mainPage);
-#if MACCATALYST
-            _logger.LogWarning("Skipping custom menu bar attachment on Mac Catalyst due to startup scene instability.");
-#else
-            AttachMenuBar(rootPage);
-#endif
+            _rootPage = new NavigationPage(_mainPage);
+            _mainPage.Loaded += OnMainPageFirstLoaded;
             _logger.LogDebug("Root page created successfully.");
-            return new Window(rootPage);
+            return new Window(_rootPage);
         }
         catch (Exception ex)
         {
             _logger.LogCritical(ex, "Unhandled exception while creating the main window.");
             throw;
         }
+    }
+
+    private void OnMainPageFirstLoaded(object? sender, EventArgs e)
+    {
+        _mainPage.Loaded -= OnMainPageFirstLoaded;
+        if (_rootPage is null)
+        {
+            return;
+        }
+
+        AttachMenuBar(_rootPage);
+
+        if (_mainPage.BindingContext is MainViewModel vm)
+        {
+            vm.KeyboardShortcutsChanged += OnKeyboardShortcutsChanged;
+        }
+    }
+
+    private void OnKeyboardShortcutsChanged(object? sender, EventArgs e)
+    {
+        if (_rootPage is null || _formatMenu is null)
+        {
+            return;
+        }
+
+        if (_mainPage.BindingContext is not MainViewModel vm)
+        {
+            return;
+        }
+
+        _formatMenu.Clear();
+        BuildFormatMenuItems(_formatMenu, vm);
     }
 
     private void RegisterGlobalExceptionHandlers()
@@ -88,15 +118,8 @@ public partial class App : Application
         editMenu.Add(CreateMenuItem("Paste", viewModel.PasteCommand, key: "V", primaryModifier: true));
         editMenu.Add(CreateMenuItem("Find", viewModel.FindCommand, key: "F", primaryModifier: true));
 
-        var formatMenu = new MenuBarItem { Text = "Format" };
-        formatMenu.Add(CreateMenuItem("Paragraph", viewModel.FormatParagraphCommand));
-        formatMenu.Add(CreateMenuItem("H1", viewModel.FormatHeader1Command, key: "1", primaryModifier: true));
-        formatMenu.Add(CreateMenuItem("H2", viewModel.FormatHeader2Command, key: "2", primaryModifier: true));
-        formatMenu.Add(CreateMenuItem("H3", viewModel.FormatHeader3Command, key: "3", primaryModifier: true));
-        formatMenu.Add(CreateMenuItem("Bullet", viewModel.FormatBulletCommand));
-        formatMenu.Add(CreateMenuItem("Checklist", viewModel.FormatChecklistCommand));
-        formatMenu.Add(CreateMenuItem("Quote", viewModel.FormatQuoteCommand));
-        formatMenu.Add(CreateMenuItem("Code", viewModel.FormatCodeCommand));
+        _formatMenu = new MenuBarItem { Text = "Format" };
+        BuildFormatMenuItems(_formatMenu, viewModel);
 
         var viewMenu = new MenuBarItem { Text = "View" };
         viewMenu.Add(CreateMenuItem("Reader", viewModel.SetViewModeCommand, EditorViewMode.Viewer));
@@ -108,10 +131,31 @@ public partial class App : Application
 
         rootPage.MenuBarItems.Add(fileMenu);
         rootPage.MenuBarItems.Add(editMenu);
-        rootPage.MenuBarItems.Add(formatMenu);
+        rootPage.MenuBarItems.Add(_formatMenu);
         rootPage.MenuBarItems.Add(viewMenu);
         rootPage.MenuBarItems.Add(toolsMenu);
         _logger.LogDebug("Attached File, Edit, Format, View, and Tools menus to the root navigation page.");
+    }
+
+    private void BuildFormatMenuItems(MenuBarItem formatMenu, MainViewModel viewModel)
+    {
+        var shortcuts = viewModel.CurrentShortcuts;
+        formatMenu.Add(CreateMenuItem("Paragraph", viewModel.FormatParagraphCommand));
+        formatMenu.Add(CreateMenuItem("H1", viewModel.FormatHeader1Command, key: GetShortcutKey(shortcuts, EditorActionType.Header1, "1"), primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("H2", viewModel.FormatHeader2Command, key: GetShortcutKey(shortcuts, EditorActionType.Header2, "2"), primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("H3", viewModel.FormatHeader3Command, key: GetShortcutKey(shortcuts, EditorActionType.Header3, "3"), primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("Bullet", viewModel.FormatBulletCommand));
+        formatMenu.Add(CreateMenuItem("Checklist", viewModel.FormatChecklistCommand));
+        formatMenu.Add(CreateMenuItem("Quote", viewModel.FormatQuoteCommand));
+        formatMenu.Add(CreateMenuItem("Code", viewModel.FormatCodeCommand));
+        formatMenu.Add(CreateMenuItem("Bold", viewModel.FormatBoldCommand, key: GetShortcutKey(shortcuts, EditorActionType.Bold, "B"), primaryModifier: true));
+        formatMenu.Add(CreateMenuItem("Italic", viewModel.FormatItalicCommand, key: GetShortcutKey(shortcuts, EditorActionType.Italic, "I"), primaryModifier: true));
+    }
+
+    private static string? GetShortcutKey(IReadOnlyList<KeyboardShortcutDefinition> shortcuts, EditorActionType action, string fallback)
+    {
+        var key = shortcuts.FirstOrDefault(s => s.Action == action)?.Key;
+        return string.IsNullOrWhiteSpace(key) ? fallback : key;
     }
 
     private static MenuFlyoutItem CreateMenuItem(string text, ICommand command, object? commandParameter = null, string? key = null, bool primaryModifier = false, bool includeShift = false, bool isEnabled = true)

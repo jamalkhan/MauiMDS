@@ -14,5 +14,7 @@ public interface IEditorSurface
     void ApplyChecklistStyle();
     void ApplyQuoteStyle();
     void ApplyCodeStyle();
+    void ApplyBoldStyle();
+    void ApplyItalicStyle();
     bool FindNext(string query);
 }

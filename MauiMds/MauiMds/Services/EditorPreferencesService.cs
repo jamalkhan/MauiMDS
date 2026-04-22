@@ -29,7 +29,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 MaxLogFileSizeMb = Math.Max(1, preferences.MaxLogFileSizeMb),
                 InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount),
                 Use24HourTime = preferences.Use24HourTime,
-                FileLogLevel = NormalizeLogLevel(preferences.FileLogLevel)
+                FileLogLevel = NormalizeLogLevel(preferences.FileLogLevel),
+                KeyboardShortcuts = preferences.KeyboardShortcuts ?? EditorPreferences.DefaultShortcuts
             };
         }
         catch
@@ -53,7 +54,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             MaxLogFileSizeMb = Math.Max(1, preferences.MaxLogFileSizeMb),
             InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount),
             Use24HourTime = preferences.Use24HourTime,
-            FileLogLevel = NormalizeLogLevel(preferences.FileLogLevel)
+            FileLogLevel = NormalizeLogLevel(preferences.FileLogLevel),
+            KeyboardShortcuts = preferences.KeyboardShortcuts ?? EditorPreferences.DefaultShortcuts
         };
 
         var json = JsonSerializer.Serialize(normalized, JsonOptions);

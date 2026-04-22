@@ -25,86 +25,238 @@
                         Padding="18,14"
                         StrokeShape="RoundRectangle 18"
                         IsVisible="{Binding IsPreferencesVisible}">
-                    <Grid ColumnDefinitions="*,Auto"
-                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
-                          ColumnSpacing="12"
-                          RowSpacing="12">
-                        <Label Text="Preferences"
-                               FontSize="18"
-                               FontAttributes="Bold"
-                               TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
+                    <Grid RowDefinitions="Auto,Auto,Auto"
+                          RowSpacing="14">
 
-                        <HorizontalStackLayout Grid.Row="1"
-                                               Spacing="12">
-                            <Label Text="Autosave"
+                        <!-- Header row: title + tab buttons -->
+                        <Grid ColumnDefinitions="*,Auto"
+                              ColumnSpacing="16">
+                            <Label Text="Preferences"
+                                   FontSize="18"
+                                   FontAttributes="Bold"
                                    VerticalTextAlignment="Center"
-                                   TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                            <Switch IsToggled="{Binding PreferencesAutoSaveEnabled}" />
-                            <Label Text="Delay (seconds)"
-                                   VerticalTextAlignment="Center"
-                                   TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                            <Entry WidthRequest="90"
-                                   Keyboard="Numeric"
-                                   Text="{Binding PreferencesAutoSaveDelaySecondsText}" />
-                        </HorizontalStackLayout>
+                                   TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
+                            <HorizontalStackLayout Grid.Column="1"
+                                                   Spacing="4">
+                                <Button Text="General"
+                                        FontSize="13"
+                                        Padding="14,6"
+                                        CornerRadius="8"
+                                        Command="{Binding ShowGeneralTabCommand}">
+                                    <Button.Triggers>
+                                        <DataTrigger TargetType="Button"
+                                                     Binding="{Binding IsGeneralTabActive}"
+                                                     Value="True">
+                                            <Setter Property="BackgroundColor"
+                                                    Value="{AppThemeBinding Light=#C8C0B2, Dark=#4A4743}" />
+                                            <Setter Property="FontAttributes" Value="Bold" />
+                                        </DataTrigger>
+                                        <DataTrigger TargetType="Button"
+                                                     Binding="{Binding IsGeneralTabActive}"
+                                                     Value="False">
+                                            <Setter Property="BackgroundColor"
+                                                    Value="{AppThemeBinding Light=#E0D8CC, Dark=#3A3835}" />
+                                            <Setter Property="FontAttributes" Value="None" />
+                                        </DataTrigger>
+                                    </Button.Triggers>
+                                </Button>
+                                <Button Text="Keyboard Shortcuts"
+                                        FontSize="13"
+                                        Padding="14,6"
+                                        CornerRadius="8"
+                                        Command="{Binding ShowShortcutsTabCommand}">
+                                    <Button.Triggers>
+                                        <DataTrigger TargetType="Button"
+                                                     Binding="{Binding IsShortcutsTabActive}"
+                                                     Value="True">
+                                            <Setter Property="BackgroundColor"
+                                                    Value="{AppThemeBinding Light=#C8C0B2, Dark=#4A4743}" />
+                                            <Setter Property="FontAttributes" Value="Bold" />
+                                        </DataTrigger>
+                                        <DataTrigger TargetType="Button"
+                                                     Binding="{Binding IsShortcutsTabActive}"
+                                                     Value="False">
+                                            <Setter Property="BackgroundColor"
+                                                    Value="{AppThemeBinding Light=#E0D8CC, Dark=#3A3835}" />
+                                            <Setter Property="FontAttributes" Value="None" />
+                                        </DataTrigger>
+                                    </Button.Triggers>
+                                </Button>
+                            </HorizontalStackLayout>
+                        </Grid>
 
+                        <!-- Tab content row -->
+                        <Grid Grid.Row="1">
+                            <!-- General tab -->
+                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                                  RowSpacing="12"
+                                  IsVisible="{Binding IsGeneralTabActive}">
+                                <HorizontalStackLayout Spacing="12">
+                                    <Label Text="Autosave"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Switch IsToggled="{Binding PreferencesAutoSaveEnabled}" />
+                                    <Label Text="Delay (seconds)"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Entry WidthRequest="90"
+                                           Keyboard="Numeric"
+                                           Text="{Binding PreferencesAutoSaveDelaySecondsText}" />
+                                </HorizontalStackLayout>
+
+                                <HorizontalStackLayout Grid.Row="1"
+                                                       Spacing="12">
+                                    <Label Text="Max Log Size (MB)"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Entry WidthRequest="90"
+                                           Keyboard="Numeric"
+                                           Text="{Binding PreferencesMaxLogFileSizeMbText}" />
+                                    <Label Text="Default is 2 MB"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                </HorizontalStackLayout>
+
+                                <HorizontalStackLayout Grid.Row="2"
+                                                       Spacing="12">
+                                    <Label Text="Initial Viewer Lines"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Entry WidthRequest="90"
+                                           Keyboard="Numeric"
+                                           Text="{Binding PreferencesInitialViewerRenderLineCountText}" />
+                                    <Label Text="Default is 20"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                </HorizontalStackLayout>
+
+                                <HorizontalStackLayout Grid.Row="3"
+                                                       Spacing="12">
+                                    <Label Text="File Log Level"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Picker WidthRequest="160"
+                                            Title="Log level"
+                                            ItemsSource="{Binding AvailableFileLogLevels}"
+                                            SelectedItem="{Binding PreferencesFileLogLevelText}" />
+                                    <Label Text="Default is Info"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                </HorizontalStackLayout>
+
+                                <HorizontalStackLayout Grid.Row="4"
+                                                       Spacing="12">
+                                    <Label Text="24-Hour Time"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Switch IsToggled="{Binding PreferencesUse24HourTime}" />
+                                    <Label Text="Default is 12-hour"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                </HorizontalStackLayout>
+                            </Grid>
+
+                            <!-- Keyboard Shortcuts tab -->
+                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                                  RowSpacing="10"
+                                  IsVisible="{Binding IsShortcutsTabActive}">
+                                <Label Text="Shortcuts use ⌘ + key. Type a single letter or digit."
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+
+                                <Grid Grid.Row="1"
+                                      ColumnDefinitions="140,Auto,60"
+                                      ColumnSpacing="8">
+                                    <Label Text="Heading 1"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Label Grid.Column="1"
+                                           Text="⌘ +"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="14"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                    <Entry Grid.Column="2"
+                                           MaxLength="1"
+                                           HorizontalTextAlignment="Center"
+                                           Text="{Binding ShortcutKeyHeader1}" />
+                                </Grid>
+
+                                <Grid Grid.Row="2"
+                                      ColumnDefinitions="140,Auto,60"
+                                      ColumnSpacing="8">
+                                    <Label Text="Heading 2"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Label Grid.Column="1"
+                                           Text="⌘ +"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="14"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                    <Entry Grid.Column="2"
+                                           MaxLength="1"
+                                           HorizontalTextAlignment="Center"
+                                           Text="{Binding ShortcutKeyHeader2}" />
+                                </Grid>
+
+                                <Grid Grid.Row="3"
+                                      ColumnDefinitions="140,Auto,60"
+                                      ColumnSpacing="8">
+                                    <Label Text="Heading 3"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Label Grid.Column="1"
+                                           Text="⌘ +"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="14"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                    <Entry Grid.Column="2"
+                                           MaxLength="1"
+                                           HorizontalTextAlignment="Center"
+                                           Text="{Binding ShortcutKeyHeader3}" />
+                                </Grid>
+
+                                <Grid Grid.Row="4"
+                                      ColumnDefinitions="140,Auto,60"
+                                      ColumnSpacing="8">
+                                    <Label Text="Bold"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Label Grid.Column="1"
+                                           Text="⌘ +"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="14"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                    <Entry Grid.Column="2"
+                                           MaxLength="1"
+                                           HorizontalTextAlignment="Center"
+                                           Text="{Binding ShortcutKeyBold}" />
+                                </Grid>
+
+                                <Grid Grid.Row="5"
+                                      ColumnDefinitions="140,Auto,60"
+                                      ColumnSpacing="8">
+                                    <Label Text="Italic"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Label Grid.Column="1"
+                                           Text="⌘ +"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="14"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                    <Entry Grid.Column="2"
+                                           MaxLength="1"
+                                           HorizontalTextAlignment="Center"
+                                           Text="{Binding ShortcutKeyItalic}" />
+                                </Grid>
+                            </Grid>
+                        </Grid>
+
+                        <!-- Save/Cancel buttons always visible -->
                         <HorizontalStackLayout Grid.Row="2"
-                                               Spacing="12">
-                            <Label Text="Max Log Size (MB)"
-                                   VerticalTextAlignment="Center"
-                                   TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                            <Entry WidthRequest="90"
-                                   Keyboard="Numeric"
-                                   Text="{Binding PreferencesMaxLogFileSizeMbText}" />
-                            <Label Text="Default is 2 MB"
-                                   VerticalTextAlignment="Center"
-                                   FontSize="12"
-                                   TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                        </HorizontalStackLayout>
-
-                        <HorizontalStackLayout Grid.Row="3"
-                                               Spacing="12">
-                            <Label Text="Initial Viewer Lines"
-                                   VerticalTextAlignment="Center"
-                                   TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                            <Entry WidthRequest="90"
-                                   Keyboard="Numeric"
-                                   Text="{Binding PreferencesInitialViewerRenderLineCountText}" />
-                            <Label Text="Default is 20"
-                                   VerticalTextAlignment="Center"
-                                   FontSize="12"
-                                   TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                        </HorizontalStackLayout>
-
-                        <HorizontalStackLayout Grid.Row="4"
-                                               Spacing="12">
-                            <Label Text="File Log Level"
-                                   VerticalTextAlignment="Center"
-                                   TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                            <Picker WidthRequest="160"
-                                    Title="Log level"
-                                    ItemsSource="{Binding AvailableFileLogLevels}"
-                                    SelectedItem="{Binding PreferencesFileLogLevelText}" />
-                            <Label Text="Default is Info"
-                                   VerticalTextAlignment="Center"
-                                   FontSize="12"
-                                   TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                        </HorizontalStackLayout>
-
-                        <HorizontalStackLayout Grid.Row="5"
-                                               Spacing="12">
-                            <Label Text="24-Hour Time"
-                                   VerticalTextAlignment="Center"
-                                   TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                            <Switch IsToggled="{Binding PreferencesUse24HourTime}" />
-                            <Label Text="Default is 12-hour"
-                                   VerticalTextAlignment="Center"
-                                   FontSize="12"
-                                   TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                        </HorizontalStackLayout>
-
-                        <HorizontalStackLayout Grid.Row="6"
-                                               Grid.ColumnSpan="2"
                                                Spacing="10">
                             <Button Text="Save Preferences"
                                     Command="{Binding SavePreferencesCommand}" />
