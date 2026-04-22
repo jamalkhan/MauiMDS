@@ -29,7 +29,11 @@ public partial class App : Application
         try
         {
             var rootPage = new NavigationPage(_mainPage);
+#if MACCATALYST
+            _logger.LogWarning("Skipping custom menu bar attachment on Mac Catalyst due to startup scene instability.");
+#else
             AttachMenuBar(rootPage);
+#endif
             _logger.LogDebug("Root page created successfully.");
             return new Window(rootPage);
         }

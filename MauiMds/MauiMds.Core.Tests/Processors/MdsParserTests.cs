@@ -1,16 +1,18 @@
 using MauiMds.Models;
 using MauiMds.Processors;
-using MauiMds.Tests.TestHelpers;
+using MauiMds.Core.Tests.TestHelpers;
 
-namespace MauiMds.Tests.Processors;
+namespace MauiMds.Core.Tests.Processors;
 
 [TestClass]
 public sealed class MdsParserTests
 {
+    private static MdsParser CreateParser() => new(new TestLogger<MdsParser>());
+
     [TestMethod]
     public void Parse_RecognizesCoreMarkdownStructures()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
         const string markdown = """
 ---
 title: Test
@@ -68,7 +70,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_MergesAdjacentParagraphLines()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("first line\nsecond line\n\nthird");
 
@@ -80,7 +82,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_TwoSpaceLineBreak_InsertsNewlineInParagraph()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("line one  \nline two");
 
@@ -92,7 +94,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_Admonition_DetectsNoteType()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("> [!NOTE]\n> This is a note.");
 
@@ -105,7 +107,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_Admonition_DetectsWarningType()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("> [!WARNING]\n> Be careful.");
 
@@ -117,7 +119,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_DefinitionList_EmitsTermAndDetail()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("Apple\n: A fruit\n: Also a company");
 
@@ -133,7 +135,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_ReferenceLinkDefinition_ResolvesInParagraph()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("See [the guide][guide] for details.\n\n[guide]: https://example.com");
 
@@ -145,7 +147,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_ReferenceLinkImplicit_ResolvesWithSameKey()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("Click [here][] to continue.\n\n[here]: https://example.com");
 
@@ -157,7 +159,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_ImageWithTitle_ExtractsTitle()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("![alt text](image.png \"My Title\")");
 
@@ -171,7 +173,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_ImageWithoutTitle_HasEmptyTitle()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("![alt](image.png)");
 
@@ -183,7 +185,7 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_NestedTableInBlockquote_PopulatesChildren()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("> | Name | Value |\n> | --- | --- |\n> | A | 1 |");
 
@@ -196,12 +198,149 @@ Console.WriteLine("hi");
     [TestMethod]
     public void Parse_BlockQuoteWithoutTable_HasNoChildren()
     {
-        var parser = new MdsParser(new TestLogger<MdsParser>());
+        var parser = CreateParser();
 
         var blocks = parser.Parse("> Simple quote text");
 
         Assert.AreEqual(1, blocks.Count);
         Assert.AreEqual(BlockType.BlockQuote, blocks[0].Type);
         Assert.AreEqual(0, blocks[0].Children.Count);
+    }
+
+    // ── New tests ────────────────────────────────────────────────────────────
+
+    [TestMethod]
+    public void Parse_Headers_DetectsAllSixLevels()
+    {
+        var parser = CreateParser();
+        var markdown = "# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6";
+
+        var blocks = parser.Parse(markdown);
+
+        var headers = blocks.Where(b => b.Type == BlockType.Header).ToList();
+        Assert.AreEqual(6, headers.Count);
+        for (var level = 1; level <= 6; level++)
+        {
+            var header = headers[level - 1];
+            Assert.AreEqual(level, header.HeaderLevel, $"Expected HeaderLevel {level}");
+            Assert.AreEqual($"H{level}", header.Content);
+        }
+    }
+
+    [TestMethod]
+    public void Parse_HorizontalRule_DetectedForDashesStarsAndUnderscores()
+    {
+        var parser = CreateParser();
+
+        foreach (var rule in new[] { "---", "***", "___", "----", "* * *" })
+        {
+            var blocks = parser.Parse(rule);
+            Assert.AreEqual(1, blocks.Count, $"Expected 1 block for rule: '{rule}'");
+            Assert.AreEqual(BlockType.HorizontalRule, blocks[0].Type, $"Expected HorizontalRule for: '{rule}'");
+        }
+    }
+
+    [TestMethod]
+    public void Parse_EmptyDocument_ReturnsEmptyList()
+    {
+        var parser = CreateParser();
+
+        Assert.AreEqual(0, parser.Parse(string.Empty).Count);
+        Assert.AreEqual(0, parser.Parse("   ").Count);
+        Assert.AreEqual(0, parser.Parse("\n\n\n").Count);
+    }
+
+    [TestMethod]
+    public void Parse_CodeBlock_WithoutLanguage_EmitsEmptyCodeLanguage()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("```\nsome code\n```");
+
+        Assert.AreEqual(1, blocks.Count);
+        Assert.AreEqual(BlockType.CodeBlock, blocks[0].Type);
+        Assert.AreEqual(string.Empty, blocks[0].CodeLanguage);
+        Assert.AreEqual("some code", blocks[0].Content.Trim());
+    }
+
+    [TestMethod]
+    public void Parse_NestedBulletList_CarriesCorrectListLevels()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("- top\n  - nested\n    - deep");
+
+        var items = blocks.Where(b => b.Type == BlockType.BulletListItem).ToList();
+        Assert.AreEqual(3, items.Count);
+        Assert.AreEqual(0, items[0].ListLevel, "top-level item should be level 0");
+        Assert.AreEqual(1, items[1].ListLevel, "one-indent item should be level 1");
+        Assert.AreEqual(2, items[2].ListLevel, "two-indent item should be level 2");
+    }
+
+    [TestMethod]
+    public void Parse_OrderedList_EmitsCorrectNumbersAndContent()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("1. First\n2. Second\n3. Third");
+
+        var items = blocks.Where(b => b.Type == BlockType.OrderedListItem).ToList();
+        Assert.AreEqual(3, items.Count);
+        Assert.AreEqual(1, items[0].OrderedNumber);
+        Assert.AreEqual("First", items[0].Content);
+        Assert.AreEqual(2, items[1].OrderedNumber);
+        Assert.AreEqual(3, items[2].OrderedNumber);
+        Assert.AreEqual("Third", items[2].Content);
+    }
+
+    [TestMethod]
+    public void Parse_TaskListItem_UncheckedState()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("- [ ] not done\n- [x] done");
+
+        var items = blocks.Where(b => b.Type == BlockType.TaskListItem).ToList();
+        Assert.AreEqual(2, items.Count);
+        Assert.IsFalse(items[0].IsChecked, "Expected unchecked task item");
+        Assert.IsTrue(items[1].IsChecked, "Expected checked task item");
+        Assert.AreEqual("not done", items[0].Content);
+        Assert.AreEqual("done", items[1].Content);
+    }
+
+    [TestMethod]
+    public void Parse_FrontMatterOnly_ReturnsOneFrontMatterBlock()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("---\ntitle: Solo\nauthor: Test\n---\n");
+
+        Assert.AreEqual(1, blocks.Count);
+        Assert.AreEqual(BlockType.FrontMatter, blocks[0].Type);
+        Assert.IsTrue(blocks[0].Content.Contains("title: Solo"));
+    }
+
+    [TestMethod]
+    public void Parse_NoFrontMatter_DoesNotEmitFrontMatterBlock()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("# Just a heading\n\nAnd a paragraph.");
+
+        Assert.IsFalse(blocks.Any(b => b.Type == BlockType.FrontMatter), "Should have no FrontMatter block");
+    }
+
+    [TestMethod]
+    public void Parse_MultipleFootnotes_AllEmitted()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("[^1]: First footnote\n[^2]: Second footnote\n[^abc]: Named footnote");
+
+        var footnotes = blocks.Where(b => b.Type == BlockType.Footnote).ToList();
+        Assert.AreEqual(3, footnotes.Count);
+        Assert.IsTrue(footnotes.Any(f => f.FootnoteId == "1" && f.Content == "First footnote"));
+        Assert.IsTrue(footnotes.Any(f => f.FootnoteId == "2" && f.Content == "Second footnote"));
+        Assert.IsTrue(footnotes.Any(f => f.FootnoteId == "abc" && f.Content == "Named footnote"));
     }
 }

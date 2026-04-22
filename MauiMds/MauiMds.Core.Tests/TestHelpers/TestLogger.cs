@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace MauiMds.Tests.TestHelpers;
+namespace MauiMds.Core.Tests.TestHelpers;
 
 internal sealed class TestLogger<T> : ILogger<T>
 {

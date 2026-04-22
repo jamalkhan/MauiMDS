@@ -1,7 +1,7 @@
 using MauiMds.Models;
 using MauiMds.Services;
 
-namespace MauiMds.Tests.TestHelpers;
+namespace MauiMds.Core.Tests.TestHelpers;
 
 internal sealed class FakeClock : IClock
 {
