@@ -1544,6 +1544,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void RequestEditorAction(EditorActionType actionType)
     {
+        _logger.LogInformation("Editor action requested: {ActionType}", actionType);
         EditorActionRequested?.Invoke(this, new EditorActionRequestedEventArgs
         {
             ActionType = actionType

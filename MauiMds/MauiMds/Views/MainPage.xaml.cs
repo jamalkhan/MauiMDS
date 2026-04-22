@@ -105,9 +105,10 @@ public partial class MainPage : ContentPage
         var editor = GetActiveEditor();
         if (editor is null)
         {
-            _logger.LogDebug("Editor action ignored because no editable surface is active. Action: {ActionType}", e.ActionType);
+            _logger.LogInformation("Editor action ignored — no active editor surface. Action: {ActionType}, ViewMode: {ViewMode}", e.ActionType, (BindingContext as MainViewModel)?.SelectedViewMode);
             return;
         }
+        _logger.LogInformation("Dispatching editor action: {ActionType}, Editor: {EditorType}", e.ActionType, editor.GetType().Name);
 
         switch (e.ActionType)
         {

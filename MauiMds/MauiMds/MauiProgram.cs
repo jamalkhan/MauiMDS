@@ -27,7 +27,15 @@ public static class MauiProgram
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
-			});
+			})
+#if MACCATALYST
+			.ConfigureMauiHandlers(handlers =>
+			{
+				handlers.AddHandler(typeof(Microsoft.Maui.Controls.Editor),
+					typeof(MauiMds.Platforms.MacCatalyst.ShortcutAwareEditorHandler));
+			})
+#endif
+			;
 
 		builder.Logging.ClearProviders();
 		builder.Logging.AddDebug();
