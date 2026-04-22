@@ -1,4 +1,6 @@
-﻿using MauiMds.Features.Editor;
+﻿using MauiMds.AudioCapture;
+using MauiMds.AudioCapture.MacCatalyst;
+using MauiMds.Features.Editor;
 using MauiMds.Features.Export;
 using MauiMds.Features.Session;
 using MauiMds.Features.Workspace;
@@ -66,6 +68,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IPlatformInfo, SystemPlatformInfo>();
 		builder.Services.AddSingleton<SessionRestoreCoordinator>();
 		builder.Services.AddSingleton<IPdfExportService, PdfExportService>();
+		builder.Services.AddSingleton<IAudioCaptureService, AudioCaptureService>();
 		builder.Services.AddSingleton<MainViewModel>();
 		builder.Services.AddSingleton<Views.MainPage>();
 

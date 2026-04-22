@@ -36,5 +36,7 @@
 	</array>
 	<key>XSAppIconAssets</key>
 	<string>Assets.xcassets/appicon.appiconset</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MauiMds records your microphone to capture meeting audio for transcription.</string>
 </dict>
 </plist>
