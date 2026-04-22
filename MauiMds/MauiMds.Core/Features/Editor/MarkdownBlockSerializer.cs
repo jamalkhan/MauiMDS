@@ -133,7 +133,10 @@ public sealed class MarkdownBlockSerializer
     {
         var lines = Normalize(block.Content).Split('\n');
         var builder = new StringBuilder();
-        builder.Append($"> [!{block.AdmonitionType}]");
+        var typeTag = string.IsNullOrEmpty(block.AdmonitionTitle)
+            ? $"> [!{block.AdmonitionType}]"
+            : $"> [!{block.AdmonitionType}] {block.AdmonitionTitle}";
+        builder.Append(typeTag);
         foreach (var line in lines)
         {
             builder.Append(newLine);

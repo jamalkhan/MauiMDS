@@ -99,4 +99,41 @@ public sealed class SnackbarHistoryCollectionTests
         Assert.AreEqual(SnackbarMessageLevel.Error, SnackbarMessage.FromLogLevel(Microsoft.Extensions.Logging.LogLevel.Critical));
         Assert.AreEqual(SnackbarMessageLevel.Debug, SnackbarMessage.FromLogLevel(Microsoft.Extensions.Logging.LogLevel.Debug));
     }
+
+    [TestMethod]
+    public void SnackbarMessage_FromLogLevel_TraceIsDebug()
+    {
+        Assert.AreEqual(SnackbarMessageLevel.Debug, SnackbarMessage.FromLogLevel(Microsoft.Extensions.Logging.LogLevel.Trace));
+    }
+
+    [TestMethod]
+    public void SnackbarMessage_FromLogLevel_NoneDefaultsToInfo()
+    {
+        Assert.AreEqual(SnackbarMessageLevel.Info, SnackbarMessage.FromLogLevel(Microsoft.Extensions.Logging.LogLevel.None));
+    }
+
+    [TestMethod]
+    public void SnackbarMessage_LevelLabel_AllLevels()
+    {
+        Assert.AreEqual("Debug", new SnackbarMessage { Level = SnackbarMessageLevel.Debug, Category = "T", Message = "m", Timestamp = DateTimeOffset.UtcNow }.LevelLabel);
+        Assert.AreEqual("Info", new SnackbarMessage { Level = SnackbarMessageLevel.Info, Category = "T", Message = "m", Timestamp = DateTimeOffset.UtcNow }.LevelLabel);
+        Assert.AreEqual("Warning", new SnackbarMessage { Level = SnackbarMessageLevel.Warning, Category = "T", Message = "m", Timestamp = DateTimeOffset.UtcNow }.LevelLabel);
+        Assert.AreEqual("Error", new SnackbarMessage { Level = SnackbarMessageLevel.Error, Category = "T", Message = "m", Timestamp = DateTimeOffset.UtcNow }.LevelLabel);
+    }
+
+    [TestMethod]
+    public void SnackbarMessage_ExceptionDetails_CanBeSet()
+    {
+        var message = new SnackbarMessage
+        {
+            Level = SnackbarMessageLevel.Error,
+            Category = "Test",
+            Message = "Something failed",
+            Timestamp = DateTimeOffset.UtcNow,
+            ExceptionDetails = "Stack trace line 1\nStack trace line 2"
+        };
+
+        Assert.IsNotNull(message.ExceptionDetails);
+        StringAssert.Contains(message.ExceptionDetails, "Stack trace");
+    }
 }

@@ -140,4 +140,25 @@ public sealed class PreviewPipelineControllerTests
 
         Assert.IsFalse(suppress, "Should not suppress reload after suppression window has passed");
     }
+
+    [TestMethod]
+    public void Dispose_CanBeCalledSafely()
+    {
+        var (_, _, controller) = Build();
+        controller.Dispose();
+        // Second dispose should also be safe
+        controller.Dispose();
+    }
+
+    [TestMethod]
+    public void ShouldSuppressExternalReload_WhenIsSavingDocument_AlwaysReturnsTrue()
+    {
+        var (clock, _, controller) = Build();
+
+        clock.Advance(TimeSpan.FromSeconds(100));
+
+        var suppress = controller.ShouldSuppressExternalReload(isSavingDocument: true, suppressionWindow: TimeSpan.FromSeconds(1));
+
+        Assert.IsTrue(suppress, "isSavingDocument=true should always suppress");
+    }
 }

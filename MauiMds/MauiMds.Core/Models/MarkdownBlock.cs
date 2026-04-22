@@ -41,6 +41,7 @@ public class MarkdownBlock
     public string ImageTitle { get; set; } = string.Empty;
     public string FootnoteId { get; set; } = string.Empty;
     public string AdmonitionType { get; set; } = string.Empty;
+    public string AdmonitionTitle { get; set; } = string.Empty;
     public List<string> TableHeaders { get; set; } = [];
     public List<List<string>> TableRows { get; set; } = [];
     public List<MarkdownAlignment> TableAlignments { get; set; } = [];

@@ -25,7 +25,7 @@ public class MdsParser
         _logger = logger;
     }
 
-    public List<MarkdownBlock> Parse(string content)
+    public virtual List<MarkdownBlock> Parse(string content)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var codeBlockCount = 0;
@@ -207,8 +207,10 @@ public class MdsParser
                 continue;
             }
 
-            var thisLineHardBreak = HasTrailingTwoSpaces(line);
-            AppendParagraphLine(currentParagraph, trimmedLine, pendingHardBreak);
+            var hasBackslashBreak = trimmedLine.EndsWith('\\');
+            var thisLineHardBreak = HasTrailingTwoSpaces(line) || hasBackslashBreak;
+            var lineContent = hasBackslashBreak ? trimmedLine[..^1].TrimEnd() : trimmedLine;
+            AppendParagraphLine(currentParagraph, lineContent, pendingHardBreak);
             pendingHardBreak = thisLineHardBreak;
             index++;
         }
@@ -546,17 +548,13 @@ public class MdsParser
                         .SkipWhile(l => string.IsNullOrWhiteSpace(l) || l.StartsWith("[!", StringComparison.Ordinal))
                         .ToList();
                     var admonitionContent = string.Join("\n", contentLines).Trim();
-                    var displayContent = string.IsNullOrEmpty(titleSuffix)
-                        ? admonitionContent
-                        : string.IsNullOrEmpty(admonitionContent)
-                            ? titleSuffix
-                            : titleSuffix + "\n" + admonitionContent;
 
                     return new MarkdownBlock
                     {
                         Type = BlockType.Admonition,
                         AdmonitionType = candidate,
-                        Content = displayContent
+                        AdmonitionTitle = titleSuffix,
+                        Content = admonitionContent
                     };
                 }
             }

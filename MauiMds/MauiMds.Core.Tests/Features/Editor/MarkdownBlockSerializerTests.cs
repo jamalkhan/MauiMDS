@@ -155,11 +155,75 @@ public sealed class MarkdownBlockSerializerTests
     }
 
     [TestMethod]
+    public void Serialize_Admonition_WithCustomTitle_EmitsTitleOnTypeLine()
+    {
+        var result = CreateSerializer().SerializeBlock(
+            new MarkdownBlock
+            {
+                Type = BlockType.Admonition,
+                AdmonitionType = "NOTE",
+                AdmonitionTitle = "My Custom Title",
+                Content = "Some body text."
+            }, "\n");
+
+        StringAssert.Contains(result, "> [!NOTE] My Custom Title");
+        StringAssert.Contains(result, "> Some body text.");
+    }
+
+    [TestMethod]
+    public void Serialize_Admonition_WithoutTitle_EmitsTypeOnly()
+    {
+        var result = CreateSerializer().SerializeBlock(
+            new MarkdownBlock
+            {
+                Type = BlockType.Admonition,
+                AdmonitionType = "WARNING",
+                AdmonitionTitle = string.Empty,
+                Content = "Be careful."
+            }, "\n");
+
+        StringAssert.Contains(result, "> [!WARNING]");
+        Assert.IsFalse(result.Contains("> [!WARNING] "), "Should not have trailing space after type when no title");
+    }
+
+    [TestMethod]
     public void Serialize_ImageWithTitle_EmitsFullImageSyntax()
     {
         var result = CreateSerializer().SerializeBlock(
             new MarkdownBlock { Type = BlockType.Image, ImageAltText = "Logo", ImageSource = "logo.png", ImageTitle = "Company Logo" });
 
         Assert.AreEqual("![Logo](logo.png \"Company Logo\")", result);
+    }
+
+    [TestMethod]
+    public void Serialize_TableAlignment_CenterEmitsColonOnBothSides()
+    {
+        var serializer = CreateSerializer();
+        MarkdownBlock[] blocks =
+        [
+            new MarkdownBlock
+            {
+                Type = BlockType.Table,
+                TableHeaders = ["Left", "Center", "Right"],
+                TableAlignments = [MarkdownAlignment.Left, MarkdownAlignment.Center, MarkdownAlignment.Right],
+                TableRows = [["a", "b", "c"]]
+            }
+        ];
+
+        var markdown = serializer.Serialize(blocks, "\n");
+
+        StringAssert.Contains(markdown, "| :--- | :---: | ---: |");
+    }
+
+    [TestMethod]
+    public void Serialize_BlockQuote_MultiLine_EmitsPrefixOnEachLine()
+    {
+        var result = CreateSerializer().SerializeBlock(
+            new MarkdownBlock { Type = BlockType.BlockQuote, QuoteLevel = 1, Content = "line one\nline two" },
+            "\n");
+
+        StringAssert.Contains(result, "> line one");
+        StringAssert.Contains(result, "> line two");
+        Assert.AreEqual(2, result.Split('\n').Length, "Expected exactly two prefixed lines");
     }
 }

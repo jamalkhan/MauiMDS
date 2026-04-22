@@ -10,12 +10,14 @@ public sealed class SessionRestoreCoordinatorTests
     private static SessionRestoreCoordinator CreateCoordinator(
         FakeWorkspaceBrowserService? workspaceService = null,
         FakeMarkdownDocumentService? documentService = null,
-        FakeSessionStateService? sessionStateService = null) =>
+        FakeSessionStateService? sessionStateService = null,
+        FakePlatformInfo? platformInfo = null) =>
         new(
             workspaceService ?? new FakeWorkspaceBrowserService(),
             documentService ?? new FakeMarkdownDocumentService(),
             sessionStateService ?? new FakeSessionStateService(),
-            new TestLogger<SessionRestoreCoordinator>());
+            new TestLogger<SessionRestoreCoordinator>(),
+            platformInfo ?? new FakePlatformInfo { IsMacCatalyst = false });
 
     [TestMethod]
     public void Save_PersistsSessionStateAndBookmarks()
@@ -137,5 +139,163 @@ public sealed class SessionRestoreCoordinatorTests
         Assert.AreEqual(EditorViewMode.Viewer, sessionStateService.SavedState!.LastViewMode);
         Assert.IsFalse(sessionStateService.SavedState.IsWorkspacePanelVisible);
         Assert.AreEqual(300, sessionStateService.SavedState.WorkspacePanelWidth);
+    }
+
+    // ── Mac Catalyst path tests ──────────────────────────────────────────────
+
+    [TestMethod]
+    public void ResolveWorkspaceRestorePath_MacCatalyst_WithValidBookmark_ReturnsRestoredPath()
+    {
+        var workspaceService = new FakeWorkspaceBrowserService
+        {
+            RestoreBookmarkResult = true,
+            RestoredPath = "/restored/workspace"
+        };
+        var coordinator = CreateCoordinator(
+            workspaceService: workspaceService,
+            platformInfo: new FakePlatformInfo { IsMacCatalyst = true });
+
+        var path = coordinator.ResolveWorkspaceRestorePath(
+            new SessionState { WorkspaceRootBookmark = "some-bookmark" },
+            out var repickMessage);
+
+        Assert.AreEqual("/restored/workspace", path);
+        Assert.IsNull(repickMessage);
+    }
+
+    [TestMethod]
+    public void ResolveWorkspaceRestorePath_MacCatalyst_WithStaleBookmark_ReturnsRestoredPathAndLogs()
+    {
+        var workspaceService = new FakeWorkspaceBrowserService
+        {
+            RestoreBookmarkResult = true,
+            RestoredPath = "/restored/workspace",
+            RestoredBookmarkIsStale = true
+        };
+        var coordinator = CreateCoordinator(
+            workspaceService: workspaceService,
+            platformInfo: new FakePlatformInfo { IsMacCatalyst = true });
+
+        var path = coordinator.ResolveWorkspaceRestorePath(
+            new SessionState { WorkspaceRootBookmark = "stale-bookmark" },
+            out var repickMessage);
+
+        Assert.AreEqual("/restored/workspace", path);
+        Assert.IsNull(repickMessage);
+    }
+
+    [TestMethod]
+    public void ResolveWorkspaceRestorePath_MacCatalyst_WithFailedBookmark_ReturnsNullWithRepickMessage()
+    {
+        var workspaceService = new FakeWorkspaceBrowserService
+        {
+            RestoreBookmarkResult = false,
+            RestoredPath = null
+        };
+        var coordinator = CreateCoordinator(
+            workspaceService: workspaceService,
+            platformInfo: new FakePlatformInfo { IsMacCatalyst = true });
+
+        var path = coordinator.ResolveWorkspaceRestorePath(
+            new SessionState { WorkspaceRootBookmark = "bad-bookmark" },
+            out var repickMessage);
+
+        Assert.IsNull(path);
+        Assert.IsNotNull(repickMessage);
+        StringAssert.Contains(repickMessage, "Open Folder");
+    }
+
+    [TestMethod]
+    public void ResolveWorkspaceRestorePath_MacCatalyst_NoBookmarkButHasPath_ReturnsNullWithRepickMessage()
+    {
+        var coordinator = CreateCoordinator(platformInfo: new FakePlatformInfo { IsMacCatalyst = true });
+
+        var path = coordinator.ResolveWorkspaceRestorePath(
+            new SessionState { WorkspaceRootPath = "/old/workspace", WorkspaceRootBookmark = null },
+            out var repickMessage);
+
+        Assert.IsNull(path);
+        Assert.IsNotNull(repickMessage);
+    }
+
+    [TestMethod]
+    public void ResolveWorkspaceRestorePath_MacCatalyst_NothingSaved_ReturnsNullNoRepickMessage()
+    {
+        var coordinator = CreateCoordinator(platformInfo: new FakePlatformInfo { IsMacCatalyst = true });
+
+        var path = coordinator.ResolveWorkspaceRestorePath(new SessionState(), out var repickMessage);
+
+        Assert.IsNull(path);
+        Assert.IsNull(repickMessage);
+    }
+
+    [TestMethod]
+    public void ResolveDocumentRestorePath_MacCatalyst_WithValidBookmark_ReturnsRestoredPath()
+    {
+        var documentService = new FakeMarkdownDocumentService
+        {
+            RestoreBookmarkResult = true,
+            RestoredPath = "/restored/file.mds"
+        };
+        var coordinator = CreateCoordinator(
+            documentService: documentService,
+            platformInfo: new FakePlatformInfo { IsMacCatalyst = true });
+
+        var path = coordinator.ResolveDocumentRestorePath(
+            new SessionState { DocumentFileBookmark = "doc-bookmark" },
+            hasWorkspaceAccess: false,
+            out var needsRepick);
+
+        Assert.AreEqual("/restored/file.mds", path);
+        Assert.IsFalse(needsRepick);
+    }
+
+    [TestMethod]
+    public void ResolveDocumentRestorePath_MacCatalyst_WithFailedBookmark_SetsNeedsRepick()
+    {
+        var documentService = new FakeMarkdownDocumentService
+        {
+            RestoreBookmarkResult = false,
+            RestoredPath = null
+        };
+        var coordinator = CreateCoordinator(
+            documentService: documentService,
+            platformInfo: new FakePlatformInfo { IsMacCatalyst = true });
+
+        var path = coordinator.ResolveDocumentRestorePath(
+            new SessionState { DocumentFileBookmark = "bad-doc-bookmark" },
+            hasWorkspaceAccess: false,
+            out var needsRepick);
+
+        Assert.IsNull(path);
+        Assert.IsTrue(needsRepick);
+    }
+
+    [TestMethod]
+    public void ResolveDocumentRestorePath_MacCatalyst_NoBookmark_HasWorkspaceAccess_ReturnsDocumentPath()
+    {
+        var coordinator = CreateCoordinator(platformInfo: new FakePlatformInfo { IsMacCatalyst = true });
+
+        var path = coordinator.ResolveDocumentRestorePath(
+            new SessionState { DocumentFilePath = "/workspace/doc.mds" },
+            hasWorkspaceAccess: true,
+            out var needsRepick);
+
+        Assert.AreEqual("/workspace/doc.mds", path);
+        Assert.IsFalse(needsRepick);
+    }
+
+    [TestMethod]
+    public void ResolveDocumentRestorePath_MacCatalyst_NoBookmark_NoWorkspaceAccess_ReturnsNull()
+    {
+        var coordinator = CreateCoordinator(platformInfo: new FakePlatformInfo { IsMacCatalyst = true });
+
+        var path = coordinator.ResolveDocumentRestorePath(
+            new SessionState { DocumentFilePath = "/workspace/doc.mds" },
+            hasWorkspaceAccess: false,
+            out var needsRepick);
+
+        Assert.IsNull(path);
+        Assert.IsFalse(needsRepick);
     }
 }

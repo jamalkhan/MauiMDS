@@ -11,9 +11,12 @@ public sealed class AdmonitionBlockRenderer : IMarkdownBlockRenderer
     {
         var (lightBg, darkBg, lightBorder, darkBorder, lightHeader, darkHeader) = GetThemeColors(block.AdmonitionType);
 
+        var headerText = string.IsNullOrEmpty(block.AdmonitionTitle)
+            ? FormatTypeLabel(block.AdmonitionType)
+            : block.AdmonitionTitle;
         var typeLabel = new Label
         {
-            Text = FormatTypeLabel(block.AdmonitionType),
+            Text = headerText,
             FontSize = 12,
             FontAttributes = FontAttributes.Bold,
             Margin = new Thickness(0, 0, 0, 6)

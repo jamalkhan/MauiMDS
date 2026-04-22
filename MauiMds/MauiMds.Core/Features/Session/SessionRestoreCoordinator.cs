@@ -10,17 +10,20 @@ public sealed class SessionRestoreCoordinator
     private readonly IMarkdownDocumentService _documentService;
     private readonly ISessionStateService _sessionStateService;
     private readonly ILogger<SessionRestoreCoordinator> _logger;
+    private readonly IPlatformInfo _platformInfo;
 
     public SessionRestoreCoordinator(
         IWorkspaceBrowserService workspaceBrowserService,
         IMarkdownDocumentService documentService,
         ISessionStateService sessionStateService,
-        ILogger<SessionRestoreCoordinator> logger)
+        ILogger<SessionRestoreCoordinator> logger,
+        IPlatformInfo platformInfo)
     {
         _workspaceBrowserService = workspaceBrowserService;
         _documentService = documentService;
         _sessionStateService = sessionStateService;
         _logger = logger;
+        _platformInfo = platformInfo;
     }
 
     public SessionState Load() => _sessionStateService.Load();
@@ -46,7 +49,7 @@ public sealed class SessionRestoreCoordinator
     {
         repickMessage = null;
 
-        if (OperatingSystem.IsMacCatalyst())
+        if (_platformInfo.IsMacCatalyst)
         {
             if (!string.IsNullOrWhiteSpace(sessionState.WorkspaceRootBookmark))
             {
@@ -80,7 +83,7 @@ public sealed class SessionRestoreCoordinator
     {
         needsRepick = false;
 
-        if (OperatingSystem.IsMacCatalyst())
+        if (_platformInfo.IsMacCatalyst)
         {
             if (!string.IsNullOrWhiteSpace(sessionState.DocumentFileBookmark))
             {

@@ -331,6 +331,47 @@ Console.WriteLine("hi");
     }
 
     [TestMethod]
+    public void Parse_BackslashLineBreak_InsertsHardBreakInParagraph()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("line one\\\nline two");
+
+        Assert.AreEqual(1, blocks.Count);
+        Assert.AreEqual(BlockType.Paragraph, blocks[0].Type);
+        Assert.IsTrue(blocks[0].Content.Contains('\n'), "Expected hard line break from trailing backslash");
+        Assert.IsFalse(blocks[0].Content.Contains('\\'), "Trailing backslash should be stripped from content");
+    }
+
+    [TestMethod]
+    public void Parse_Admonition_WithCustomTitle_StoresTitleSeparately()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("> [!NOTE] My Custom Title\n> Some content here.");
+
+        Assert.AreEqual(1, blocks.Count);
+        Assert.AreEqual(BlockType.Admonition, blocks[0].Type);
+        Assert.AreEqual("NOTE", blocks[0].AdmonitionType);
+        Assert.AreEqual("My Custom Title", blocks[0].AdmonitionTitle);
+        Assert.IsTrue(blocks[0].Content.Contains("Some content here."));
+        Assert.IsFalse(blocks[0].Content.Contains("My Custom Title"), "Title should not bleed into Content");
+    }
+
+    [TestMethod]
+    public void Parse_Admonition_WithoutTitle_HasEmptyAdmonitionTitle()
+    {
+        var parser = CreateParser();
+
+        var blocks = parser.Parse("> [!WARNING]\n> Watch out.");
+
+        Assert.AreEqual(1, blocks.Count);
+        Assert.AreEqual(BlockType.Admonition, blocks[0].Type);
+        Assert.AreEqual(string.Empty, blocks[0].AdmonitionTitle);
+        Assert.IsTrue(blocks[0].Content.Contains("Watch out."));
+    }
+
+    [TestMethod]
     public void Parse_MultipleFootnotes_AllEmitted()
     {
         var parser = CreateParser();

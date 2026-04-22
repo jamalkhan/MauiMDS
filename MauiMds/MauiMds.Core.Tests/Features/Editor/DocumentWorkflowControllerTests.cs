@@ -5,6 +5,12 @@ using MauiMds.Core.Tests.TestHelpers;
 
 namespace MauiMds.Core.Tests.Features.Editor;
 
+file sealed class ThrowingMdsParser : MdsParser
+{
+    public ThrowingMdsParser() : base(new TestLogger<MdsParser>()) { }
+    public override List<MarkdownBlock> Parse(string content) => throw new InvalidOperationException("Parse failure");
+}
+
 [TestClass]
 public sealed class DocumentWorkflowControllerTests
 {
@@ -140,6 +146,43 @@ public sealed class DocumentWorkflowControllerTests
         Assert.IsFalse(document.IsUntitled);
         Assert.AreEqual("/docs/notes.mds", document.FilePath);
         Assert.AreEqual("notes.mds", document.FileName);
+    }
+
+    [TestMethod]
+    public void PreparePreview_WhenParserThrows_ReturnsFallbackParagraph()
+    {
+        var controller = new DocumentWorkflowController(
+            new ThrowingMdsParser(),
+            new TestLogger<DocumentWorkflowController>());
+
+        var result = controller.PreparePreview(new MarkdownDocument
+        {
+            FilePath = "/tmp/broken.mds",
+            FileName = "broken.mds",
+            Content = "some content"
+        }, EditorViewMode.Viewer);
+
+        Assert.AreEqual(1, result.Blocks.Count);
+        Assert.AreEqual(BlockType.Paragraph, result.Blocks[0].Type);
+        Assert.AreEqual("some content", result.Blocks[0].Content);
+        Assert.IsNotNull(result.InlineErrorMessage);
+    }
+
+    [TestMethod]
+    public void PreparePreview_WhenParserThrows_RichTextEditorDowngradesToTextEditor()
+    {
+        var controller = new DocumentWorkflowController(
+            new ThrowingMdsParser(),
+            new TestLogger<DocumentWorkflowController>());
+
+        var result = controller.PreparePreview(new MarkdownDocument
+        {
+            FilePath = "/tmp/broken.mds",
+            FileName = "broken.mds",
+            Content = "some content"
+        }, EditorViewMode.RichTextEditor);
+
+        Assert.AreEqual(EditorViewMode.TextEditor, result.ViewMode);
     }
 
     [TestMethod]

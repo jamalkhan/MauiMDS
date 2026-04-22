@@ -177,3 +177,8 @@ internal sealed class FakeSessionStateService : ISessionStateService
         SavedState = state;
     }
 }
+
+internal sealed class FakePlatformInfo : IPlatformInfo
+{
+    public bool IsMacCatalyst { get; set; }
+}
