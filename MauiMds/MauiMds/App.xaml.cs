@@ -31,7 +31,17 @@ public partial class App : Application
         try
         {
             _rootPage = new NavigationPage(_mainPage);
-            _mainPage.Loaded += OnMainPageFirstLoaded;
+
+            // Build menu bar items into the NavigationPage's observable collection now.
+            // MAUI's Mac Catalyst handler picks up the collection when it connects the
+            // platform view, so we don't need to wait for any lifecycle event.
+            AttachMenuBar(_rootPage);
+
+            if (_mainPage.BindingContext is MainViewModel vm)
+            {
+                vm.KeyboardShortcutsChanged += OnKeyboardShortcutsChanged;
+            }
+
             _logger.LogDebug("Root page created successfully.");
             return new Window(_rootPage);
         }
@@ -39,22 +49,6 @@ public partial class App : Application
         {
             _logger.LogCritical(ex, "Unhandled exception while creating the main window.");
             throw;
-        }
-    }
-
-    private void OnMainPageFirstLoaded(object? sender, EventArgs e)
-    {
-        _mainPage.Loaded -= OnMainPageFirstLoaded;
-        if (_rootPage is null)
-        {
-            return;
-        }
-
-        AttachMenuBar(_rootPage);
-
-        if (_mainPage.BindingContext is MainViewModel vm)
-        {
-            vm.KeyboardShortcutsChanged += OnKeyboardShortcutsChanged;
         }
     }
 
@@ -72,6 +66,7 @@ public partial class App : Application
 
         _formatMenu.Clear();
         BuildFormatMenuItems(_formatMenu, vm);
+        _logger.LogInformation("Format menu rebuilt after keyboard shortcuts change.");
     }
 
     private void RegisterGlobalExceptionHandlers()
@@ -96,45 +91,52 @@ public partial class App : Application
 
     private void AttachMenuBar(NavigationPage rootPage)
     {
-        if (_mainPage.BindingContext is not MainViewModel viewModel)
+        try
         {
-            _logger.LogWarning("Unable to attach menu bar because MainViewModel is missing.");
-            return;
+            if (_mainPage.BindingContext is not MainViewModel viewModel)
+            {
+                _logger.LogWarning("Unable to attach menu bar because MainViewModel is missing.");
+                return;
+            }
+
+            var fileMenu = new MenuBarItem { Text = "File" };
+            fileMenu.Add(CreateMenuItem("New", viewModel.NewDocumentCommand, key: "N", primaryModifier: true));
+            fileMenu.Add(CreateMenuItem("Open", viewModel.OpenFileCommand, key: "O", primaryModifier: true));
+            fileMenu.Add(CreateMenuItem("Save", viewModel.SaveCommand, key: "S", primaryModifier: true));
+            fileMenu.Add(CreateMenuItem("Save As", viewModel.SaveAsCommand, key: "S", primaryModifier: true, includeShift: true));
+            fileMenu.Add(CreateMenuItem("Revert", viewModel.RevertCommand));
+            fileMenu.Add(CreateMenuItem("Close", viewModel.CloseDocumentCommand, key: "W", primaryModifier: true));
+
+            var editMenu = new MenuBarItem { Text = "Edit" };
+            editMenu.Add(CreateMenuItem("Undo", viewModel.UndoCommand, key: "Z", primaryModifier: true));
+            editMenu.Add(CreateMenuItem("Redo", viewModel.RedoCommand, key: "Z", primaryModifier: true, includeShift: true));
+            editMenu.Add(CreateMenuItem("Cut", viewModel.CutCommand, key: "X", primaryModifier: true));
+            editMenu.Add(CreateMenuItem("Copy", viewModel.CopyCommand, key: "C", primaryModifier: true));
+            editMenu.Add(CreateMenuItem("Paste", viewModel.PasteCommand, key: "V", primaryModifier: true));
+            editMenu.Add(CreateMenuItem("Find", viewModel.FindCommand, key: "F", primaryModifier: true));
+
+            _formatMenu = new MenuBarItem { Text = "Format" };
+            BuildFormatMenuItems(_formatMenu, viewModel);
+
+            var viewMenu = new MenuBarItem { Text = "View" };
+            viewMenu.Add(CreateMenuItem("Reader", viewModel.SetViewModeCommand, EditorViewMode.Viewer));
+            viewMenu.Add(CreateMenuItem("Text Editor", viewModel.SetViewModeCommand, EditorViewMode.TextEditor));
+            viewMenu.Add(CreateMenuItem("Visual Editor", viewModel.SetViewModeCommand, EditorViewMode.RichTextEditor, isEnabled: viewModel.IsVisualEditorSupported));
+
+            var toolsMenu = new MenuBarItem { Text = "Tools" };
+            toolsMenu.Add(CreateMenuItem("Preferences", viewModel.ShowPreferencesCommand));
+
+            rootPage.MenuBarItems.Add(fileMenu);
+            rootPage.MenuBarItems.Add(editMenu);
+            rootPage.MenuBarItems.Add(_formatMenu);
+            rootPage.MenuBarItems.Add(viewMenu);
+            rootPage.MenuBarItems.Add(toolsMenu);
+            _logger.LogInformation("Menu bar attached: File, Edit, Format, View, Tools.");
         }
-
-        var fileMenu = new MenuBarItem { Text = "File" };
-        fileMenu.Add(CreateMenuItem("New", viewModel.NewDocumentCommand, key: "N", primaryModifier: true));
-        fileMenu.Add(CreateMenuItem("Open", viewModel.OpenFileCommand, key: "O", primaryModifier: true));
-        fileMenu.Add(CreateMenuItem("Save", viewModel.SaveCommand, key: "S", primaryModifier: true));
-        fileMenu.Add(CreateMenuItem("Save As", viewModel.SaveAsCommand, key: "S", primaryModifier: true, includeShift: true));
-        fileMenu.Add(CreateMenuItem("Revert", viewModel.RevertCommand));
-        fileMenu.Add(CreateMenuItem("Close", viewModel.CloseDocumentCommand, key: "W", primaryModifier: true));
-
-        var editMenu = new MenuBarItem { Text = "Edit" };
-        editMenu.Add(CreateMenuItem("Undo", viewModel.UndoCommand, key: "Z", primaryModifier: true));
-        editMenu.Add(CreateMenuItem("Redo", viewModel.RedoCommand, key: "Z", primaryModifier: true, includeShift: true));
-        editMenu.Add(CreateMenuItem("Cut", viewModel.CutCommand, key: "X", primaryModifier: true));
-        editMenu.Add(CreateMenuItem("Copy", viewModel.CopyCommand, key: "C", primaryModifier: true));
-        editMenu.Add(CreateMenuItem("Paste", viewModel.PasteCommand, key: "V", primaryModifier: true));
-        editMenu.Add(CreateMenuItem("Find", viewModel.FindCommand, key: "F", primaryModifier: true));
-
-        _formatMenu = new MenuBarItem { Text = "Format" };
-        BuildFormatMenuItems(_formatMenu, viewModel);
-
-        var viewMenu = new MenuBarItem { Text = "View" };
-        viewMenu.Add(CreateMenuItem("Reader", viewModel.SetViewModeCommand, EditorViewMode.Viewer));
-        viewMenu.Add(CreateMenuItem("Text Editor", viewModel.SetViewModeCommand, EditorViewMode.TextEditor));
-        viewMenu.Add(CreateMenuItem("Visual Editor", viewModel.SetViewModeCommand, EditorViewMode.RichTextEditor, isEnabled: viewModel.IsVisualEditorSupported));
-
-        var toolsMenu = new MenuBarItem { Text = "Tools" };
-        toolsMenu.Add(CreateMenuItem("Preferences", viewModel.ShowPreferencesCommand));
-
-        rootPage.MenuBarItems.Add(fileMenu);
-        rootPage.MenuBarItems.Add(editMenu);
-        rootPage.MenuBarItems.Add(_formatMenu);
-        rootPage.MenuBarItems.Add(viewMenu);
-        rootPage.MenuBarItems.Add(toolsMenu);
-        _logger.LogDebug("Attached File, Edit, Format, View, and Tools menus to the root navigation page.");
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to attach menu bar.");
+        }
     }
 
     private void BuildFormatMenuItems(MenuBarItem formatMenu, MainViewModel viewModel)

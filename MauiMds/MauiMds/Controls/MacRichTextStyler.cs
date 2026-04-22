@@ -11,6 +11,12 @@ public sealed class MacVisualEditorStyler
 {
 #if MACCATALYST
     private UITextView? _nativeTextView;
+
+    private static readonly System.Text.RegularExpressions.Regex BoldRunPattern =
+        new(@"\*\*(.+?)\*\*", System.Text.RegularExpressions.RegexOptions.None);
+
+    private static readonly System.Text.RegularExpressions.Regex ItalicRunPattern =
+        new(@"(?<![*_])_([^_\n]+?)_(?![*_])", System.Text.RegularExpressions.RegexOptions.None);
 #endif
 
     public void Attach(Editor editor)
@@ -25,7 +31,12 @@ public sealed class MacVisualEditorStyler
         _nativeTextView.BackgroundColor = UIColor.Clear;
         _nativeTextView.TextContainerInset = new UIEdgeInsets(4, 0, 12, 0);
         _nativeTextView.TextContainer.LineFragmentPadding = 0;
-        _nativeTextView.AllowsEditingTextAttributes = true;
+        // Must be false: true lets macOS intercept Cmd+B/I directly on the UITextView,
+        // applying bold/italic as attributed-string attributes without changing the plain-text
+        // content — so the markdown source is never updated and the change is lost on the next
+        // RefreshStyling call.  With false, Cmd+B/I fall through to our menu-bar accelerators
+        // which properly insert ** / _ into the markdown source.
+        _nativeTextView.AllowsEditingTextAttributes = false;
 #endif
     }
 
@@ -144,31 +155,83 @@ public sealed class MacVisualEditorStyler
         var taskMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"^([-*]\s\[[ xX]\]\s)");
         if (taskMatch.Success)
         {
+            var contentStart = offset + taskMatch.Length;
+            var contentLen = Math.Max(0, trimmed.Length - taskMatch.Length);
             ApplyHiddenMarker(attributed, new NSRange(offset, taskMatch.Length), 15);
             ApplyParagraphIndent(attributed, new NSRange(location, rawLine.Length), firstLineIndent: 0, headIndent: 34);
-            ApplyTextStyle(attributed, new NSRange(offset + taskMatch.Length, Math.Max(0, trimmed.Length - taskMatch.Length)), 17, false);
+            ApplyTextStyle(attributed, new NSRange(contentStart, contentLen), 17, false);
+            ApplyInlineStyleRuns(attributed, trimmed.Substring(taskMatch.Length), contentStart, 17);
             return;
         }
 
         var bulletMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"^([-*]\s)");
         if (bulletMatch.Success)
         {
+            var contentStart = offset + bulletMatch.Length;
+            var contentLen = Math.Max(0, trimmed.Length - bulletMatch.Length);
             ApplyMutedMarker(attributed, new NSRange(offset, bulletMatch.Length), 16);
             ApplyParagraphIndent(attributed, new NSRange(location, rawLine.Length), firstLineIndent: 0, headIndent: 26);
-            ApplyTextStyle(attributed, new NSRange(offset + bulletMatch.Length, Math.Max(0, trimmed.Length - bulletMatch.Length)), 17, false);
+            ApplyTextStyle(attributed, new NSRange(contentStart, contentLen), 17, false);
+            ApplyInlineStyleRuns(attributed, trimmed.Substring(bulletMatch.Length), contentStart, 17);
             return;
         }
 
         if (trimmed.StartsWith("> ", StringComparison.Ordinal))
         {
+            var contentStart = offset + 2;
+            var contentLen = Math.Max(0, trimmed.Length - 2);
             ApplyHiddenMarker(attributed, new NSRange(offset, 2), 16);
             ApplyParagraphIndent(attributed, new NSRange(location, rawLine.Length), firstLineIndent: 18, headIndent: 18);
-            ApplyTextStyle(attributed, new NSRange(offset + 2, Math.Max(0, trimmed.Length - 2)), 17, false);
+            ApplyTextStyle(attributed, new NSRange(contentStart, contentLen), 17, false);
+            ApplyInlineStyleRuns(attributed, trimmed.Substring(2), contentStart, 17);
             return;
         }
 
         ApplyParagraphIndent(attributed, new NSRange(location, rawLine.Length), firstLineIndent: 0, headIndent: 0);
         ApplyTextStyle(attributed, new NSRange(location, rawLine.Length), 18, false);
+        ApplyInlineStyleRuns(attributed, rawLine, location, 18);
+    }
+
+    private static void ApplyInlineStyleRuns(NSMutableAttributedString attributed, string content, int startOffset, nfloat baseFontSize)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return;
+        }
+
+        foreach (System.Text.RegularExpressions.Match match in BoldRunPattern.Matches(content))
+        {
+            var innerLength = match.Groups[1].Length;
+            if (innerLength == 0)
+            {
+                continue;
+            }
+
+            ApplyHiddenMarker(attributed, new NSRange(startOffset + match.Index, 2), 1);
+            attributed.AddAttributes(new UIStringAttributes
+            {
+                Font = UIFont.BoldSystemFontOfSize(baseFontSize),
+                ForegroundColor = UIColor.FromRGB(22, 22, 22)
+            }, new NSRange(startOffset + match.Index + 2, innerLength));
+            ApplyHiddenMarker(attributed, new NSRange(startOffset + match.Index + 2 + innerLength, 2), 1);
+        }
+
+        foreach (System.Text.RegularExpressions.Match match in ItalicRunPattern.Matches(content))
+        {
+            var innerLength = match.Groups[1].Length;
+            if (innerLength == 0)
+            {
+                continue;
+            }
+
+            ApplyHiddenMarker(attributed, new NSRange(startOffset + match.Index, 1), 1);
+            attributed.AddAttributes(new UIStringAttributes
+            {
+                Font = UIFont.ItalicSystemFontOfSize(baseFontSize),
+                ForegroundColor = UIColor.FromRGB(22, 22, 22)
+            }, new NSRange(startOffset + match.Index + 1, innerLength));
+            ApplyHiddenMarker(attributed, new NSRange(startOffset + match.Index + 1 + innerLength, 1), 1);
+        }
     }
 
     private static void ApplyHeaderStyle(NSMutableAttributedString attributed, int start, string line, int level)
