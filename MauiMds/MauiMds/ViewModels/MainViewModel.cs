@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using MauiMds.AudioCapture;
 using MauiMds.Features.Editor;
 using MauiMds.Features.Export;
 using MauiMds.Features.Session;
@@ -41,6 +42,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly SessionRestoreCoordinator _sessionRestoreCoordinator;
     private readonly EditorModeSupportController _editorModeSupportController;
     private readonly IPdfExportService _pdfExportService;
+    private readonly IAudioCaptureService _audioCaptureService;
 
     private EditorDocumentState _document = new();
     private EditorViewMode _selectedViewMode = EditorViewMode.Viewer;
@@ -84,6 +86,8 @@ public class MainViewModel : INotifyPropertyChanged
     private string _deferredPreviewContent = string.Empty;
     private string _deferredPreviewFilePath = string.Empty;
     private EditorViewMode? _deferredPreviewViewMode;
+    private bool _isRecording;
+    private bool _isRecordingTransitioning;
 
     public MainViewModel(
         IMarkdownDocumentService documentService,
@@ -100,6 +104,7 @@ public class MainViewModel : INotifyPropertyChanged
         AutosaveCoordinator autosaveCoordinator,
         SessionRestoreCoordinator sessionRestoreCoordinator,
         IPdfExportService pdfExportService,
+        IAudioCaptureService audioCaptureService,
         ILogger<MainViewModel> logger)
     {
         _documentService = documentService;
@@ -115,7 +120,9 @@ public class MainViewModel : INotifyPropertyChanged
         _autosaveCoordinator = autosaveCoordinator;
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
         _pdfExportService = pdfExportService;
+        _audioCaptureService = audioCaptureService;
         _logger = logger;
+        _audioCaptureService.StateChanged += OnAudioCaptureStateChanged;
         _preferences = _preferencesService.Load();
         _sessionState = _sessionRestoreCoordinator.Load();
         Workspace = workspaceExplorerState;
@@ -169,6 +176,7 @@ public class MainViewModel : INotifyPropertyChanged
         ShowGeneralTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = false; });
         ShowShortcutsTabCommand = new Command(() => { IsShortcutsTabActive = true; IsTranscriptionTabActive = false; });
         ShowTranscriptionTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = true; });
+        ToggleRecordingCommand = new Command(async () => await ToggleRecordingAsync(), () => !_isRecordingTransitioning);
         LoadShortcutKeyFields();
     }
 
@@ -237,6 +245,21 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand ShowGeneralTabCommand { get; }
     public ICommand ShowShortcutsTabCommand { get; }
     public ICommand ShowTranscriptionTabCommand { get; }
+    public ICommand ToggleRecordingCommand { get; }
+
+    public bool IsRecording
+    {
+        get => _isRecording;
+        private set
+        {
+            if (_isRecording == value) return;
+            _isRecording = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(RecordButtonLabel));
+        }
+    }
+
+    public string RecordButtonLabel => IsRecording ? "Stop Recording..." : "Record";
 
     public string FilePath
     {
@@ -1594,6 +1617,100 @@ public class MainViewModel : INotifyPropertyChanged
             _isSavingDocument = false;
             OnPropertyChanged(nameof(IsBusy));
         }
+    }
+
+    public async Task StopRecordingAsync()
+    {
+        if (!_isRecording) return;
+        var result = await _audioCaptureService.StopAsync();
+        if (!result.Success)
+        {
+            _logger.LogWarning("StopRecordingAsync failed: {Error}", result.ErrorMessage);
+        }
+    }
+
+    private async Task ToggleRecordingAsync()
+    {
+        if (_isRecordingTransitioning) return;
+
+        if (_isRecording)
+        {
+            _isRecordingTransitioning = true;
+            (ToggleRecordingCommand as Command)?.ChangeCanExecute();
+            try
+            {
+                var result = await _audioCaptureService.StopAsync();
+                if (!result.Success)
+                {
+                    _logger.LogWarning("Recording stop failed: {Error}", result.ErrorMessage);
+                    await ReportErrorAsync("Recording stop failed.", null, result.ErrorMessage ?? "The recording could not be stopped.");
+                }
+                else
+                {
+                    _logger.LogInformation("Recording saved: {Path}, Duration: {Duration:g}", result.FilePath, result.Duration);
+                }
+            }
+            catch (Exception ex)
+            {
+                await ReportErrorAsync("Recording stop failed.", ex, "The recording could not be stopped.");
+            }
+            finally
+            {
+                _isRecordingTransitioning = false;
+                (ToggleRecordingCommand as Command)?.ChangeCanExecute();
+            }
+        }
+        else
+        {
+            _isRecordingTransitioning = true;
+            (ToggleRecordingCommand as Command)?.ChangeCanExecute();
+            try
+            {
+                var permission = await _audioCaptureService.CheckMicrophonePermissionAsync();
+                if (permission == AudioPermissionStatus.Denied)
+                {
+                    await ReportErrorAsync("Microphone permission denied.", null, "Microphone access is required for recording. Please grant permission in System Settings.");
+                    return;
+                }
+
+                if (permission == AudioPermissionStatus.NotDetermined)
+                {
+                    var granted = await _audioCaptureService.RequestMicrophonePermissionAsync();
+                    if (granted == AudioPermissionStatus.Denied)
+                    {
+                        await ReportErrorAsync("Microphone permission denied.", null, "Microphone access is required for recording.");
+                        return;
+                    }
+                }
+
+                var baseFolder = !string.IsNullOrWhiteSpace(WorkspaceRootPath)
+                    ? WorkspaceRootPath
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MauiMds");
+
+                var outputPath = RecordingPathBuilder.Build(baseFolder, _clock.UtcNow);
+                var options = new AudioCaptureOptions { OutputPath = outputPath };
+
+                await _audioCaptureService.StartAsync(options);
+                _logger.LogInformation("Recording started: {Path}", outputPath);
+            }
+            catch (Exception ex)
+            {
+                await ReportErrorAsync("Recording could not start.", ex, "The recording could not be started. Check permissions and try again.");
+            }
+            finally
+            {
+                _isRecordingTransitioning = false;
+                (ToggleRecordingCommand as Command)?.ChangeCanExecute();
+            }
+        }
+    }
+
+    private void OnAudioCaptureStateChanged(object? sender, AudioCaptureState state)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            IsRecording = state == AudioCaptureState.Recording;
+        });
     }
 
     private void RefreshCommandStates()
