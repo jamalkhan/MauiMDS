@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using MauiMds.AudioCapture;
+using MauiMds.Transcription;
 using MauiMds.Features.Editor;
 using MauiMds.Features.Export;
 using MauiMds.Features.Session;
@@ -43,6 +44,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly EditorModeSupportController _editorModeSupportController;
     private readonly IPdfExportService _pdfExportService;
     private readonly IAudioCaptureService _audioCaptureService;
+    private readonly ITranscriptionPipelineFactory _transcriptionPipelineFactory;
 
     private EditorDocumentState _document = new();
     private EditorViewMode _selectedViewMode = EditorViewMode.Viewer;
@@ -69,6 +71,7 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isTranscriptionTabActive;
     private TranscriptionEngineType _preferencesTranscriptionEngine = TranscriptionEngineType.AppleSpeech;
     private DiarizationEngineType _preferencesDiarizationEngine = DiarizationEngineType.None;
+    private string _preferencesWhisperBinaryPath = string.Empty;
     private string _preferencesWhisperModelPath = string.Empty;
     private string _preferencesPyannotePythonPath = string.Empty;
     private string _shortcutKeyHeader1 = "1";
@@ -105,6 +108,7 @@ public class MainViewModel : INotifyPropertyChanged
         SessionRestoreCoordinator sessionRestoreCoordinator,
         IPdfExportService pdfExportService,
         IAudioCaptureService audioCaptureService,
+        ITranscriptionPipelineFactory transcriptionPipelineFactory,
         ILogger<MainViewModel> logger)
     {
         _documentService = documentService;
@@ -121,6 +125,7 @@ public class MainViewModel : INotifyPropertyChanged
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
         _pdfExportService = pdfExportService;
         _audioCaptureService = audioCaptureService;
+        _transcriptionPipelineFactory = transcriptionPipelineFactory;
         _logger = logger;
         _audioCaptureService.StateChanged += OnAudioCaptureStateChanged;
         _preferences = _preferencesService.Load();
@@ -608,6 +613,12 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public string PreferencesWhisperBinaryPath
+    {
+        get => _preferencesWhisperBinaryPath;
+        set { if (_preferencesWhisperBinaryPath != value) { _preferencesWhisperBinaryPath = value; OnPropertyChanged(); } }
+    }
+
     public string PreferencesWhisperModelPath
     {
         get => _preferencesWhisperModelPath;
@@ -933,10 +944,12 @@ public class MainViewModel : INotifyPropertyChanged
     {
         _preferencesTranscriptionEngine = _preferences.TranscriptionEngine;
         _preferencesDiarizationEngine = _preferences.DiarizationEngine;
+        _preferencesWhisperBinaryPath = _preferences.WhisperBinaryPath;
         _preferencesWhisperModelPath = _preferences.WhisperModelPath;
         _preferencesPyannotePythonPath = _preferences.PyannotePythonPath;
         OnPropertyChanged(nameof(PreferencesTranscriptionEngine));
         OnPropertyChanged(nameof(PreferencesDiarizationEngine));
+        OnPropertyChanged(nameof(PreferencesWhisperBinaryPath));
         OnPropertyChanged(nameof(PreferencesWhisperModelPath));
         OnPropertyChanged(nameof(PreferencesPyannotePythonPath));
         OnPropertyChanged(nameof(IsWhisperCppSelected));
@@ -986,6 +999,7 @@ public class MainViewModel : INotifyPropertyChanged
             KeyboardShortcuts = BuildShortcutsFromFields(),
             TranscriptionEngine = _preferencesTranscriptionEngine,
             DiarizationEngine = _preferencesDiarizationEngine,
+            WhisperBinaryPath = _preferencesWhisperBinaryPath,
             WhisperModelPath = _preferencesWhisperModelPath,
             PyannotePythonPath = _preferencesPyannotePythonPath
         };
@@ -1707,15 +1721,71 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private static async Task TranscribeAudioAsync(WorkspaceTreeItem? item)
+    private async Task TranscribeAudioAsync(WorkspaceTreeItem? item)
     {
         if (item is null) return;
-        await MainThread.InvokeOnMainThreadAsync(async () =>
+
+        var audioPath = item.FullPath;
+        var transcriptPath = Path.Combine(
+            Path.GetDirectoryName(audioPath)!,
+            Path.GetFileNameWithoutExtension(audioPath) + "_transcript.md");
+
+        InlineErrorMessage = "Transcribing…";
+
+        try
         {
-            var page = Microsoft.Maui.Controls.Application.Current?.MainPage;
-            if (page is null) return;
-            await page.DisplayAlert("Transcribe", "Clicked Transcribe", "OK");
-        });
+            var pipeline = _transcriptionPipelineFactory.Create(
+                _preferences.TranscriptionEngine,
+                _preferences.DiarizationEngine,
+                _preferences.WhisperBinaryPath,
+                _preferences.WhisperModelPath,
+                _preferences.PyannotePythonPath);
+
+            var progress = new Progress<double>(v => MainThread.BeginInvokeOnMainThread(() =>
+                InlineErrorMessage = $"Transcribing… {v:P0}"));
+
+            var doc = await pipeline.RunAsync(audioPath, progress);
+
+            var markdown = BuildTranscriptMarkdown(doc, audioPath);
+            await File.WriteAllTextAsync(transcriptPath, markdown);
+
+            InlineErrorMessage = string.Empty;
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                var page = Microsoft.Maui.Controls.Application.Current?.MainPage;
+                if (page is not null)
+                    await page.DisplayAlert(
+                        "Transcription Complete",
+                        $"Transcript saved to:\n{Path.GetFileName(transcriptPath)}",
+                        "OK");
+            });
+        }
+        catch (Exception ex)
+        {
+            await ReportErrorAsync("Transcription failed.", ex, ex.Message);
+        }
+    }
+
+    private static string BuildTranscriptMarkdown(TranscriptDocument doc, string audioPath)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# Transcript: {Path.GetFileName(audioPath)}");
+        sb.AppendLine($"Generated: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine($"Engine: {doc.TranscriptionEngineName} | {doc.DiarizationEngineName}");
+        sb.AppendLine($"Duration: {doc.Duration:hh\\:mm\\:ss}");
+        sb.AppendLine();
+        sb.AppendLine("---");
+        sb.AppendLine();
+
+        foreach (var seg in doc.Segments)
+        {
+            sb.AppendLine($"**[{seg.Start:hh\\:mm\\:ss} – {seg.End:hh\\:mm\\:ss}] {seg.SpeakerLabel}**");
+            sb.AppendLine(seg.Text);
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
     }
 
     private void OnAudioCaptureStateChanged(object? sender, AudioCaptureState state)

@@ -14,6 +14,7 @@ public sealed class EditorPreferences
 
     public TranscriptionEngineType TranscriptionEngine { get; init; } = TranscriptionEngineType.AppleSpeech;
     public DiarizationEngineType DiarizationEngine { get; init; } = DiarizationEngineType.None;
+    public string WhisperBinaryPath { get; init; } = string.Empty;
     public string WhisperModelPath { get; init; } = string.Empty;
     public string PyannotePythonPath { get; init; } = string.Empty;
 

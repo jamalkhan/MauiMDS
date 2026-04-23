@@ -299,7 +299,7 @@
                                                          ConverterParameter=AppleSpeech}" />
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="Whisper.cpp  (not yet configured)"
+                                        <RadioButton Content="Whisper.cpp"
                                                      GroupName="TranscriptionEngine"
                                                      IsChecked="{Binding PreferencesTranscriptionEngine,
                                                          Converter={StaticResource EnumToBoolConverter},
@@ -307,9 +307,16 @@
                                     </HorizontalStackLayout>
                                 </VerticalStackLayout>
 
-                                <!-- Whisper model path — only shown when Whisper.cpp selected -->
-                                <Grid ColumnDefinitions="*"
-                                      IsVisible="{Binding IsWhisperCppSelected}">
+                                <!-- Whisper paths — only shown when Whisper.cpp selected -->
+                                <VerticalStackLayout Spacing="8"
+                                                     IsVisible="{Binding IsWhisperCppSelected}">
+                                    <VerticalStackLayout Spacing="4">
+                                        <Label Text="whisper-cli Binary"
+                                               FontSize="12"
+                                               TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                        <Entry Placeholder="/opt/homebrew/bin/whisper-cli"
+                                               Text="{Binding PreferencesWhisperBinaryPath}" />
+                                    </VerticalStackLayout>
                                     <VerticalStackLayout Spacing="4">
                                         <Label Text="Whisper Model File (.bin)"
                                                FontSize="12"
@@ -317,7 +324,7 @@
                                         <Entry Placeholder="/path/to/ggml-model.bin"
                                                Text="{Binding PreferencesWhisperModelPath}" />
                                     </VerticalStackLayout>
-                                </Grid>
+                                </VerticalStackLayout>
 
                                 <!-- Diarization Engine -->
                                 <Label Text="Speaker Diarization Engine"
@@ -335,7 +342,7 @@
                                                          ConverterParameter=None}" />
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="pyannote.audio 3.1  (not yet configured)"
+                                        <RadioButton Content="pyannote.audio 3.1"
                                                      GroupName="DiarizationEngine"
                                                      IsChecked="{Binding PreferencesDiarizationEngine,
                                                          Converter={StaticResource EnumToBoolConverter},

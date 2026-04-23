@@ -8,9 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace MauiMds.Transcription;
 
 /// <summary>
-/// Abstract factory: assembles a <see cref="ITranscriptionPipeline"/> from
-/// the engine types selected in preferences. Add new engine registrations here
-/// as they are implemented.
+/// Assembles a <see cref="ITranscriptionPipeline"/> from the engine types selected in
+/// preferences, injecting the caller-supplied runtime paths into each engine.
 /// </summary>
 public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
 {
@@ -21,22 +20,32 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
         _loggerFactory = loggerFactory;
     }
 
+    // Used by the Preferences UI to enumerate engine names and availability.
+    // Engines are constructed with empty paths here — IsAvailable reflects
+    // whether the binary/model exist once the user has configured them.
     public IReadOnlyList<ITranscriptionEngine> AvailableTranscriptionEngines =>
     [
         new AppleSpeechTranscriptionEngine(
             _loggerFactory.CreateLogger<AppleSpeechTranscriptionEngine>()),
-        new WhisperCppTranscriptionEngine(string.Empty)
+        new WhisperCppTranscriptionEngine(
+            string.Empty, string.Empty,
+            _loggerFactory.CreateLogger<WhisperCppTranscriptionEngine>())
     ];
 
     public IReadOnlyList<IDiarizationEngine> AvailableDiarizationEngines =>
     [
         new NoDiarizationEngine(),
-        new PyannoteDiarizationEngine(string.Empty)
+        new PyannoteDiarizationEngine(
+            string.Empty,
+            _loggerFactory.CreateLogger<PyannoteDiarizationEngine>())
     ];
 
     public ITranscriptionPipeline Create(
         TranscriptionEngineType engine,
-        DiarizationEngineType diarization)
+        DiarizationEngineType diarization,
+        string whisperBinaryPath = "",
+        string whisperModelPath = "",
+        string pyannotePythonPath = "")
     {
         var transcriptionEngine = engine switch
         {
@@ -44,7 +53,9 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
                 (ITranscriptionEngine)new AppleSpeechTranscriptionEngine(
                     _loggerFactory.CreateLogger<AppleSpeechTranscriptionEngine>()),
             TranscriptionEngineType.WhisperCpp =>
-                new WhisperCppTranscriptionEngine(string.Empty),
+                new WhisperCppTranscriptionEngine(
+                    whisperBinaryPath, whisperModelPath,
+                    _loggerFactory.CreateLogger<WhisperCppTranscriptionEngine>()),
             _ => throw new ArgumentOutOfRangeException(nameof(engine), engine, null)
         };
 
@@ -53,7 +64,9 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
             DiarizationEngineType.None =>
                 (IDiarizationEngine)new NoDiarizationEngine(),
             DiarizationEngineType.Pyannote =>
-                new PyannoteDiarizationEngine(string.Empty),
+                new PyannoteDiarizationEngine(
+                    pyannotePythonPath,
+                    _loggerFactory.CreateLogger<PyannoteDiarizationEngine>()),
             _ => throw new ArgumentOutOfRangeException(nameof(diarization), diarization, null)
         };
 

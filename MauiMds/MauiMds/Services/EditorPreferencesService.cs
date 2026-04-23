@@ -33,6 +33,7 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 KeyboardShortcuts = preferences.KeyboardShortcuts ?? EditorPreferences.DefaultShortcuts,
                 TranscriptionEngine = preferences.TranscriptionEngine,
                 DiarizationEngine = preferences.DiarizationEngine,
+                WhisperBinaryPath = preferences.WhisperBinaryPath,
                 WhisperModelPath = preferences.WhisperModelPath,
                 PyannotePythonPath = preferences.PyannotePythonPath
             };
@@ -62,6 +63,7 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             KeyboardShortcuts = preferences.KeyboardShortcuts ?? EditorPreferences.DefaultShortcuts,
             TranscriptionEngine = preferences.TranscriptionEngine,
             DiarizationEngine = preferences.DiarizationEngine,
+            WhisperBinaryPath = preferences.WhisperBinaryPath,
             WhisperModelPath = preferences.WhisperModelPath,
             PyannotePythonPath = preferences.PyannotePythonPath
         };
