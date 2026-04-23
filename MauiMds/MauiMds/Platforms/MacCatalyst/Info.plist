@@ -38,5 +38,7 @@
 	<string>Assets.xcassets/appicon.appiconset</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MauiMds records your microphone to capture meeting audio for transcription.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>MauiMds uses on-device speech recognition to transcribe your recorded audio.</string>
 </dict>
 </plist>

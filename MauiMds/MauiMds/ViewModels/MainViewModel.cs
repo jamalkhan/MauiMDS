@@ -1664,6 +1664,10 @@ public class MainViewModel : INotifyPropertyChanged
                 else
                 {
                     _logger.LogInformation("Recording saved: {Path}, Duration: {Duration:g}", result.FilePath, result.Duration);
+                    if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
+                    {
+                        await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath);
+                    }
                 }
             }
             catch (Exception ex)
