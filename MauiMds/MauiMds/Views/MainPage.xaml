@@ -82,6 +82,28 @@
                                         </DataTrigger>
                                     </Button.Triggers>
                                 </Button>
+                                <Button Text="Transcription"
+                                        FontSize="13"
+                                        Padding="14,6"
+                                        CornerRadius="8"
+                                        Command="{Binding ShowTranscriptionTabCommand}">
+                                    <Button.Triggers>
+                                        <DataTrigger TargetType="Button"
+                                                     Binding="{Binding IsTranscriptionTabActive}"
+                                                     Value="True">
+                                            <Setter Property="BackgroundColor"
+                                                    Value="{AppThemeBinding Light=#C8C0B2, Dark=#4A4743}" />
+                                            <Setter Property="FontAttributes" Value="Bold" />
+                                        </DataTrigger>
+                                        <DataTrigger TargetType="Button"
+                                                     Binding="{Binding IsTranscriptionTabActive}"
+                                                     Value="False">
+                                            <Setter Property="BackgroundColor"
+                                                    Value="{AppThemeBinding Light=#E0D8CC, Dark=#3A3835}" />
+                                            <Setter Property="FontAttributes" Value="None" />
+                                        </DataTrigger>
+                                    </Button.Triggers>
+                                </Button>
                             </HorizontalStackLayout>
                         </Grid>
 
@@ -253,6 +275,83 @@
                                            Text="{Binding ShortcutKeyItalic}" />
                                 </Grid>
                             </Grid>
+
+                            <!-- Transcription tab -->
+                            <VerticalStackLayout Spacing="14"
+                                                 IsVisible="{Binding IsTranscriptionTabActive}">
+
+                                <!-- Transcription Engine -->
+                                <Label Text="Transcription Engine"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+
+                                <VerticalStackLayout Spacing="6">
+                                    <HorizontalStackLayout Spacing="8">
+                                        <RadioButton Content="Apple Speech Framework"
+                                                     GroupName="TranscriptionEngine"
+                                                     IsChecked="{Binding PreferencesTranscriptionEngine,
+                                                         Converter={StaticResource EnumToBoolConverter},
+                                                         ConverterParameter=AppleSpeech}" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8">
+                                        <RadioButton Content="Whisper.cpp  (not yet configured)"
+                                                     GroupName="TranscriptionEngine"
+                                                     IsChecked="{Binding PreferencesTranscriptionEngine,
+                                                         Converter={StaticResource EnumToBoolConverter},
+                                                         ConverterParameter=WhisperCpp}" />
+                                    </HorizontalStackLayout>
+                                </VerticalStackLayout>
+
+                                <!-- Whisper model path — only shown when Whisper.cpp selected -->
+                                <Grid ColumnDefinitions="*"
+                                      IsVisible="{Binding IsWhisperCppSelected}">
+                                    <VerticalStackLayout Spacing="4">
+                                        <Label Text="Whisper Model File (.bin)"
+                                               FontSize="12"
+                                               TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                        <Entry Placeholder="/path/to/ggml-model.bin"
+                                               Text="{Binding PreferencesWhisperModelPath}" />
+                                    </VerticalStackLayout>
+                                </Grid>
+
+                                <!-- Diarization Engine -->
+                                <Label Text="Speaker Diarization Engine"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}"
+                                       Margin="0,6,0,0" />
+
+                                <VerticalStackLayout Spacing="6">
+                                    <HorizontalStackLayout Spacing="8">
+                                        <RadioButton Content="None  (all segments labelled Unknown Speaker)"
+                                                     GroupName="DiarizationEngine"
+                                                     IsChecked="{Binding PreferencesDiarizationEngine,
+                                                         Converter={StaticResource EnumToBoolConverter},
+                                                         ConverterParameter=None}" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8">
+                                        <RadioButton Content="pyannote.audio 3.1  (not yet configured)"
+                                                     GroupName="DiarizationEngine"
+                                                     IsChecked="{Binding PreferencesDiarizationEngine,
+                                                         Converter={StaticResource EnumToBoolConverter},
+                                                         ConverterParameter=Pyannote}" />
+                                    </HorizontalStackLayout>
+                                </VerticalStackLayout>
+
+                                <!-- pyannote Python path — only shown when pyannote selected -->
+                                <Grid ColumnDefinitions="*"
+                                      IsVisible="{Binding IsPyannoteSelected}">
+                                    <VerticalStackLayout Spacing="4">
+                                        <Label Text="Python Executable"
+                                               FontSize="12"
+                                               TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                        <Entry Placeholder="/usr/local/bin/python3"
+                                               Text="{Binding PreferencesPyannotePythonPath}" />
+                                    </VerticalStackLayout>
+                                </Grid>
+
+                            </VerticalStackLayout>
                         </Grid>
 
                         <!-- Save/Cancel buttons always visible -->

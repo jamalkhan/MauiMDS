@@ -30,7 +30,11 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount),
                 Use24HourTime = preferences.Use24HourTime,
                 FileLogLevel = NormalizeLogLevel(preferences.FileLogLevel),
-                KeyboardShortcuts = preferences.KeyboardShortcuts ?? EditorPreferences.DefaultShortcuts
+                KeyboardShortcuts = preferences.KeyboardShortcuts ?? EditorPreferences.DefaultShortcuts,
+                TranscriptionEngine = preferences.TranscriptionEngine,
+                DiarizationEngine = preferences.DiarizationEngine,
+                WhisperModelPath = preferences.WhisperModelPath,
+                PyannotePythonPath = preferences.PyannotePythonPath
             };
         }
         catch
@@ -55,7 +59,11 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             InitialViewerRenderLineCount = Math.Max(5, preferences.InitialViewerRenderLineCount),
             Use24HourTime = preferences.Use24HourTime,
             FileLogLevel = NormalizeLogLevel(preferences.FileLogLevel),
-            KeyboardShortcuts = preferences.KeyboardShortcuts ?? EditorPreferences.DefaultShortcuts
+            KeyboardShortcuts = preferences.KeyboardShortcuts ?? EditorPreferences.DefaultShortcuts,
+            TranscriptionEngine = preferences.TranscriptionEngine,
+            DiarizationEngine = preferences.DiarizationEngine,
+            WhisperModelPath = preferences.WhisperModelPath,
+            PyannotePythonPath = preferences.PyannotePythonPath
         };
 
         var json = JsonSerializer.Serialize(normalized, JsonOptions);

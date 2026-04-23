@@ -64,6 +64,11 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _preferencesAutoSaveEnabled = true;
     private bool _preferencesUse24HourTime;
     private bool _isShortcutsTabActive;
+    private bool _isTranscriptionTabActive;
+    private TranscriptionEngineType _preferencesTranscriptionEngine = TranscriptionEngineType.AppleSpeech;
+    private DiarizationEngineType _preferencesDiarizationEngine = DiarizationEngineType.None;
+    private string _preferencesWhisperModelPath = string.Empty;
+    private string _preferencesPyannotePythonPath = string.Empty;
     private string _shortcutKeyHeader1 = "1";
     private string _shortcutKeyHeader2 = "2";
     private string _shortcutKeyHeader3 = "3";
@@ -161,8 +166,9 @@ public class MainViewModel : INotifyPropertyChanged
         FormatCodeCommand = new Command(() => RequestEditorAction(EditorActionType.Code));
         FormatBoldCommand = new Command(() => RequestEditorAction(EditorActionType.Bold));
         FormatItalicCommand = new Command(() => RequestEditorAction(EditorActionType.Italic));
-        ShowGeneralTabCommand = new Command(() => IsShortcutsTabActive = false);
-        ShowShortcutsTabCommand = new Command(() => IsShortcutsTabActive = true);
+        ShowGeneralTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = false; });
+        ShowShortcutsTabCommand = new Command(() => { IsShortcutsTabActive = true; IsTranscriptionTabActive = false; });
+        ShowTranscriptionTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = true; });
         LoadShortcutKeyFields();
     }
 
@@ -230,6 +236,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand FormatItalicCommand { get; }
     public ICommand ShowGeneralTabCommand { get; }
     public ICommand ShowShortcutsTabCommand { get; }
+    public ICommand ShowTranscriptionTabCommand { get; }
 
     public string FilePath
     {
@@ -533,10 +540,63 @@ public class MainViewModel : INotifyPropertyChanged
             _isShortcutsTabActive = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsGeneralTabActive));
+            OnPropertyChanged(nameof(IsTranscriptionTabActive));
         }
     }
 
-    public bool IsGeneralTabActive => !_isShortcutsTabActive;
+    public bool IsTranscriptionTabActive
+    {
+        get => _isTranscriptionTabActive;
+        set
+        {
+            if (_isTranscriptionTabActive == value) return;
+            _isTranscriptionTabActive = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsGeneralTabActive));
+            OnPropertyChanged(nameof(IsShortcutsTabActive));
+        }
+    }
+
+    public bool IsGeneralTabActive => !_isShortcutsTabActive && !_isTranscriptionTabActive;
+
+    public TranscriptionEngineType PreferencesTranscriptionEngine
+    {
+        get => _preferencesTranscriptionEngine;
+        set
+        {
+            if (_preferencesTranscriptionEngine == value) return;
+            _preferencesTranscriptionEngine = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsWhisperCppSelected));
+        }
+    }
+
+    public DiarizationEngineType PreferencesDiarizationEngine
+    {
+        get => _preferencesDiarizationEngine;
+        set
+        {
+            if (_preferencesDiarizationEngine == value) return;
+            _preferencesDiarizationEngine = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsPyannoteSelected));
+        }
+    }
+
+    public string PreferencesWhisperModelPath
+    {
+        get => _preferencesWhisperModelPath;
+        set { if (_preferencesWhisperModelPath != value) { _preferencesWhisperModelPath = value; OnPropertyChanged(); } }
+    }
+
+    public string PreferencesPyannotePythonPath
+    {
+        get => _preferencesPyannotePythonPath;
+        set { if (_preferencesPyannotePythonPath != value) { _preferencesPyannotePythonPath = value; OnPropertyChanged(); } }
+    }
+
+    public bool IsWhisperCppSelected => _preferencesTranscriptionEngine == TranscriptionEngineType.WhisperCpp;
+    public bool IsPyannoteSelected => _preferencesDiarizationEngine == DiarizationEngineType.Pyannote;
 
     public string ShortcutKeyHeader1
     {
@@ -829,7 +889,9 @@ public class MainViewModel : INotifyPropertyChanged
         PreferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
         PreferencesFileLogLevelText = FormatLogLevel(_preferences.FileLogLevel);
         IsShortcutsTabActive = false;
+        IsTranscriptionTabActive = false;
         LoadShortcutKeyFields();
+        LoadTranscriptionFields();
         IsPreferencesVisible = true;
     }
 
@@ -840,6 +902,20 @@ public class MainViewModel : INotifyPropertyChanged
         ShortcutKeyHeader3 = GetShortcutKey(EditorActionType.Header3);
         ShortcutKeyBold = GetShortcutKey(EditorActionType.Bold);
         ShortcutKeyItalic = GetShortcutKey(EditorActionType.Italic);
+    }
+
+    private void LoadTranscriptionFields()
+    {
+        _preferencesTranscriptionEngine = _preferences.TranscriptionEngine;
+        _preferencesDiarizationEngine = _preferences.DiarizationEngine;
+        _preferencesWhisperModelPath = _preferences.WhisperModelPath;
+        _preferencesPyannotePythonPath = _preferences.PyannotePythonPath;
+        OnPropertyChanged(nameof(PreferencesTranscriptionEngine));
+        OnPropertyChanged(nameof(PreferencesDiarizationEngine));
+        OnPropertyChanged(nameof(PreferencesWhisperModelPath));
+        OnPropertyChanged(nameof(PreferencesPyannotePythonPath));
+        OnPropertyChanged(nameof(IsWhisperCppSelected));
+        OnPropertyChanged(nameof(IsPyannoteSelected));
     }
 
     private string GetShortcutKey(EditorActionType action)
@@ -882,7 +958,11 @@ public class MainViewModel : INotifyPropertyChanged
             InitialViewerRenderLineCount = initialViewerRenderLineCount,
             Use24HourTime = PreferencesUse24HourTime,
             FileLogLevel = fileLogLevel,
-            KeyboardShortcuts = BuildShortcutsFromFields()
+            KeyboardShortcuts = BuildShortcutsFromFields(),
+            TranscriptionEngine = _preferencesTranscriptionEngine,
+            DiarizationEngine = _preferencesDiarizationEngine,
+            WhisperModelPath = _preferencesWhisperModelPath,
+            PyannotePythonPath = _preferencesPyannotePythonPath
         };
 
         _preferencesService.Save(_preferences);

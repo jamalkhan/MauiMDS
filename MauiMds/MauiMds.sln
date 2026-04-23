@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MauiMds.Core.Tests", "MauiM
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MauiMds.AudioCapture", "MauiMds.AudioCapture\MauiMds.AudioCapture.csproj", "{C765C21A-80D5-4C7B-AFF3-61D16A67BB9D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MauiMds.Transcription", "MauiMds.Transcription\MauiMds.Transcription.csproj", "{E000A89C-9F13-4464-839D-BF3CA40A2DB2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -111,6 +113,18 @@ Global
 		{C765C21A-80D5-4C7B-AFF3-61D16A67BB9D}.Release|x64.Build.0 = Release|Any CPU
 		{C765C21A-80D5-4C7B-AFF3-61D16A67BB9D}.Release|x86.ActiveCfg = Release|Any CPU
 		{C765C21A-80D5-4C7B-AFF3-61D16A67BB9D}.Release|x86.Build.0 = Release|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Debug|x64.Build.0 = Debug|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Debug|x86.Build.0 = Debug|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Release|x64.ActiveCfg = Release|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Release|x64.Build.0 = Release|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Release|x86.ActiveCfg = Release|Any CPU
+		{E000A89C-9F13-4464-839D-BF3CA40A2DB2}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

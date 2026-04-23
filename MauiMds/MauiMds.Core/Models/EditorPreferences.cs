@@ -12,6 +12,11 @@ public sealed class EditorPreferences
     public LogLevel FileLogLevel { get; init; } = LogLevel.Information;
     public IReadOnlyList<KeyboardShortcutDefinition> KeyboardShortcuts { get; init; } = DefaultShortcuts;
 
+    public TranscriptionEngineType TranscriptionEngine { get; init; } = TranscriptionEngineType.AppleSpeech;
+    public DiarizationEngineType DiarizationEngine { get; init; } = DiarizationEngineType.None;
+    public string WhisperModelPath { get; init; } = string.Empty;
+    public string PyannotePythonPath { get; init; } = string.Empty;
+
     public static readonly IReadOnlyList<KeyboardShortcutDefinition> DefaultShortcuts =
     [
         new KeyboardShortcutDefinition { Action = EditorActionType.Header1, Key = "1" },
