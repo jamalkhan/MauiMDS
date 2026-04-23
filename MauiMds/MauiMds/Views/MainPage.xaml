@@ -3,8 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:models="clr-namespace:MauiMds.Models;assembly=MauiMds.Core"
              xmlns:views="clr-namespace:MauiMds.Views"
+             xmlns:converters="clr-namespace:MauiMds.Converters"
              x:Class="MauiMds.Views.MainPage"
              BackgroundColor="{AppThemeBinding Light=#E7E4DE, Dark=#232321}">
+    <ContentPage.Resources>
+        <converters:EnumToBoolConverter x:Key="EnumToBoolConverter" />
+    </ContentPage.Resources>
     <Grid>
         <Grid Padding="28"
               ColumnDefinitions="Auto,*">
