@@ -102,7 +102,7 @@
                                     </DataTrigger>
                                 </Border.Triggers>
 
-                                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto"
+                                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto"
                                       ColumnSpacing="6">
                                     <controls:WorkspaceItemIconView Grid.Column="0"
                                                                     Kind="{Binding ItemIconKind}"
@@ -179,6 +179,16 @@
                                             IsVisible="{Binding CanRename}"
                                             BackgroundColor="Transparent"
                                             TextColor="{AppThemeBinding Light=#6B6358, Dark=#D4CCBF}" />
+
+                                    <Button Grid.Column="5"
+                                            Text="Transcribe"
+                                            IsVisible="{Binding IsAudioFile}"
+                                            Padding="8,4"
+                                            FontSize="10"
+                                            Command="{Binding Source={x:Reference RootExplorerView}, Path=BindingContext.TranscribeAudioCommand}"
+                                            CommandParameter="{Binding .}"
+                                            BackgroundColor="{AppThemeBinding Light=#3A7DD4, Dark=#2A5DA0}"
+                                            TextColor="White" />
                                 </Grid>
 
                                 <Border.GestureRecognizers>

@@ -31,11 +31,28 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
     public bool CanRename => !IsDirectory;
     public string ExpandGlyph => IsExpanded ? "▾" : "▸";
     public string SecondaryText => IsDirectory ? "Folder" : Path.GetDirectoryName(FullPath) ?? string.Empty;
-    public WorkspaceItemIconKind ItemIconKind => IsDirectory
-        ? WorkspaceItemIconKind.Folder
-        : string.Equals(Path.GetExtension(FullPath), ".mds", StringComparison.OrdinalIgnoreCase)
-            ? WorkspaceItemIconKind.MarkdownSharp
-            : WorkspaceItemIconKind.Markdown;
+    public WorkspaceItemIconKind ItemIconKind
+    {
+        get
+        {
+            if (IsDirectory)
+            {
+                return string.Equals(Name, "Recordings", StringComparison.OrdinalIgnoreCase)
+                    ? WorkspaceItemIconKind.RecordingsFolder
+                    : WorkspaceItemIconKind.Folder;
+            }
+
+            var ext = Path.GetExtension(FullPath);
+            if (string.Equals(ext, ".m4a", StringComparison.OrdinalIgnoreCase))
+                return WorkspaceItemIconKind.Audio;
+            if (string.Equals(ext, ".mds", StringComparison.OrdinalIgnoreCase))
+                return WorkspaceItemIconKind.MarkdownSharp;
+            return WorkspaceItemIconKind.Markdown;
+        }
+    }
+
+    public bool IsAudioFile =>
+        !IsDirectory && string.Equals(Path.GetExtension(FullPath), ".m4a", StringComparison.OrdinalIgnoreCase);
 
     public string FullPath
     {

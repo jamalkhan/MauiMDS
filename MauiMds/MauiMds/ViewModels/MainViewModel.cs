@@ -177,6 +177,7 @@ public class MainViewModel : INotifyPropertyChanged
         ShowShortcutsTabCommand = new Command(() => { IsShortcutsTabActive = true; IsTranscriptionTabActive = false; });
         ShowTranscriptionTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = true; });
         ToggleRecordingCommand = new Command(async () => await ToggleRecordingAsync(), () => !_isRecordingTransitioning);
+        TranscribeAudioCommand = new Command<WorkspaceTreeItem>(async item => await TranscribeAudioAsync(item));
         LoadShortcutKeyFields();
     }
 
@@ -246,6 +247,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand ShowShortcutsTabCommand { get; }
     public ICommand ShowTranscriptionTabCommand { get; }
     public ICommand ToggleRecordingCommand { get; }
+    public ICommand TranscribeAudioCommand { get; }
 
     public bool IsRecording
     {
@@ -1703,6 +1705,17 @@ public class MainViewModel : INotifyPropertyChanged
                 (ToggleRecordingCommand as Command)?.ChangeCanExecute();
             }
         }
+    }
+
+    private static async Task TranscribeAudioAsync(WorkspaceTreeItem? item)
+    {
+        if (item is null) return;
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var page = Microsoft.Maui.Controls.Application.Current?.MainPage;
+            if (page is null) return;
+            await page.DisplayAlert("Transcribe", "Clicked Transcribe", "OK");
+        });
     }
 
     private void OnAudioCaptureStateChanged(object? sender, AudioCaptureState state)
