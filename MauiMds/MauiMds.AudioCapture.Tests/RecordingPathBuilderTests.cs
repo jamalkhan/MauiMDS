@@ -31,7 +31,7 @@ public sealed class RecordingPathBuilderTests
     public void Build_FileNameContainsDateInExpectedFormat()
     {
         var path = RecordingPathBuilder.Build("/base", FixedTime);
-        StringAssert.Contains(path, "2026-04-22");
+        StringAssert.Contains(path, "2026_04_22");
     }
 
     [TestMethod]
@@ -45,7 +45,7 @@ public sealed class RecordingPathBuilderTests
     public void Build_FullFileNameMatchesExpectedPattern()
     {
         var path = RecordingPathBuilder.Build("/base", FixedTime);
-        Assert.AreEqual("audio_capture_2026-04-22 153045.m4a", Path.GetFileName(path));
+        Assert.AreEqual("audio_capture_2026_04_22_153045.m4a", Path.GetFileName(path));
     }
 
     [TestMethod]

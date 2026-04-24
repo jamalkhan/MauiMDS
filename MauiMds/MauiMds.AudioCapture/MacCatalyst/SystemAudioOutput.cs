@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using CoreMedia;
 using Foundation;
 using ScreenCaptureKit;
@@ -9,6 +8,8 @@ namespace MauiMds.AudioCapture.MacCatalyst;
 /// <summary>
 /// Captures system-wide audio (all apps, e.g. Teams/Zoom output) via ScreenCaptureKit.
 /// Requires the user to have granted Screen Recording permission in System Settings.
+/// The com.apple.security.device.camera sandbox entitlement must be present — ScreenCaptureKit
+/// handles its own TCC permission prompt when the entitlement is in place.
 /// </summary>
 internal sealed class SystemAudioOutput : NSObject, ISCStreamOutput
 {
@@ -25,19 +26,6 @@ internal sealed class SystemAudioOutput : NSObject, ISCStreamOutput
 
     public async Task StartAsync(int sampleRate, int channelCount)
     {
-        // Check permission before calling any ScreenCaptureKit API.
-        // Without this preflight, the OS TCC daemon aborts the process when
-        // Screen Recording has not been granted — no exception is thrown.
-        if (!CGPreflightScreenCaptureAccess())
-        {
-            _logger.LogWarning("SystemAudioOutput: Screen Recording permission not granted — requesting.");
-            CGRequestScreenCaptureAccess();
-            throw new InvalidOperationException(
-                "Screen Recording permission is required to capture system audio. " +
-                "Open System Settings > Privacy & Security > Screen Recording, " +
-                "enable MauiMds, then try recording again.");
-        }
-
         _logger.LogInformation("SystemAudioOutput: requesting shareable content.");
 
         SCShareableContent content;
@@ -140,14 +128,6 @@ internal sealed class SystemAudioOutput : NSObject, ISCStreamOutput
         });
         return tcs.Task;
     }
-
-    // CoreGraphics screen-capture permission APIs (available macOS 14.0+).
-    // Must be called before any ScreenCaptureKit API to avoid a TCC process abort.
-    [DllImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
-    private static extern bool CGPreflightScreenCaptureAccess();
-
-    [DllImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
-    private static extern bool CGRequestScreenCaptureAccess();
 
     protected override void Dispose(bool disposing)
     {

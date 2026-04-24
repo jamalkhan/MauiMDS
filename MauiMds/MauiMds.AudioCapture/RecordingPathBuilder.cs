@@ -6,7 +6,7 @@ public static class RecordingPathBuilder
 
     public static string Build(string baseFolder, DateTimeOffset timestamp)
     {
-        var fileName = $"audio_capture_{timestamp:yyyy-MM-dd HHmmss}.m4a";
+        var fileName = $"audio_capture_{timestamp:yyyy_MM_dd_HHmmss}.m4a";
         return Path.Combine(baseFolder, RecordingsFolderName, fileName);
     }
 }

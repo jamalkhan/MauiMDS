@@ -1712,6 +1712,12 @@ public class MainViewModel : INotifyPropertyChanged
 
                 await _audioCaptureService.StartAsync(options);
                 _logger.LogInformation("Recording started: {Path}", outputPath);
+
+                if (_audioCaptureService.LastStartWarning is { } warning)
+                {
+                    _logger.LogWarning("Recording started with warning: {Warning}", warning);
+                    await Application.Current!.Windows[0].Page!.DisplayAlert("Recording started", warning, "OK");
+                }
             }
             catch (Exception ex)
             {

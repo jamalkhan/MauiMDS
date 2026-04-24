@@ -15,6 +15,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     private AudioCaptureOptions? _activeOptions;
 
     public AudioCaptureState State => _state;
+    public string? LastStartWarning { get; private set; }
     public event EventHandler<AudioCaptureState>? StateChanged;
 
     public AudioCaptureService(ILogger<AudioCaptureService> logger)
@@ -57,36 +58,60 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             }
 
             SetState(AudioCaptureState.Starting);
+            LastStartWarning = null;
             _activeOptions = options;
 
             // Ensure output directory exists.
             var dir = Path.GetDirectoryName(options.OutputPath);
             if (!string.IsNullOrWhiteSpace(dir))
-            {
                 Directory.CreateDirectory(dir);
-            }
 
-            _writer = new AudioFileWriter(options, _logger);
-
+            // Start sources first so we know which are actually active before
+            // creating the writer (avoids ghost tracks for failed sources).
+            var systemAudioActive = false;
             if (options.CaptureSystemAudio)
             {
                 _systemAudio = new SystemAudioOutput(_logger);
-                _systemAudio.SampleBufferReceived += buf =>
+                try
                 {
-                    _writer?.AppendSystemAudio(buf);
-                };
-                await _systemAudio.StartAsync(options.SampleRate, options.ChannelCount);
+                    await _systemAudio.StartAsync(options.SampleRate, options.ChannelCount);
+                    systemAudioActive = true;
+                }
+                catch (InvalidOperationException ex) when (options.CaptureMicrophone)
+                {
+                    _logger.LogWarning(ex, "AudioCaptureService: system audio unavailable, falling back to microphone-only.");
+                    _systemAudio.Dispose();
+                    _systemAudio = null;
+                    LastStartWarning = "System audio could not be captured (Screen Recording permission may need an app restart). " +
+                                       "Recording microphone only.";
+                }
             }
 
+            var micActive = false;
             if (options.CaptureMicrophone)
             {
                 _micAudio = new MicrophoneInput(_logger);
-                _micAudio.SampleBufferReceived += buf =>
-                {
-                    _writer?.AppendMicAudio(buf);
-                };
                 _micAudio.Start();
+                micActive = true;
             }
+
+            // Create the writer with only the sources that are actually running.
+            var effectiveOptions = new AudioCaptureOptions
+            {
+                OutputPath = options.OutputPath,
+                SampleRate = options.SampleRate,
+                ChannelCount = options.ChannelCount,
+                EncoderBitRate = options.EncoderBitRate,
+                CaptureSystemAudio = systemAudioActive,
+                CaptureMicrophone = micActive,
+            };
+            _writer = new AudioFileWriter(effectiveOptions, _logger);
+
+            if (systemAudioActive)
+                _systemAudio!.SampleBufferReceived += buf => _writer?.AppendSystemAudio(buf);
+
+            if (micActive)
+                _micAudio!.SampleBufferReceived += buf => _writer?.AppendMicAudio(buf);
 
             SetState(AudioCaptureState.Recording);
             _logger.LogInformation("AudioCaptureService: recording started → {Path}", options.OutputPath);

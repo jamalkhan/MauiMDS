@@ -18,8 +18,17 @@ public interface IAudioCaptureService
     Task<AudioPermissionStatus> RequestMicrophonePermissionAsync();
 
     /// <summary>
+    /// Non-null when the last <see cref="StartAsync"/> succeeded but with degraded capability
+    /// (e.g. system audio was requested but fell back to microphone-only due to missing permission).
+    /// Reset to null at the start of each <see cref="StartAsync"/> call.
+    /// </summary>
+    string? LastStartWarning { get; }
+
+    /// <summary>
     /// Starts recording to the path specified in <paramref name="options"/>.
     /// Throws if already recording or if permissions are denied.
+    /// When system audio is unavailable but microphone is enabled, falls back to mic-only
+    /// and sets <see cref="LastStartWarning"/> instead of throwing.
     /// </summary>
     Task StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default);
 

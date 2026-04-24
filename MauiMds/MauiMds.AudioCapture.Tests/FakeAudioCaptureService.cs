@@ -10,6 +10,7 @@ internal sealed class FakeAudioCaptureService : IAudioCaptureService
     private AudioCaptureState _state = AudioCaptureState.Idle;
 
     public AudioCaptureState State => _state;
+    public string? LastStartWarning { get; set; }
     public event EventHandler<AudioCaptureState>? StateChanged;
 
     // Configuration knobs
