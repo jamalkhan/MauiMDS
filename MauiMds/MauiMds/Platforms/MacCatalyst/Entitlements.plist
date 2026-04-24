@@ -18,9 +18,6 @@
         <!-- Required for ScreenCaptureKit audio capture in the sandbox. -->
         <key>com.apple.security.device.camera</key>
         <true/>
-        <!-- Required for SFSpeechRecognizer on-device recognition on Mac Catalyst. -->
-        <key>com.apple.developer.speech-recognition</key>
-        <true/>
     </dict>
 </plist>
 
