@@ -40,5 +40,7 @@
 	<string>MauiMds records your microphone to capture meeting audio for transcription.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>MauiMds uses on-device speech recognition to transcribe your recorded audio.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>MauiMds captures system audio via ScreenCaptureKit to record meeting output alongside your microphone.</string>
 </dict>
 </plist>
