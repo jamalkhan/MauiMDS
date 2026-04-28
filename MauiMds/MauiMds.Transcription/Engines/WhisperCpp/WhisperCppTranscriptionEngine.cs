@@ -32,6 +32,10 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
         _logger = logger;
     }
 
+    // whisper-cli only accepts: flac, mp3, ogg, wav
+    private static readonly HashSet<string> SupportedExtensions =
+        new(StringComparer.OrdinalIgnoreCase) { ".flac", ".mp3", ".ogg", ".wav" };
+
     public async Task<IReadOnlyList<TranscriptSegment>> TranscribeAsync(
         string audioFilePath,
         IProgress<double>? progress = null,
@@ -46,13 +50,26 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
 
         var outputBase = Path.Combine(Path.GetTempPath(), $"mauimds_whisper_{Guid.NewGuid():N}");
         var outputJson = outputBase + ".json";
+        string? tempWavPath = null;
 
         try
         {
             _logger.LogInformation("WhisperCpp: starting transcription on {File}.", audioFilePath);
             progress?.Report(0.05);
 
-            await RunWhisperAsync(audioFilePath, outputBase, cancellationToken);
+            // whisper-cli does not support M4A/AAC — convert to 16 kHz mono WAV first.
+            var inputPath = audioFilePath;
+            if (!SupportedExtensions.Contains(Path.GetExtension(audioFilePath)))
+            {
+                tempWavPath = Path.Combine(Path.GetTempPath(), $"mauimds_wav_{Guid.NewGuid():N}.wav");
+                _logger.LogInformation("WhisperCpp: converting {Ext} → WAV via afconvert.",
+                    Path.GetExtension(audioFilePath));
+                await ConvertToWavAsync(audioFilePath, tempWavPath, cancellationToken);
+                inputPath = tempWavPath;
+                progress?.Report(0.20);
+            }
+
+            await RunWhisperAsync(inputPath, outputBase, cancellationToken);
 
             progress?.Report(0.85);
 
@@ -70,9 +87,36 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
         finally
         {
             if (File.Exists(outputJson))
-            {
                 try { File.Delete(outputJson); } catch { /* best-effort cleanup */ }
-            }
+            if (tempWavPath is not null && File.Exists(tempWavPath))
+                try { File.Delete(tempWavPath); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    private async Task ConvertToWavAsync(string inputPath, string outputPath, CancellationToken cancellationToken)
+    {
+        // afconvert is a macOS system utility — always present, no extra install required.
+        // LEI16@16000 = 16-bit little-endian PCM at 16 kHz, which is what whisper.cpp expects.
+        var psi = new ProcessStartInfo
+        {
+            FileName = "/usr/bin/afconvert",
+            Arguments = $"-f WAVE -d LEI16@16000 -c 1 \"{inputPath}\" \"{outputPath}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = new Process { StartInfo = psi };
+        process.Start();
+        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+
+        if (process.ExitCode != 0 || !File.Exists(outputPath))
+        {
+            _logger.LogError("afconvert failed (code {Code}): {Err}", process.ExitCode, stderr);
+            throw new InvalidOperationException(
+                $"Failed to convert audio to WAV (afconvert exited {process.ExitCode}). {stderr}".Trim());
         }
     }
 
