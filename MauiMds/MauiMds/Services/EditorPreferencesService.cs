@@ -35,7 +35,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 DiarizationEngine = preferences.DiarizationEngine,
                 WhisperBinaryPath = preferences.WhisperBinaryPath,
                 WhisperModelPath = preferences.WhisperModelPath,
-                PyannotePythonPath = preferences.PyannotePythonPath
+                PyannotePythonPath = preferences.PyannotePythonPath,
+                RecordingFormat = preferences.RecordingFormat
             };
         }
         catch
@@ -65,7 +66,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             DiarizationEngine = preferences.DiarizationEngine,
             WhisperBinaryPath = preferences.WhisperBinaryPath,
             WhisperModelPath = preferences.WhisperModelPath,
-            PyannotePythonPath = preferences.PyannotePythonPath
+            PyannotePythonPath = preferences.PyannotePythonPath,
+            RecordingFormat = preferences.RecordingFormat
         };
 
         var json = JsonSerializer.Serialize(normalized, JsonOptions);

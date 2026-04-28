@@ -43,7 +43,7 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
             }
 
             var ext = Path.GetExtension(FullPath);
-            if (string.Equals(ext, ".m4a", StringComparison.OrdinalIgnoreCase))
+            if (IsAudioExtension(ext))
                 return WorkspaceItemIconKind.Audio;
             if (string.Equals(ext, ".mds", StringComparison.OrdinalIgnoreCase))
                 return WorkspaceItemIconKind.MarkdownSharp;
@@ -51,8 +51,12 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         }
     }
 
-    public bool IsAudioFile =>
-        !IsDirectory && string.Equals(Path.GetExtension(FullPath), ".m4a", StringComparison.OrdinalIgnoreCase);
+    public bool IsAudioFile => !IsDirectory && IsAudioExtension(Path.GetExtension(FullPath));
+
+    private static bool IsAudioExtension(string ext) =>
+        string.Equals(ext, ".m4a", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(ext, ".mp3", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(ext, ".flac", StringComparison.OrdinalIgnoreCase);
 
     public string FullPath
     {

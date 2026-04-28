@@ -50,22 +50,34 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
 
         var outputBase = Path.Combine(Path.GetTempPath(), $"mauimds_whisper_{Guid.NewGuid():N}");
         var outputJson = outputBase + ".json";
-        string? tempWavPath = null;
+        string? tempConvertedPath = null;
 
         try
         {
             _logger.LogInformation("WhisperCpp: starting transcription on {File}.", audioFilePath);
             progress?.Report(0.05);
 
-            // whisper-cli does not support M4A/AAC — convert to 16 kHz mono WAV first.
+            // whisper-cli does not support M4A/AAC — convert to a supported format first.
             var inputPath = audioFilePath;
             if (!SupportedExtensions.Contains(Path.GetExtension(audioFilePath)))
             {
-                tempWavPath = Path.Combine(Path.GetTempPath(), $"mauimds_wav_{Guid.NewGuid():N}.wav");
-                _logger.LogInformation("WhisperCpp: converting {Ext} → WAV via afconvert.",
-                    Path.GetExtension(audioFilePath));
-                await ConvertToWavAsync(audioFilePath, tempWavPath, cancellationToken);
-                inputPath = tempWavPath;
+                // Prefer MP3 (via ffmpeg) — smaller than WAV. Fall back to WAV via afconvert.
+                var ffmpeg = FindFfmpeg();
+                if (ffmpeg is not null)
+                {
+                    tempConvertedPath = Path.Combine(Path.GetTempPath(), $"mauimds_mp3_{Guid.NewGuid():N}.mp3");
+                    _logger.LogInformation("WhisperCpp: converting {Ext} → MP3 via ffmpeg.",
+                        Path.GetExtension(audioFilePath));
+                    await ConvertToMp3Async(audioFilePath, tempConvertedPath, ffmpeg, cancellationToken);
+                }
+                else
+                {
+                    tempConvertedPath = Path.Combine(Path.GetTempPath(), $"mauimds_wav_{Guid.NewGuid():N}.wav");
+                    _logger.LogInformation("WhisperCpp: ffmpeg not found — converting {Ext} → WAV via afconvert.",
+                        Path.GetExtension(audioFilePath));
+                    await ConvertToWavAsync(audioFilePath, tempConvertedPath, cancellationToken);
+                }
+                inputPath = tempConvertedPath;
                 progress?.Report(0.20);
             }
 
@@ -88,15 +100,47 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
         {
             if (File.Exists(outputJson))
                 try { File.Delete(outputJson); } catch { /* best-effort cleanup */ }
-            if (tempWavPath is not null && File.Exists(tempWavPath))
-                try { File.Delete(tempWavPath); } catch { /* best-effort cleanup */ }
+            if (tempConvertedPath is not null && File.Exists(tempConvertedPath))
+                try { File.Delete(tempConvertedPath); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    private static string? FindFfmpeg()
+    {
+        string[] candidates = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"];
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private async Task ConvertToMp3Async(
+        string inputPath, string outputPath, string ffmpegPath, CancellationToken cancellationToken)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            Arguments = $"-i \"{inputPath}\" -q:a 2 -ac 1 -ar 16000 -y \"{outputPath}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = new Process { StartInfo = psi };
+        process.Start();
+        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+
+        if (process.ExitCode != 0 || !File.Exists(outputPath))
+        {
+            _logger.LogError("ffmpeg MP3 conversion failed (code {Code}): {Err}", process.ExitCode, stderr);
+            throw new InvalidOperationException(
+                $"Failed to convert audio to MP3 (ffmpeg exited {process.ExitCode}). {stderr}".Trim());
         }
     }
 
     private async Task ConvertToWavAsync(string inputPath, string outputPath, CancellationToken cancellationToken)
     {
-        // afconvert is a macOS system utility — always present, no extra install required.
-        // LEI16@16000 = 16-bit little-endian PCM at 16 kHz, which is what whisper.cpp expects.
+        // afconvert is always present on macOS.
+        // LEI16@16000 = 16-bit PCM at 16 kHz mono — optimal for whisper.cpp.
         var psi = new ProcessStartInfo
         {
             FileName = "/usr/bin/afconvert",

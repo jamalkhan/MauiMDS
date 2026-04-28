@@ -74,6 +74,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _preferencesWhisperBinaryPath = string.Empty;
     private string _preferencesWhisperModelPath = string.Empty;
     private string _preferencesPyannotePythonPath = string.Empty;
+    private RecordingFormat _preferencesRecordingFormat = RecordingFormat.M4A;
     private string _shortcutKeyHeader1 = "1";
     private string _shortcutKeyHeader2 = "2";
     private string _shortcutKeyHeader3 = "3";
@@ -635,6 +636,12 @@ public class MainViewModel : INotifyPropertyChanged
     public bool IsWhisperCppSelected => _preferencesTranscriptionEngine == TranscriptionEngineType.WhisperCpp;
     public bool IsPyannoteSelected => _preferencesDiarizationEngine == DiarizationEngineType.Pyannote;
 
+    public RecordingFormat PreferencesRecordingFormat
+    {
+        get => _preferencesRecordingFormat;
+        set { if (_preferencesRecordingFormat != value) { _preferencesRecordingFormat = value; OnPropertyChanged(); } }
+    }
+
     public string ShortcutKeyHeader1
     {
         get => _shortcutKeyHeader1;
@@ -948,11 +955,13 @@ public class MainViewModel : INotifyPropertyChanged
         _preferencesWhisperBinaryPath = _preferences.WhisperBinaryPath;
         _preferencesWhisperModelPath = _preferences.WhisperModelPath;
         _preferencesPyannotePythonPath = _preferences.PyannotePythonPath;
+        _preferencesRecordingFormat = _preferences.RecordingFormat;
         OnPropertyChanged(nameof(PreferencesTranscriptionEngine));
         OnPropertyChanged(nameof(PreferencesDiarizationEngine));
         OnPropertyChanged(nameof(PreferencesWhisperBinaryPath));
         OnPropertyChanged(nameof(PreferencesWhisperModelPath));
         OnPropertyChanged(nameof(PreferencesPyannotePythonPath));
+        OnPropertyChanged(nameof(PreferencesRecordingFormat));
         OnPropertyChanged(nameof(IsWhisperCppSelected));
         OnPropertyChanged(nameof(IsPyannoteSelected));
     }
@@ -1002,7 +1011,8 @@ public class MainViewModel : INotifyPropertyChanged
             DiarizationEngine = _preferencesDiarizationEngine,
             WhisperBinaryPath = _preferencesWhisperBinaryPath,
             WhisperModelPath = _preferencesWhisperModelPath,
-            PyannotePythonPath = _preferencesPyannotePythonPath
+            PyannotePythonPath = _preferencesPyannotePythonPath,
+            RecordingFormat = _preferencesRecordingFormat
         };
 
         _preferencesService.Save(_preferences);
@@ -1708,7 +1718,13 @@ public class MainViewModel : INotifyPropertyChanged
                     ? WorkspaceRootPath
                     : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MauiMds");
 
-                var outputPath = RecordingPathBuilder.Build(baseFolder, _clock.UtcNow);
+                var m4aPath = RecordingPathBuilder.Build(baseFolder, _clock.UtcNow);
+                var outputPath = _preferencesRecordingFormat switch
+                {
+                    RecordingFormat.MP3  => Path.ChangeExtension(m4aPath, ".mp3"),
+                    RecordingFormat.FLAC => Path.ChangeExtension(m4aPath, ".flac"),
+                    _                   => m4aPath
+                };
                 var options = new AudioCaptureOptions { OutputPath = outputPath };
 
                 await _audioCaptureService.StartAsync(options);

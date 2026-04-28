@@ -10,7 +10,7 @@ namespace MauiMds.Services;
 
 public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
 {
-    private static readonly string[] AllowedExtensions = [".md", ".mds", ".m4a"];
+    private static readonly string[] AllowedExtensions = [".md", ".mds", ".m4a", ".mp3", ".flac"];
     private readonly ILogger<WorkspaceBrowserService> _logger;
 #if MACCATALYST
     private SecurityScopedResourceAccess? _currentWorkspaceAccess;

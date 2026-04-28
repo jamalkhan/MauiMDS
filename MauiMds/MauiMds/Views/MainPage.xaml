@@ -284,6 +284,36 @@
                             <VerticalStackLayout Spacing="14"
                                                  IsVisible="{Binding IsTranscriptionTabActive}">
 
+                                <!-- Recording Format -->
+                                <Label Text="Record new files to..."
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+
+                                <VerticalStackLayout Spacing="6">
+                                    <HorizontalStackLayout Spacing="8">
+                                        <RadioButton Content="M4A  (default)"
+                                                     GroupName="RecordingFormat"
+                                                     IsChecked="{Binding PreferencesRecordingFormat,
+                                                         Converter={StaticResource EnumToBoolConverter},
+                                                         ConverterParameter=M4A}" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8">
+                                        <RadioButton Content="MP3  (requires ffmpeg)"
+                                                     GroupName="RecordingFormat"
+                                                     IsChecked="{Binding PreferencesRecordingFormat,
+                                                         Converter={StaticResource EnumToBoolConverter},
+                                                         ConverterParameter=MP3}" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="8">
+                                        <RadioButton Content="FLAC"
+                                                     GroupName="RecordingFormat"
+                                                     IsChecked="{Binding PreferencesRecordingFormat,
+                                                         Converter={StaticResource EnumToBoolConverter},
+                                                         ConverterParameter=FLAC}" />
+                                    </HorizontalStackLayout>
+                                </VerticalStackLayout>
+
                                 <!-- Transcription Engine -->
                                 <Label Text="Transcription Engine"
                                        FontSize="13"
