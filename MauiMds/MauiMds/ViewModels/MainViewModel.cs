@@ -184,6 +184,7 @@ public class MainViewModel : INotifyPropertyChanged
         ToggleRecordingCommand = new Command(async () => await ToggleRecordingAsync(), () => !_isRecordingTransitioning);
         TranscribeAudioCommand = new Command<WorkspaceTreeItem>(async item => await TranscribeAudioAsync(item));
         LoadShortcutKeyFields();
+        LoadTranscriptionFields();
     }
 
     public event EventHandler? KeyboardShortcutsChanged;
@@ -1745,11 +1746,11 @@ public class MainViewModel : INotifyPropertyChanged
         try
         {
             var pipeline = _transcriptionPipelineFactory.Create(
-                _preferences.TranscriptionEngine,
-                _preferences.DiarizationEngine,
-                _preferences.WhisperBinaryPath,
-                _preferences.WhisperModelPath,
-                _preferences.PyannotePythonPath);
+                _preferencesTranscriptionEngine,
+                _preferencesDiarizationEngine,
+                _preferencesWhisperBinaryPath,
+                _preferencesWhisperModelPath,
+                _preferencesPyannotePythonPath);
 
             var progress = new Progress<double>(v => MainThread.BeginInvokeOnMainThread(() =>
                 InlineErrorMessage = $"Transcribing… {v:P0}"));

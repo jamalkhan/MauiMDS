@@ -171,8 +171,17 @@ internal sealed class AudioFileWriter : IDisposable
             var micAsset = AVUrlAsset.FromUrl(NSUrl.FromFilename(_micTempPath!));
             var sysAsset = AVUrlAsset.FromUrl(NSUrl.FromFilename(_sysTempPath!));
 
+            // Force synchronous metadata load for local files.
+            micAsset.LoadValuesAsynchronously(["tracks", "duration"], null);
+            sysAsset.LoadValuesAsynchronously(["tracks", "duration"], null);
+
             var micAudioTracks = micAsset.GetTracks(AVMediaTypes.Audio);
             var sysAudioTracks = sysAsset.GetTracks(AVMediaTypes.Audio);
+
+            _logger.LogInformation(
+                "AudioFileWriter: mic tracks={Mic}, sys tracks={Sys}, micDur={MicDur:F2}s, sysDur={SysDur:F2}s",
+                micAudioTracks.Length, sysAudioTracks.Length,
+                micAsset.Duration.Seconds, sysAsset.Duration.Seconds);
 
             var composition = AVMutableComposition.Create();
 
@@ -180,18 +189,33 @@ internal sealed class AudioFileWriter : IDisposable
             {
                 var srcTrack = micAudioTracks[0];
                 var compTrack = composition.AddMutableTrack(AVMediaTypes.Audio.GetConstant()!, 0)!;
-                compTrack.InsertTimeRange(
+                var inserted = compTrack.InsertTimeRange(
                     new CMTimeRange { Start = CMTime.Zero, Duration = micAsset.Duration },
-                    srcTrack, CMTime.Zero, out _);
+                    srcTrack, CMTime.Zero, out var err);
+                if (!inserted || err is not null)
+                    _logger.LogWarning("AudioFileWriter: mic InsertTimeRange — inserted={Inserted}, error={Error}",
+                        inserted, err?.LocalizedDescription);
             }
 
             if (sysAudioTracks.Length > 0)
             {
                 var srcTrack = sysAudioTracks[0];
                 var compTrack = composition.AddMutableTrack(AVMediaTypes.Audio.GetConstant()!, 0)!;
-                compTrack.InsertTimeRange(
+                var inserted = compTrack.InsertTimeRange(
                     new CMTimeRange { Start = CMTime.Zero, Duration = sysAsset.Duration },
-                    srcTrack, CMTime.Zero, out _);
+                    srcTrack, CMTime.Zero, out var err);
+                if (!inserted || err is not null)
+                    _logger.LogWarning("AudioFileWriter: sys InsertTimeRange — inserted={Inserted}, error={Error}",
+                        inserted, err?.LocalizedDescription);
+            }
+
+            _logger.LogInformation("AudioFileWriter: composition duration={Dur:F2}s", composition.Duration.Seconds);
+
+            // If the composition has no content, fall back to mic-only rather than producing a damaged file.
+            if (composition.Duration.Value == 0)
+            {
+                _logger.LogWarning("AudioFileWriter: composition is empty — falling back to mic-only.");
+                return FallbackToMicOnly();
             }
 
             // Delete any pre-existing file at the output path (AVAssetExportSession won't overwrite).
@@ -206,12 +230,30 @@ internal sealed class AudioFileWriter : IDisposable
 
             await export.ExportTaskAsync();
 
-            if (export.Status == AVAssetExportSessionStatus.Failed)
-                return Failure(export.Error?.LocalizedDescription ?? "Export failed.");
+            _logger.LogInformation("AudioFileWriter: export status={Status}, error={Error}",
+                export.Status, export.Error?.LocalizedDescription ?? "none");
+
+            if (export.Status != AVAssetExportSessionStatus.Completed)
+            {
+                var msg = export.Error?.LocalizedDescription ?? $"Unexpected export status: {export.Status}";
+                _logger.LogWarning("AudioFileWriter: export did not complete ({Status}) — falling back to mic-only. {Msg}",
+                    export.Status, msg);
+                return FallbackToMicOnly();
+            }
+
+            // Sanity-check the output file.
+            var outputSize = new FileInfo(_options.OutputPath).Length;
+            if (outputSize < 1024)
+            {
+                _logger.LogWarning("AudioFileWriter: export produced a suspiciously small file ({Size} bytes) — falling back to mic-only.",
+                    outputSize);
+                TryDelete(_options.OutputPath);
+                return FallbackToMicOnly();
+            }
 
             var duration = DateTimeOffset.UtcNow - _startedAt;
-            _logger.LogInformation("AudioFileWriter: finished (merged). Duration={Duration:g}, Path={Path}",
-                duration, _options.OutputPath);
+            _logger.LogInformation("AudioFileWriter: finished (merged). Duration={Duration:g}, Size={Size} bytes, Path={Path}",
+                duration, outputSize, _options.OutputPath);
             return new AudioCaptureResult
             {
                 Success = true,
@@ -221,20 +263,36 @@ internal sealed class AudioFileWriter : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "AudioFileWriter: merge failed, keeping mic-only recording.");
-            try
-            {
-                if (File.Exists(_micTempPath) && !File.Exists(_options.OutputPath))
-                    File.Move(_micTempPath!, _options.OutputPath);
-            }
-            catch { /* best-effort */ }
-            return Failure($"Merge failed: {ex.Message}");
+            _logger.LogError(ex, "AudioFileWriter: merge threw — falling back to mic-only.");
+            return FallbackToMicOnly();
         }
         finally
         {
             TryDelete(_micTempPath);
             TryDelete(_sysTempPath);
         }
+    }
+
+    private AudioCaptureResult FallbackToMicOnly()
+    {
+        try
+        {
+            if (File.Exists(_micTempPath) && !File.Exists(_options.OutputPath))
+                File.Move(_micTempPath!, _options.OutputPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AudioFileWriter: fallback mic move also failed.");
+            return Failure("Merge and mic-only fallback both failed.");
+        }
+
+        if (!File.Exists(_options.OutputPath))
+            return Failure("Merge failed and no mic recording was available.");
+
+        var duration = DateTimeOffset.UtcNow - _startedAt;
+        _logger.LogInformation("AudioFileWriter: using mic-only fallback. Duration={Duration:g}, Path={Path}",
+            duration, _options.OutputPath);
+        return new AudioCaptureResult { Success = true, FilePath = _options.OutputPath, Duration = duration };
     }
 
     private static AVAssetWriter CreateWriter(string path)

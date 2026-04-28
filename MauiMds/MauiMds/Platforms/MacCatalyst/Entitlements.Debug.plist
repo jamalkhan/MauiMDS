@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <!-- Debug builds run WITHOUT the App Sandbox so that macOS tracks TCC permissions
+         by executable path rather than by binary hash. This means Screen Recording and
+         Microphone grants survive rebuilds — no need to re-grant after every dotnet build. -->
+    <dict>
+        <key>com.apple.security.network.client</key>
+        <true/>
+    </dict>
+</plist>
