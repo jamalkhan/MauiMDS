@@ -708,9 +708,12 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        MainThread.BeginInvokeOnMainThread(() =>
+        MainThread.BeginInvokeOnMainThread(async () =>
         {
             e.Entry.Focus();
+            // Give the native first-responder cycle time to settle before
+            // applying the selection; without this Mac Catalyst resets it.
+            await Task.Delay(80);
             e.Entry.CursorPosition = 0;
             e.Entry.SelectionLength = e.Entry.Text?.Length ?? 0;
         });

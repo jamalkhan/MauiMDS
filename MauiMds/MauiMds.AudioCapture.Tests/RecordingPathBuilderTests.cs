@@ -224,4 +224,45 @@ public sealed class RecordingPathBuilderTests
         Assert.IsTrue(result);
         Assert.AreEqual("mic", role);
     }
+
+    [TestMethod]
+    public void TryParseGroupFile_FreeformBaseName_Mic_ReturnsCorrectParts()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "2026-04-28 - GAP SSO Conversation_mic.m4a", out var baseName, out var role);
+        Assert.IsTrue(result);
+        Assert.AreEqual("2026-04-28 - GAP SSO Conversation", baseName);
+        Assert.AreEqual("mic", role);
+    }
+
+    [TestMethod]
+    public void TryParseGroupFile_FreeformBaseName_Sys_ReturnsCorrectParts()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "2026-04-28 - GAP SSO Conversation_sys.m4a", out var baseName, out var role);
+        Assert.IsTrue(result);
+        Assert.AreEqual("2026-04-28 - GAP SSO Conversation", baseName);
+        Assert.AreEqual("sys", role);
+    }
+
+    [TestMethod]
+    public void TryParseGroupFile_FreeformBaseName_RotatedTranscript_ReturnsCorrectParts()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "2026-04-28 - GAP SSO Conversation_transcript.old.mds", out var baseName, out var role);
+        Assert.IsTrue(result);
+        Assert.AreEqual("2026-04-28 - GAP SSO Conversation", baseName);
+        Assert.AreEqual("transcript", role);
+    }
+
+    [TestMethod]
+    public void TryParseGroupFile_BaseNameContainingRoleWord_PicksRightmostSuffix()
+    {
+        // Base name itself contains "_mic"; the role suffix is the rightmost one.
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "my_mic_session_sys.m4a", out var baseName, out var role);
+        Assert.IsTrue(result);
+        Assert.AreEqual("my_mic_session", baseName);
+        Assert.AreEqual("sys", role);
+    }
 }

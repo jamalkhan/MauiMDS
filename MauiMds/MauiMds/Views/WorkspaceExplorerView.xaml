@@ -108,13 +108,23 @@
                                                 Value="{AppThemeBinding Light=#E8E0CF, Dark=#393835}" />
                                     </DataTrigger>
                                     <DataTrigger TargetType="Border"
+                                                 Binding="{Binding IsActivelyRecording}"
+                                                 Value="True">
+                                        <Setter Property="BackgroundColor" Value="#FFD5D5" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Border"
+                                                 Binding="{Binding IsActivelyTranscribing}"
+                                                 Value="True">
+                                        <Setter Property="BackgroundColor" Value="#F0FF40" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Border"
                                                  Binding="{Binding IsPendingDelete}"
                                                  Value="True">
                                         <Setter Property="BackgroundColor" Value="#CC2222" />
                                     </DataTrigger>
                                 </Border.Triggers>
 
-                                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto"
+                                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto"
                                       ColumnSpacing="6">
                                     <controls:WorkspaceItemIconView Grid.Column="0"
                                                                     Kind="{Binding ItemIconKind}"
@@ -133,6 +143,12 @@
                                                              Value="True">
                                                     <Setter Property="IsVisible"
                                                             Value="False" />
+                                                </DataTrigger>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding IsActivelyRecording}"
+                                                             Value="True">
+                                                    <Setter Property="TextColor" Value="#111111" />
+                                                    <Setter Property="FontAttributes" Value="Bold" />
                                                 </DataTrigger>
                                                 <DataTrigger TargetType="Label"
                                                              Binding="{Binding IsPendingDelete}"
@@ -181,17 +197,41 @@
                                             BackgroundColor="Transparent"
                                             TextColor="{AppThemeBinding Light=#6B6358, Dark=#D4CCBF}" />
 
-                                    <Button Grid.Column="4"
-                                            Text="✕"
-                                            WidthRequest="22"
-                                            HeightRequest="22"
-                                            Padding="0"
-                                            FontSize="11"
-                                            Command="{Binding Source={x:Reference RootExplorerView}, Path=BindingContext.DeleteWorkspaceItemCommand}"
-                                            CommandParameter="{Binding .}"
-                                            IsVisible="{Binding CanDelete}"
-                                            BackgroundColor="Transparent"
-                                            TextColor="{AppThemeBinding Light=#AA2222, Dark=#DD5555}" />
+                                    <Border Grid.Column="4"
+                                            BackgroundColor="#111111"
+                                            StrokeThickness="0"
+                                            StrokeShape="RoundRectangle 4"
+                                            Padding="5,2"
+                                            VerticalOptions="Center"
+                                            HorizontalOptions="End"
+                                            IsVisible="{Binding IsActivelyTranscribing}">
+                                        <Label Text="Transcribing..."
+                                               FontSize="10"
+                                               FontAttributes="Bold"
+                                               TextColor="White"
+                                               VerticalTextAlignment="Center" />
+                                    </Border>
+
+                                    <Border Grid.Column="5"
+                                            WidthRequest="20"
+                                            HeightRequest="20"
+                                            BackgroundColor="{AppThemeBinding Light=#CC3333, Dark=#DD5555}"
+                                            StrokeThickness="0"
+                                            StrokeShape="RoundRectangle 10"
+                                            VerticalOptions="Center"
+                                            HorizontalOptions="Center"
+                                            IsVisible="{Binding CanDelete}">
+                                        <Label Text="✕"
+                                               FontSize="11"
+                                               FontAttributes="Bold"
+                                               TextColor="White"
+                                               HorizontalTextAlignment="Center"
+                                               VerticalTextAlignment="Center" />
+                                        <Border.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding Source={x:Reference RootExplorerView}, Path=BindingContext.DeleteWorkspaceItemCommand}"
+                                                                  CommandParameter="{Binding .}" />
+                                        </Border.GestureRecognizers>
+                                    </Border>
 
                                 </Grid>
 

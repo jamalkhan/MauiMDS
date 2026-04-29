@@ -131,6 +131,9 @@ internal sealed class FakeWorkspaceBrowserService : IWorkspaceBrowserService
     public Task<string> RenameMarkdownFileAsync(string filePath, string newFileName, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
 
+    public Task RenameRecordingGroupAsync(RecordingGroup group, string newBaseName)
+        => throw new NotSupportedException();
+
     public string? TryCreatePersistentAccessBookmark(string folderPath) => BookmarkToReturn;
 
     public bool TryRestorePersistentAccessFromBookmark(string bookmark, out string? restoredPath, out bool isStale)

@@ -10,6 +10,9 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
     private bool _isSelected;
     private bool _isRenaming;
     private bool _isPendingDelete;
+    private bool _isActivelyRecording;
+    private bool _isInTranscriptionQueue;
+    private bool _isActivelyTranscribing;
     private string _renameText;
 
     public WorkspaceTreeItem(string fullPath, bool isDirectory, int depth, WorkspaceTreeItem? parent = null,
@@ -32,7 +35,7 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
     public double IndentWidth => Depth * 14;
     public bool HasChildren => Children.Count > 0;
     public bool CanDelete => !IsDirectory;
-    public bool CanRename => !IsDirectory && !IsRecordingGroup && !IsPendingDelete;
+    public bool CanRename => !IsDirectory && !IsPendingDelete;
     public string ExpandGlyph => IsExpanded ? "▾" : "▸";
     public string SecondaryText => IsDirectory ? "Folder" : Path.GetDirectoryName(FullPath) ?? string.Empty;
 
@@ -46,9 +49,12 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         get
         {
             if (IsRecordingGroup)
+            {
+                if (_isInTranscriptionQueue) return WorkspaceItemIconKind.AudioQueued;
                 return RecordingGroup!.HasTranscript
                     ? WorkspaceItemIconKind.AudioTranscribed
                     : WorkspaceItemIconKind.Audio;
+            }
 
             if (IsDirectory)
             {
@@ -133,6 +139,40 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
             _isPendingDelete = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanRename));
+        }
+    }
+
+    public bool IsActivelyRecording
+    {
+        get => _isActivelyRecording;
+        set
+        {
+            if (_isActivelyRecording == value) return;
+            _isActivelyRecording = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsInTranscriptionQueue
+    {
+        get => _isInTranscriptionQueue;
+        set
+        {
+            if (_isInTranscriptionQueue == value) return;
+            _isInTranscriptionQueue = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ItemIconKind));
+        }
+    }
+
+    public bool IsActivelyTranscribing
+    {
+        get => _isActivelyTranscribing;
+        set
+        {
+            if (_isActivelyTranscribing == value) return;
+            _isActivelyTranscribing = value;
+            OnPropertyChanged();
         }
     }
 

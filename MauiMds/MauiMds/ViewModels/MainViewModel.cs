@@ -110,6 +110,16 @@ public class MainViewModel : INotifyPropertyChanged
     // Pending-delete: item → cancellation source for the 5-second countdown
     private readonly Dictionary<WorkspaceTreeItem, CancellationTokenSource> _pendingDeletes = new();
 
+    // Slow double-click rename tracking
+    private WorkspaceTreeItem? _lastSingleTappedItem;
+    private DateTime _lastSingleTapTime;
+
+    // Active recording highlight
+    private string? _activeRecordingBaseName;
+
+    // Transcription queue highlights
+    private string? _activelyTranscribingBaseName;
+
     public MainViewModel(
         IMarkdownDocumentService documentService,
         IWorkspaceBrowserService workspaceBrowserService,
@@ -163,6 +173,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         _documentWatchService.DocumentChanged += OnWatchedDocumentChanged;
         Workspace.PropertyChanged += OnWorkspacePropertyChanged;
+        Workspace.WorkspaceItems.CollectionChanged += OnWorkspaceItemsChanged;
 
         OpenFileCommand = new Command(async () => await OpenFileAsync(), () => !IsBusy);
         NewDocumentCommand = new Command(async () => await NewDocumentAsync(), () => !IsBusy);
@@ -179,12 +190,31 @@ public class MainViewModel : INotifyPropertyChanged
         OpenFolderCommand = new Command(async () => await OpenFolderAsync());
         SelectWorkspaceItemCommand = new Command<WorkspaceTreeItem>(async item =>
         {
-            if (item?.IsPendingDelete == true) { CancelPendingDelete(item); return; }
+            if (item is null) return;
+            if (item.IsPendingDelete) { CancelPendingDelete(item); return; }
+
+            var now = DateTime.UtcNow;
+            var elapsed = (now - _lastSingleTapTime).TotalMilliseconds;
+
+            if (item == _lastSingleTappedItem
+                && item.IsSelected
+                && item.CanRename
+                && elapsed is >= 500 and <= 2500)
+            {
+                _lastSingleTappedItem = null;
+                BeginRenameWorkspaceItem(item);
+                return;
+            }
+
+            _lastSingleTappedItem = item;
+            _lastSingleTapTime = now;
             await SelectWorkspaceItemAsync(item);
         });
         NavigateWorkspaceItemCommand = new Command<WorkspaceTreeItem>(async item =>
         {
-            if (item?.IsPendingDelete == true) { CancelPendingDelete(item); return; }
+            if (item is null) return;
+            if (item.IsPendingDelete) { CancelPendingDelete(item); return; }
+            _lastSingleTappedItem = null;
             await NavigateWorkspaceItemAsync(item);
         });
         DeleteWorkspaceItemCommand = new Command<WorkspaceTreeItem>(async item => await StartDeleteAsync(item));
@@ -800,19 +830,28 @@ public class MainViewModel : INotifyPropertyChanged
                 Workspace.MarkRenameCommitted();
             });
 
-            var updatedPath = await _workspaceBrowserService.RenameMarkdownFileAsync(item.FullPath, item.RenameText);
-
-            if (string.Equals(FilePath, item.FullPath, StringComparison.Ordinal))
+            if (item.IsRecordingGroup)
             {
-                var renamedDocument = await _documentService.LoadDocumentAsync(updatedPath);
-                await LoadDocumentIntoStateAsync(renamedDocument);
+                await _workspaceBrowserService.RenameRecordingGroupAsync(item.RecordingGroup!, item.RenameText);
+                await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: item.RecordingGroup!.DirectoryPath);
+            }
+            else
+            {
+                var updatedPath = await _workspaceBrowserService.RenameMarkdownFileAsync(item.FullPath, item.RenameText);
+
+                if (string.Equals(FilePath, item.FullPath, StringComparison.Ordinal))
+                {
+                    var renamedDocument = await _documentService.LoadDocumentAsync(updatedPath);
+                    await LoadDocumentIntoStateAsync(renamedDocument);
+                }
+
+                await Workspace.LoadWorkspaceAsync(
+                    WorkspaceRootPath,
+                    currentFolderPath: Path.GetDirectoryName(updatedPath) ?? WorkspaceRootPath,
+                    selectedPath: updatedPath);
+                PersistSessionState();
             }
 
-            await Workspace.LoadWorkspaceAsync(
-                WorkspaceRootPath,
-                currentFolderPath: Path.GetDirectoryName(updatedPath) ?? WorkspaceRootPath,
-                selectedPath: updatedPath);
-            PersistSessionState();
             await ClearInlineErrorAsync();
         }
         catch (Exception ex)
@@ -1740,7 +1779,9 @@ public class MainViewModel : INotifyPropertyChanged
             (ToggleRecordingCommand as Command)?.ChangeCanExecute();
             try
             {
+                var stoppedBaseName = _activeRecordingBaseName;
                 var result = await _audioCaptureService.StopAsync();
+                SetActiveRecordingBaseName(null);
                 if (!result.Success)
                 {
                     _logger.LogWarning("Recording stop failed: {Error}", result.ErrorMessage);
@@ -1752,6 +1793,17 @@ public class MainViewModel : INotifyPropertyChanged
                     if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
                     {
                         await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath);
+                    }
+
+                    if (!string.IsNullOrEmpty(stoppedBaseName))
+                    {
+                        var newGroup = Workspace.WorkspaceItems
+                            .FirstOrDefault(i => i.IsRecordingGroup &&
+                                string.Equals(i.RecordingGroup!.BaseName, stoppedBaseName, StringComparison.Ordinal))
+                            ?.RecordingGroup;
+
+                        if (newGroup is not null)
+                            EnqueueGroupTranscription(newGroup);
                     }
                 }
             }
@@ -1804,6 +1856,8 @@ public class MainViewModel : INotifyPropertyChanged
                 var options = new AudioCaptureOptions { OutputPath = micPath, SysOutputPath = sysPath };
 
                 await _audioCaptureService.StartAsync(options);
+                RecordingPathBuilder.TryParseGroupFile(Path.GetFileName(micPath), out var activeBaseName, out _);
+                SetActiveRecordingBaseName(activeBaseName);
                 _logger.LogInformation("Recording started: mic={Mic}, sys={Sys}", micPath, sysPath);
 
                 if (_audioCaptureService.LastStartWarning is { } warning)
@@ -1884,6 +1938,7 @@ public class MainViewModel : INotifyPropertyChanged
             "Group {Name} added to transcription queue (queue depth: {Depth}).",
             group.BaseName, _transcriptionQueue.Count);
         OnPropertyChanged(nameof(CanReTranscribeGroup));
+        ApplyTranscriptionHighlights();
 
         if (!_isProcessingQueue)
             _ = ProcessTranscriptionQueueAsync();
@@ -1899,12 +1954,16 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 try
                 {
+                    _activelyTranscribingBaseName = group.BaseName;
+                    ApplyTranscriptionHighlights();
                     await TranscribeGroupAsync(group);
                 }
                 finally
                 {
+                    _activelyTranscribingBaseName = null;
                     _queuedGroupBaseNames.Remove(group.BaseName);
                     OnPropertyChanged(nameof(CanReTranscribeGroup));
+                    ApplyTranscriptionHighlights();
                     _logger.LogInformation(
                         "Group {Name} removed from transcription queue (remaining: {Remaining}).",
                         group.BaseName, _transcriptionQueue.Count);
@@ -1961,6 +2020,8 @@ public class MainViewModel : INotifyPropertyChanged
             sb.AppendLine("---");
             sb.AppendLine();
 
+            RecordingPathBuilder.TryParseRecordingStart(group.BaseName, out var groupRecordingStart);
+
             var allSegments = new List<(TimeSpan Start, TimeSpan End, string Speaker, string Text)>();
 
             if (group.MicFilePath is { } micPath)
@@ -1977,12 +2038,8 @@ public class MainViewModel : INotifyPropertyChanged
                     allSegments.Add((seg.Start, seg.End, "System Audio", seg.Text));
             }
 
-            foreach (var seg in allSegments.OrderBy(s => s.Start))
-            {
-                sb.AppendLine($"**[{seg.Start:hh\\:mm\\:ss} – {seg.End:hh\\:mm\\:ss}] {seg.Speaker}**");
-                sb.AppendLine(seg.Text);
-                sb.AppendLine();
-            }
+            AppendSpeakerGroupedSegments(sb, allSegments.OrderBy(s => s.Start),
+                groupRecordingStart == default ? null : groupRecordingStart);
 
             var transcriptPath = Path.Combine(group.DirectoryPath, group.BaseName + "_transcript.mds");
             await File.WriteAllTextAsync(transcriptPath, sb.ToString());
@@ -2085,14 +2142,55 @@ public class MainViewModel : INotifyPropertyChanged
         sb.AppendLine("---");
         sb.AppendLine();
 
-        foreach (var seg in doc.Segments)
-        {
-            sb.AppendLine($"**[{seg.Start:hh\\:mm\\:ss} – {seg.End:hh\\:mm\\:ss}] {seg.SpeakerLabel}**");
-            sb.AppendLine(seg.Text);
-            sb.AppendLine();
-        }
+        var baseName = Path.GetFileNameWithoutExtension(audioPath);
+        RecordingPathBuilder.TryParseGroupFile(baseName, out var fileBaseName, out _);
+        DateTime? startTime = RecordingPathBuilder.TryParseRecordingStart(
+            string.IsNullOrEmpty(fileBaseName) ? baseName : fileBaseName, out var t) ? t : null;
+
+        AppendSpeakerGroupedSegments(sb,
+            doc.Segments.Select(s => (s.Start, s.End, s.SpeakerLabel, s.Text)),
+            startTime);
 
         return sb.ToString();
+    }
+
+    private static void AppendSpeakerGroupedSegments(
+        System.Text.StringBuilder sb,
+        IEnumerable<(TimeSpan Start, TimeSpan End, string Speaker, string Text)> segments,
+        DateTime? recordingStart = null)
+    {
+        if (recordingStart is null)
+            sb.AppendLine("> *All timestamps relative to recording start time.*");
+
+        string? currentSpeaker = null;
+
+        foreach (var seg in segments)
+        {
+            if (!string.Equals(seg.Speaker, currentSpeaker, StringComparison.Ordinal))
+            {
+                if (currentSpeaker is not null)
+                    sb.AppendLine();
+                sb.AppendLine($"### {seg.Speaker}");
+                currentSpeaker = seg.Speaker;
+            }
+
+            string startTs, endTs;
+            if (recordingStart is { } rs)
+            {
+                startTs = (rs + seg.Start).ToString("HH:mm:ss");
+                endTs   = (rs + seg.End).ToString("HH:mm:ss");
+            }
+            else
+            {
+                startTs = seg.Start.ToString(@"hh\:mm\:ss");
+                endTs   = seg.End.ToString(@"hh\:mm\:ss");
+            }
+
+            sb.AppendLine($"> *[{startTs} – {endTs}]* {seg.Text}");
+        }
+
+        if (currentSpeaker is not null)
+            sb.AppendLine();
     }
 
     private void OnAudioCaptureStateChanged(object? sender, AudioCaptureState state)
@@ -2167,6 +2265,58 @@ public class MainViewModel : INotifyPropertyChanged
         if (!HasWorkspaceRoot) return;
         try { await Workspace.ReloadFromDiskAsync(); }
         catch (Exception ex) { _logger.LogWarning(ex, "Workspace refresh failed."); }
+    }
+
+    private void SetActiveRecordingBaseName(string? baseName)
+    {
+        _activeRecordingBaseName = baseName;
+        ApplyRecordingHighlight();
+    }
+
+    private void ApplyRecordingHighlight()
+    {
+        foreach (var item in Workspace.WorkspaceItems)
+        {
+            item.IsActivelyRecording =
+                !string.IsNullOrEmpty(_activeRecordingBaseName) &&
+                item.IsRecordingGroup &&
+                string.Equals(item.RecordingGroup!.BaseName, _activeRecordingBaseName, StringComparison.Ordinal);
+        }
+    }
+
+    private void ApplyTranscriptionHighlights()
+    {
+        foreach (var item in Workspace.WorkspaceItems)
+        {
+            if (!item.IsRecordingGroup) continue;
+            var baseName = item.RecordingGroup!.BaseName;
+            item.IsActivelyTranscribing = string.Equals(baseName, _activelyTranscribingBaseName, StringComparison.Ordinal);
+            item.IsInTranscriptionQueue = !item.IsActivelyTranscribing && _queuedGroupBaseNames.Contains(baseName);
+        }
+    }
+
+    private void OnWorkspaceItemsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        var newItems = e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add
+            ? e.NewItems
+            : null;
+
+        if (newItems is not null)
+        {
+            foreach (WorkspaceTreeItem item in newItems)
+            {
+                if (!item.IsRecordingGroup) continue;
+                var baseName = item.RecordingGroup!.BaseName;
+                item.IsActivelyRecording = string.Equals(baseName, _activeRecordingBaseName, StringComparison.Ordinal);
+                item.IsActivelyTranscribing = string.Equals(baseName, _activelyTranscribingBaseName, StringComparison.Ordinal);
+                item.IsInTranscriptionQueue = !item.IsActivelyTranscribing && _queuedGroupBaseNames.Contains(baseName);
+            }
+        }
+        else
+        {
+            ApplyRecordingHighlight();
+            ApplyTranscriptionHighlights();
+        }
     }
 
     private async Task StartDeleteAsync(WorkspaceTreeItem? item)

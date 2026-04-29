@@ -158,6 +158,39 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
         return Task.FromResult(targetPath);
     }
 
+    public Task RenameRecordingGroupAsync(RecordingGroup group, string newBaseName)
+    {
+        var newBase = newBaseName.Trim();
+        if (string.IsNullOrWhiteSpace(newBase))
+            throw new InvalidOperationException("Name cannot be empty.");
+        if (newBase.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new InvalidOperationException("Name contains invalid characters.");
+        if (string.Equals(newBase, group.BaseName, StringComparison.Ordinal))
+            return Task.CompletedTask;
+
+        // Check for conflicts before moving anything
+        foreach (var file in Directory.GetFiles(group.DirectoryPath))
+        {
+            var fileName = Path.GetFileName(file);
+            if (!fileName.StartsWith(group.BaseName, StringComparison.OrdinalIgnoreCase)) continue;
+            var suffix = fileName[group.BaseName.Length..];
+            var newFilePath = Path.Combine(group.DirectoryPath, newBase + suffix);
+            if (File.Exists(newFilePath))
+                throw new InvalidOperationException($"A file named '{newBase + suffix}' already exists.");
+        }
+
+        foreach (var file in Directory.GetFiles(group.DirectoryPath))
+        {
+            var fileName = Path.GetFileName(file);
+            if (!fileName.StartsWith(group.BaseName, StringComparison.OrdinalIgnoreCase)) continue;
+            var suffix = fileName[group.BaseName.Length..];
+            File.Move(file, Path.Combine(group.DirectoryPath, newBase + suffix));
+        }
+
+        _logger.LogInformation("Renamed recording group from {OldBase} to {NewBase}", group.BaseName, newBase);
+        return Task.CompletedTask;
+    }
+
     public string? TryCreatePersistentAccessBookmark(string folderPath)
     {
 #if MACCATALYST

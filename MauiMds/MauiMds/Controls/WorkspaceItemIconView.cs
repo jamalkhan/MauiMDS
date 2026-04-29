@@ -19,9 +19,11 @@ public sealed class WorkspaceItemIconView : ContentView
     private readonly Border _redFolderTab;
     private readonly Border _audioBody;
     private readonly Border _audioTranscribedBody;
+    private readonly Border _audioQueuedBody;
     private readonly Label _hashOverlay;
     private readonly Label _audioNote;
     private readonly Label _audioTranscribedNote;
+    private readonly Label _audioQueuedNote;
 
     public WorkspaceItemIconView()
     {
@@ -129,6 +131,18 @@ public sealed class WorkspaceItemIconView : ContentView
             Stroke = Color.FromArgb("#1E7340")
         };
 
+        _audioQueuedBody = new Border
+        {
+            WidthRequest = 28,
+            HeightRequest = 28,
+            StrokeThickness = 1,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(14) },
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            BackgroundColor = Color.FromArgb("#7BBFEA"),
+            Stroke = Color.FromArgb("#4A8FBF")
+        };
+
         _hashOverlay = new Label
         {
             Text = "#",
@@ -163,6 +177,17 @@ public sealed class WorkspaceItemIconView : ContentView
             IsVisible = false
         };
 
+        _audioQueuedNote = new Label
+        {
+            Text = "♪",
+            FontSize = 18,
+            FontAttributes = FontAttributes.Bold,
+            HorizontalTextAlignment = TextAlignment.Center,
+            VerticalTextAlignment = TextAlignment.Center,
+            TextColor = Colors.White,
+            IsVisible = false
+        };
+
         Content = new Grid
         {
             WidthRequest = 36,
@@ -175,11 +200,13 @@ public sealed class WorkspaceItemIconView : ContentView
                 _folderTab,
                 _audioBody,
                 _audioTranscribedBody,
+                _audioQueuedBody,
                 _documentBody,
                 _foldCorner,
                 _hashOverlay,
                 _audioNote,
-                _audioTranscribedNote
+                _audioTranscribedNote,
+                _audioQueuedNote
             }
         };
 
@@ -203,8 +230,9 @@ public sealed class WorkspaceItemIconView : ContentView
         var isRecordingsFolder = Kind == WorkspaceItemIconKind.RecordingsFolder;
         var isAudio = Kind == WorkspaceItemIconKind.Audio;
         var isAudioTranscribed = Kind == WorkspaceItemIconKind.AudioTranscribed;
+        var isAudioQueued = Kind == WorkspaceItemIconKind.AudioQueued;
         var isMarkdownSharp = Kind == WorkspaceItemIconKind.MarkdownSharp;
-        var isDocument = !isFolder && !isRecordingsFolder && !isAudio && !isAudioTranscribed;
+        var isDocument = !isFolder && !isRecordingsFolder && !isAudio && !isAudioTranscribed && !isAudioQueued;
 
         _folderBody.IsVisible = isFolder;
         _folderTab.IsVisible = isFolder;
@@ -214,6 +242,8 @@ public sealed class WorkspaceItemIconView : ContentView
         _audioNote.IsVisible = isAudio;
         _audioTranscribedBody.IsVisible = isAudioTranscribed;
         _audioTranscribedNote.IsVisible = isAudioTranscribed;
+        _audioQueuedBody.IsVisible = isAudioQueued;
+        _audioQueuedNote.IsVisible = isAudioQueued;
         _documentBody.IsVisible = isDocument;
         _foldCorner.IsVisible = isDocument;
         _hashOverlay.IsVisible = isMarkdownSharp;
