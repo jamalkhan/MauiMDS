@@ -7,101 +7,75 @@ using Microsoft.Extensions.Logging;
 namespace MauiMds.AudioCapture.MacCatalyst;
 
 /// <summary>
-/// Writes mic and/or system audio to a single M4A file.
-///
-/// When both sources are active, each gets its own AVAssetWriter keyed to its own
-/// clock domain (SCK and AVCaptureSession use different clocks). On finish the two
-/// temp files are merged into one via AVMutableComposition so that both tracks
-/// start at T=0 and play to their full individual durations.
+/// Writes a single audio source (mic OR system audio) to an M4A file via AVAssetWriter.
+/// One instance per source — the caller creates two instances for dual-source recordings.
 /// </summary>
 internal sealed class AudioFileWriter : IDisposable
 {
     private readonly ILogger _logger;
-    private readonly AudioCaptureOptions _options;
+    private readonly string _outputPath;
+    private readonly string _label;
 
-    // -- mic writer
-    private readonly AVAssetWriter? _micWriter;
-    private readonly AVAssetWriterInput? _micInput;
-    private readonly string? _micTempPath;
-    private bool _micSessionStarted;
-
-    // -- system audio writer
-    private readonly AVAssetWriter? _sysWriter;
-    private readonly AVAssetWriterInput? _sysInput;
-    private readonly string? _sysTempPath;
-    private bool _sysSessionStarted;
+    private readonly AVAssetWriter _writer;
+    private readonly AVAssetWriterInput _input;
 
     private readonly object _lock = new();
+    private bool _sessionStarted;
     private bool _finished;
     private bool _disposed;
-    private DateTimeOffset _startedAt;
+    private readonly DateTimeOffset _startedAt;
 
-    public AudioFileWriter(AudioCaptureOptions options, ILogger logger)
+    public AudioFileWriter(string outputPath, AudioCaptureOptions options, string label, ILogger logger)
     {
-        _options = options;
+        _outputPath = outputPath;
+        _label = label;
         _logger = logger;
         _startedAt = DateTimeOffset.UtcNow;
 
-        var dir = Path.GetDirectoryName(options.OutputPath) ?? string.Empty;
-        var stem = Path.GetFileNameWithoutExtension(options.OutputPath);
+        var dir = Path.GetDirectoryName(outputPath) ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(dir))
+            Directory.CreateDirectory(dir);
 
-        if (options.CaptureMicrophone)
+        _writer = new AVAssetWriter(NSUrl.FromFilename(outputPath), "com.apple.m4a-audio", out NSError? err);
+        if (err is not null)
+            throw new InvalidOperationException($"Could not create AVAssetWriter for {label}: {err.LocalizedDescription}");
+
+        var settings = new AudioSettings
         {
-            // When both sources are active, write mic to a temp file and merge later.
-            // When mic-only, write directly to the final path.
-            _micTempPath = options.CaptureSystemAudio
-                ? Path.Combine(dir, $"{stem}.tmp_mic.m4a")
-                : options.OutputPath;
+            Format = AudioFormatType.MPEG4AAC,
+            SampleRate = options.SampleRate,
+            NumberChannels = options.ChannelCount,
+            EncoderBitRate = options.EncoderBitRate
+        };
+        _input = new AVAssetWriterInput("soun", settings) { ExpectsMediaDataInRealTime = true };
+        _writer.AddInput(_input);
 
-            _micWriter = CreateWriter(_micTempPath);
-            _micInput = CreateWriterInput(options);
-            _micWriter.AddInput(_micInput);
-            StartWriter(_micWriter);
-        }
+        if (!_writer.StartWriting())
+            throw new InvalidOperationException(
+                $"AVAssetWriter failed to start for {label}: {_writer.Error?.LocalizedDescription}");
 
-        if (options.CaptureSystemAudio)
-        {
-            _sysTempPath = options.CaptureMicrophone
-                ? Path.Combine(dir, $"{stem}.tmp_sys.m4a")
-                : options.OutputPath;
-
-            _sysWriter = CreateWriter(_sysTempPath);
-            _sysInput = CreateWriterInput(options);
-            _sysWriter.AddInput(_sysInput);
-            StartWriter(_sysWriter);
-        }
-
-        _logger.LogInformation("AudioFileWriter: writer ready → {Path}", options.OutputPath);
+        _logger.LogInformation("AudioFileWriter ({Label}): ready → {Path}", label, outputPath);
     }
 
-    public void AppendMicAudio(CMSampleBuffer buffer) =>
-        AppendBuffer(buffer, _micWriter, _micInput, ref _micSessionStarted, "mic");
+    public bool HasData => _sessionStarted;
 
-    public void AppendSystemAudio(CMSampleBuffer buffer) =>
-        AppendBuffer(buffer, _sysWriter, _sysInput, ref _sysSessionStarted, "sys");
-
-    private void AppendBuffer(
-        CMSampleBuffer buffer,
-        AVAssetWriter? writer,
-        AVAssetWriterInput? input,
-        ref bool sessionStarted,
-        string label)
+    public void AppendBuffer(CMSampleBuffer buffer)
     {
-        if (writer is null || input is null || _finished) return;
+        if (_finished) return;
 
         lock (_lock)
         {
-            if (!sessionStarted)
+            if (!_sessionStarted)
             {
-                writer.StartSessionAtSourceTime(buffer.PresentationTimeStamp);
-                sessionStarted = true;
+                _writer.StartSessionAtSourceTime(buffer.PresentationTimeStamp);
+                _sessionStarted = true;
             }
         }
 
-        if (input.ReadyForMoreMediaData && !input.AppendSampleBuffer(buffer))
+        if (_input.ReadyForMoreMediaData && !_input.AppendSampleBuffer(buffer))
         {
-            _logger.LogWarning("AudioFileWriter: failed to append {Label} buffer — {Error}",
-                label, writer.Error?.LocalizedDescription);
+            _logger.LogWarning("AudioFileWriter ({Label}): failed to append buffer — {Error}",
+                _label, _writer.Error?.LocalizedDescription);
         }
     }
 
@@ -110,225 +84,28 @@ internal sealed class AudioFileWriter : IDisposable
         if (_finished) return Failure("Already finished.");
         _finished = true;
 
-        var micHasData = _micSessionStarted;
-        var sysHasData = _sysSessionStarted;
-
-        if (!micHasData && !sysHasData)
+        if (!_sessionStarted)
         {
-            _micWriter?.CancelWriting();
-            _sysWriter?.CancelWriting();
-            return Failure("No audio data was captured before stop was called.");
+            _writer.CancelWriting();
+            return Failure($"No audio data captured for {_label} before stop was called.");
         }
 
-        // Finish whichever writers were used.
-        if (micHasData)
-        {
-            _micInput!.MarkAsFinished();
-            await _micWriter!.FinishWritingAsync();
-            if (_micWriter.Status == AVAssetWriterStatus.Failed)
-                return Failure(_micWriter.Error?.LocalizedDescription ?? "Mic writer failed.");
-        }
-        else
-        {
-            _micWriter?.CancelWriting();
-        }
+        _input.MarkAsFinished();
+        await _writer.FinishWritingAsync();
 
-        if (sysHasData)
-        {
-            _sysInput!.MarkAsFinished();
-            await _sysWriter!.FinishWritingAsync();
-            if (_sysWriter.Status == AVAssetWriterStatus.Failed)
-                return Failure(_sysWriter.Error?.LocalizedDescription ?? "System audio writer failed.");
-        }
-        else
-        {
-            _sysWriter?.CancelWriting();
-        }
-
-        // If only one source is active, it already wrote to the final path — done.
-        if (!(micHasData && sysHasData))
-        {
-            var duration = DateTimeOffset.UtcNow - _startedAt;
-            _logger.LogInformation("AudioFileWriter: finished. Duration={Duration:g}, Path={Path}",
-                duration, _options.OutputPath);
-            return new AudioCaptureResult
-            {
-                Success = true,
-                FilePath = _options.OutputPath,
-                Duration = duration
-            };
-        }
-
-        // Both sources active — merge temp files into the final output.
-        return await MergeAsync();
-    }
-
-    private async Task<AudioCaptureResult> MergeAsync()
-    {
-        _logger.LogInformation("AudioFileWriter: merging mic + system audio tracks.");
-        try
-        {
-            var micAsset = AVUrlAsset.FromUrl(NSUrl.FromFilename(_micTempPath!));
-            var sysAsset = AVUrlAsset.FromUrl(NSUrl.FromFilename(_sysTempPath!));
-
-            // Force synchronous metadata load for local files.
-            micAsset.LoadValuesAsynchronously(["tracks", "duration"], null);
-            sysAsset.LoadValuesAsynchronously(["tracks", "duration"], null);
-
-            var micAudioTracks = micAsset.GetTracks(AVMediaTypes.Audio);
-            var sysAudioTracks = sysAsset.GetTracks(AVMediaTypes.Audio);
-
-            _logger.LogInformation(
-                "AudioFileWriter: mic tracks={Mic}, sys tracks={Sys}, micDur={MicDur:F2}s, sysDur={SysDur:F2}s",
-                micAudioTracks.Length, sysAudioTracks.Length,
-                micAsset.Duration.Seconds, sysAsset.Duration.Seconds);
-
-            var composition = AVMutableComposition.Create();
-
-            if (micAudioTracks.Length > 0)
-            {
-                var srcTrack = micAudioTracks[0];
-                var compTrack = composition.AddMutableTrack(AVMediaTypes.Audio.GetConstant()!, 0)!;
-                var inserted = compTrack.InsertTimeRange(
-                    new CMTimeRange { Start = CMTime.Zero, Duration = micAsset.Duration },
-                    srcTrack, CMTime.Zero, out var err);
-                if (!inserted || err is not null)
-                    _logger.LogWarning("AudioFileWriter: mic InsertTimeRange — inserted={Inserted}, error={Error}",
-                        inserted, err?.LocalizedDescription);
-            }
-
-            if (sysAudioTracks.Length > 0)
-            {
-                var srcTrack = sysAudioTracks[0];
-                var compTrack = composition.AddMutableTrack(AVMediaTypes.Audio.GetConstant()!, 0)!;
-                var inserted = compTrack.InsertTimeRange(
-                    new CMTimeRange { Start = CMTime.Zero, Duration = sysAsset.Duration },
-                    srcTrack, CMTime.Zero, out var err);
-                if (!inserted || err is not null)
-                    _logger.LogWarning("AudioFileWriter: sys InsertTimeRange — inserted={Inserted}, error={Error}",
-                        inserted, err?.LocalizedDescription);
-            }
-
-            _logger.LogInformation("AudioFileWriter: composition duration={Dur:F2}s", composition.Duration.Seconds);
-
-            // If the composition has no content, fall back to mic-only rather than producing a damaged file.
-            if (composition.Duration.Value == 0)
-            {
-                _logger.LogWarning("AudioFileWriter: composition is empty — falling back to mic-only.");
-                return FallbackToMicOnly();
-            }
-
-            // Delete any pre-existing file at the output path (AVAssetExportSession won't overwrite).
-            if (File.Exists(_options.OutputPath))
-                File.Delete(_options.OutputPath);
-
-            var export = AVAssetExportSession.FromAsset(composition, AVAssetExportSession.PresetAppleM4A)
-                ?? throw new InvalidOperationException("Could not create AVAssetExportSession.");
-
-            export.OutputUrl = NSUrl.FromFilename(_options.OutputPath);
-            export.OutputFileType = "com.apple.m4a-audio";
-
-            await export.ExportTaskAsync();
-
-            _logger.LogInformation("AudioFileWriter: export status={Status}, error={Error}",
-                export.Status, export.Error?.LocalizedDescription ?? "none");
-
-            if (export.Status != AVAssetExportSessionStatus.Completed)
-            {
-                var msg = export.Error?.LocalizedDescription ?? $"Unexpected export status: {export.Status}";
-                _logger.LogWarning("AudioFileWriter: export did not complete ({Status}) — falling back to mic-only. {Msg}",
-                    export.Status, msg);
-                return FallbackToMicOnly();
-            }
-
-            // Sanity-check the output file.
-            var outputSize = new FileInfo(_options.OutputPath).Length;
-            if (outputSize < 1024)
-            {
-                _logger.LogWarning("AudioFileWriter: export produced a suspiciously small file ({Size} bytes) — falling back to mic-only.",
-                    outputSize);
-                TryDelete(_options.OutputPath);
-                return FallbackToMicOnly();
-            }
-
-            var duration = DateTimeOffset.UtcNow - _startedAt;
-            _logger.LogInformation("AudioFileWriter: finished (merged). Duration={Duration:g}, Size={Size} bytes, Path={Path}",
-                duration, outputSize, _options.OutputPath);
-            return new AudioCaptureResult
-            {
-                Success = true,
-                FilePath = _options.OutputPath,
-                Duration = duration
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "AudioFileWriter: merge threw — falling back to mic-only.");
-            return FallbackToMicOnly();
-        }
-        finally
-        {
-            TryDelete(_micTempPath);
-            TryDelete(_sysTempPath);
-        }
-    }
-
-    private AudioCaptureResult FallbackToMicOnly()
-    {
-        try
-        {
-            if (File.Exists(_micTempPath) && !File.Exists(_options.OutputPath))
-                File.Move(_micTempPath!, _options.OutputPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "AudioFileWriter: fallback mic move also failed.");
-            return Failure("Merge and mic-only fallback both failed.");
-        }
-
-        if (!File.Exists(_options.OutputPath))
-            return Failure("Merge failed and no mic recording was available.");
+        if (_writer.Status == AVAssetWriterStatus.Failed)
+            return Failure(_writer.Error?.LocalizedDescription ?? $"{_label} writer failed.");
 
         var duration = DateTimeOffset.UtcNow - _startedAt;
-        _logger.LogInformation("AudioFileWriter: using mic-only fallback. Duration={Duration:g}, Path={Path}",
-            duration, _options.OutputPath);
-        return new AudioCaptureResult { Success = true, FilePath = _options.OutputPath, Duration = duration };
-    }
+        _logger.LogInformation("AudioFileWriter ({Label}): finished. Duration={Duration:g}, Path={Path}",
+            _label, duration, _outputPath);
 
-    private static AVAssetWriter CreateWriter(string path)
-    {
-        var writer = new AVAssetWriter(
-            NSUrl.FromFilename(path),
-            "com.apple.m4a-audio",
-            out NSError? err);
-        if (err is not null)
-            throw new InvalidOperationException($"Could not create AVAssetWriter: {err.LocalizedDescription}");
-        return writer;
-    }
-
-    private static void StartWriter(AVAssetWriter writer)
-    {
-        if (!writer.StartWriting())
-            throw new InvalidOperationException(
-                $"AVAssetWriter failed to start: {writer.Error?.LocalizedDescription}");
-    }
-
-    private static AVAssetWriterInput CreateWriterInput(AudioCaptureOptions options)
-    {
-        var settings = new AudioSettings
+        return new AudioCaptureResult
         {
-            Format = AudioFormatType.MPEG4AAC,
-            SampleRate = options.SampleRate,
-            NumberChannels = options.ChannelCount,
-            EncoderBitRate = options.EncoderBitRate
+            Success = true,
+            AudioFilePaths = [_outputPath],
+            Duration = duration
         };
-        return new AVAssetWriterInput("soun", settings) { ExpectsMediaDataInRealTime = true };
-    }
-
-    private static void TryDelete(string? path)
-    {
-        if (path is not null)
-            try { File.Delete(path); } catch { /* best-effort */ }
     }
 
     private static AudioCaptureResult Failure(string message) =>
@@ -338,14 +115,9 @@ internal sealed class AudioFileWriter : IDisposable
     {
         if (_disposed) return;
         if (!_finished)
-        {
-            _micWriter?.CancelWriting();
-            _sysWriter?.CancelWriting();
-        }
-        _micInput?.Dispose();
-        _micWriter?.Dispose();
-        _sysInput?.Dispose();
-        _sysWriter?.Dispose();
+            _writer.CancelWriting();
+        _input.Dispose();
+        _writer.Dispose();
         _disposed = true;
     }
 }

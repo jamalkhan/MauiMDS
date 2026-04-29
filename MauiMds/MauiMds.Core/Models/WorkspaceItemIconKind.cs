@@ -5,6 +5,7 @@ public enum WorkspaceItemIconKind
     Folder,
     RecordingsFolder,
     Audio,
+    AudioTranscribed,
     Markdown,
     MarkdownSharp
 }

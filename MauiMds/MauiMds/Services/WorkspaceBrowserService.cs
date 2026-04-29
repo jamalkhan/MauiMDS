@@ -1,3 +1,4 @@
+using MauiMds.AudioCapture;
 using MauiMds.Models;
 using Microsoft.Extensions.Logging;
 #if MACCATALYST
@@ -291,18 +292,92 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
                 };
             });
 
-        var files = EnumerateFilesSafely(directory)
+        var allFiles = EnumerateFilesSafely(directory)
             .Where(file => !IsHidden(file))
             .Where(file => AllowedExtensions.Contains(file.Extension, StringComparer.OrdinalIgnoreCase))
             .OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(file => new WorkspaceNodeInfo
+            .ToList();
+
+        var fileNodes = BuildFileNodes(directory.FullName, allFiles);
+
+        return [.. directories, .. fileNodes];
+    }
+
+    private static List<WorkspaceNodeInfo> BuildFileNodes(string directoryPath, List<FileInfo> files)
+    {
+        // Collect files that belong to a recording group (mic/sys/transcript suffix).
+        var groups = new Dictionary<string, (string? Mic, string? Sys, string? Transcript)>(
+            StringComparer.OrdinalIgnoreCase);
+        var standaloneFiles = new List<FileInfo>();
+
+        foreach (var file in files)
+        {
+            if (RecordingPathBuilder.TryParseGroupFile(file.Name, out var baseName, out var role))
+            {
+                if (!groups.TryGetValue(baseName, out var entry))
+                    entry = (null, null, null);
+
+                entry = role switch
+                {
+                    "mic"        => entry with { Mic = file.FullName },
+                    "sys"        => entry with { Sys = file.FullName },
+                    "transcript" => entry with { Transcript = file.FullName },
+                    _            => entry
+                };
+                groups[baseName] = entry;
+            }
+            else
+            {
+                standaloneFiles.Add(file);
+            }
+        }
+
+        var result = new List<WorkspaceNodeInfo>();
+
+        // Emit one node per recording group.
+        foreach (var (baseName, (mic, sys, transcript)) in groups.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var group = new RecordingGroup
+            {
+                BaseName = baseName,
+                DirectoryPath = directoryPath,
+                MicFilePath = mic,
+                SysFilePath = sys,
+                TranscriptPath = transcript
+            };
+
+            // Use the mic path as the canonical FullPath for the tree node; fall back to sys.
+            var canonicalPath = mic ?? sys ?? transcript ?? Path.Combine(directoryPath, baseName);
+
+            result.Add(new WorkspaceNodeInfo
+            {
+                FullPath = canonicalPath,
+                IsDirectory = false,
+                Children = [],
+                RecordingGroup = group
+            });
+        }
+
+        // Emit standalone files unchanged.
+        foreach (var file in standaloneFiles)
+        {
+            result.Add(new WorkspaceNodeInfo
             {
                 FullPath = file.FullName,
                 IsDirectory = false,
                 Children = []
             });
+        }
 
-        return directories.Concat(files).ToList();
+        // Sort the combined list by display name so groups and files interleave alphabetically.
+        result.Sort((a, b) =>
+        {
+            var nameA = a.RecordingGroup?.BaseName ?? Path.GetFileName(a.FullPath);
+            var nameB = b.RecordingGroup?.BaseName ?? Path.GetFileName(b.FullPath);
+            return StringComparer.OrdinalIgnoreCase.Compare(nameA, nameB);
+        });
+
+        return result;
     }
 
     private IEnumerable<DirectoryInfo> EnumerateDirectoriesSafely(DirectoryInfo directory)

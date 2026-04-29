@@ -12,10 +12,12 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     private AudioCaptureState _state = AudioCaptureState.Idle;
     private SystemAudioOutput? _systemAudio;
     private MicrophoneInput? _micAudio;
-    private AudioFileWriter? _writer;
+    private AudioFileWriter? _micWriter;
+    private AudioFileWriter? _sysWriter;
     private AudioCaptureOptions? _activeOptions;
-    // When the target format is not M4A, we record to a temp M4A and convert after stop.
-    private string? _desiredOutputPath;
+
+    // When the mic target format is not M4A, we record to temp M4A and convert after stop.
+    private string? _desiredMicOutputPath;
 
     public AudioCaptureState State => _state;
     public string? LastStartWarning { get; private set; }
@@ -45,64 +47,58 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
 
     public async Task StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.OutputPath);
-
-        if (!options.CaptureSystemAudio && !options.CaptureMicrophone)
-        {
+        if (!options.CaptureMicrophone && !options.CaptureSystemAudio)
             throw new ArgumentException("At least one audio source must be enabled.", nameof(options));
-        }
 
         await _stateLock.WaitAsync(cancellationToken);
         try
         {
             if (_state != AudioCaptureState.Idle)
-            {
                 throw new InvalidOperationException($"Cannot start capture from state {_state}.");
-            }
 
             SetState(AudioCaptureState.Starting);
             LastStartWarning = null;
             _activeOptions = options;
 
-            // If the desired format is not M4A, record to a temp M4A and convert on stop.
-            var targetExt = Path.GetExtension(options.OutputPath).ToLowerInvariant();
-            string internalM4aPath;
-            if (targetExt == ".m4a")
+            // Determine mic recording path — may need temp M4A if format is not M4A.
+            string? internalMicM4aPath = null;
+            if (options.CaptureMicrophone)
             {
-                internalM4aPath = options.OutputPath;
-                _desiredOutputPath = null;
-            }
-            else
-            {
-                _desiredOutputPath = options.OutputPath;
-                internalM4aPath = Path.Combine(
-                    Path.GetDirectoryName(options.OutputPath)!,
-                    Path.GetFileNameWithoutExtension(options.OutputPath) + ".tmp_rec.m4a");
+                var targetExt = Path.GetExtension(options.OutputPath).ToLowerInvariant();
+                if (targetExt == ".m4a")
+                {
+                    internalMicM4aPath = options.OutputPath;
+                    _desiredMicOutputPath = null;
+                }
+                else
+                {
+                    _desiredMicOutputPath = options.OutputPath;
+                    internalMicM4aPath = Path.ChangeExtension(options.OutputPath, ".tmp_mic.m4a");
+                }
+                EnsureDirectory(internalMicM4aPath);
             }
 
-            // Ensure output directory exists.
-            var dir = Path.GetDirectoryName(internalM4aPath);
-            if (!string.IsNullOrWhiteSpace(dir))
-                Directory.CreateDirectory(dir);
+            if (!string.IsNullOrEmpty(options.SysOutputPath))
+                EnsureDirectory(options.SysOutputPath);
 
-            // Start sources first so we know which are actually active before
-            // creating the writer (avoids ghost tracks for failed sources).
-            var systemAudioActive = false;
+            // Start sources — system audio can fail gracefully when mic is also enabled.
+            var sysActive = false;
             if (options.CaptureSystemAudio)
             {
                 _systemAudio = new SystemAudioOutput(_logger);
                 try
                 {
                     await _systemAudio.StartAsync(options.SampleRate, options.ChannelCount);
-                    systemAudioActive = true;
+                    sysActive = true;
                 }
                 catch (InvalidOperationException ex) when (options.CaptureMicrophone)
                 {
                     _logger.LogWarning(ex, "AudioCaptureService: system audio unavailable, falling back to microphone-only.");
                     _systemAudio.Dispose();
                     _systemAudio = null;
-                    LastStartWarning = "System audio could not be captured (Screen Recording permission may need an app restart). " +
-                                       "Recording microphone only.";
+                    LastStartWarning =
+                        "System audio could not be captured (Screen Recording permission may need an app restart). " +
+                        "Recording microphone only.";
                 }
             }
 
@@ -114,26 +110,22 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
                 micActive = true;
             }
 
-            // Create the writer with only the sources that are actually running.
-            var effectiveOptions = new AudioCaptureOptions
-            {
-                OutputPath = internalM4aPath,
-                SampleRate = options.SampleRate,
-                ChannelCount = options.ChannelCount,
-                EncoderBitRate = options.EncoderBitRate,
-                CaptureSystemAudio = systemAudioActive,
-                CaptureMicrophone = micActive,
-            };
-            _writer = new AudioFileWriter(effectiveOptions, _logger);
-
-            if (systemAudioActive)
-                _systemAudio!.SampleBufferReceived += buf => _writer?.AppendSystemAudio(buf);
-
+            // Create writers only for sources that actually started.
             if (micActive)
-                _micAudio!.SampleBufferReceived += buf => _writer?.AppendMicAudio(buf);
+            {
+                _micWriter = new AudioFileWriter(internalMicM4aPath!, options, "mic", _logger);
+                _micAudio!.SampleBufferReceived += buf => _micWriter?.AppendBuffer(buf);
+            }
+
+            if (sysActive)
+            {
+                _sysWriter = new AudioFileWriter(options.SysOutputPath, options, "sys", _logger);
+                _systemAudio!.SampleBufferReceived += buf => _sysWriter?.AppendBuffer(buf);
+            }
 
             SetState(AudioCaptureState.Recording);
-            _logger.LogInformation("AudioCaptureService: recording started → {Path}", internalM4aPath);
+            _logger.LogInformation("AudioCaptureService: recording started. Mic={MicPath}, Sys={SysPath}",
+                internalMicM4aPath ?? "(none)", options.SysOutputPath.Length > 0 ? options.SysOutputPath : "(none)");
         }
         catch
         {
@@ -162,48 +154,102 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             }
 
             SetState(AudioCaptureState.Stopping);
-
             await CleanupSourcesAsync();
 
-            var result = _writer is not null
-                ? await _writer.FinishAsync()
-                : new AudioCaptureResult { Success = false, ErrorMessage = "Writer was not initialised." };
+            var allPaths = new List<string>(2);
+            var duration = TimeSpan.Zero;
+            string? firstError = null;
 
-            _writer?.Dispose();
-            _writer = null;
-
-            // If we recorded to a temp M4A, convert to the desired format.
-            if (result.Success && _desiredOutputPath is not null && result.FilePath is not null)
+            if (_micWriter is not null)
             {
-                var convertedResult = await ConvertToTargetFormatAsync(
-                    result.FilePath, _desiredOutputPath, result.Duration);
+                var micResult = await _micWriter.FinishAsync();
+                _micWriter.Dispose();
+                _micWriter = null;
 
-                if (convertedResult.Success)
+                if (micResult.Success)
                 {
-                    TryDeleteFile(result.FilePath);
-                    result = convertedResult;
-                    _logger.LogInformation("AudioCaptureService: converted to {Ext}. Path={Path}",
-                        Path.GetExtension(_desiredOutputPath), _desiredOutputPath);
+                    // Convert mic file to desired format if needed.
+                    var finalMicResult = await MaybeConvertMicAsync(micResult);
+                    if (finalMicResult.Success && finalMicResult.FilePath.Length > 0)
+                    {
+                        allPaths.Add(finalMicResult.FilePath);
+                        duration = finalMicResult.Duration;
+                    }
+                    else
+                    {
+                        firstError ??= finalMicResult.ErrorMessage;
+                    }
                 }
                 else
                 {
-                    _logger.LogWarning(
-                        "AudioCaptureService: format conversion failed ({Err}) — keeping M4A at {Path}",
-                        convertedResult.ErrorMessage, result.FilePath);
+                    firstError ??= micResult.ErrorMessage;
                 }
             }
 
-            _desiredOutputPath = null;
-            _activeOptions = null;
+            if (_sysWriter is not null)
+            {
+                var sysResult = await _sysWriter.FinishAsync();
+                _sysWriter.Dispose();
+                _sysWriter = null;
 
+                if (sysResult.Success && sysResult.FilePath.Length > 0)
+                {
+                    allPaths.Add(sysResult.FilePath);
+                    if (duration == TimeSpan.Zero)
+                        duration = sysResult.Duration;
+                }
+                else
+                {
+                    firstError ??= sysResult.ErrorMessage;
+                }
+            }
+
+            _desiredMicOutputPath = null;
+            _activeOptions = null;
             SetState(AudioCaptureState.Idle);
-            _logger.LogInformation("AudioCaptureService: recording stopped. Success={Success}", result.Success);
-            return result;
+
+            if (allPaths.Count == 0)
+            {
+                _logger.LogWarning("AudioCaptureService: stop produced no output files. Error: {Error}", firstError);
+                return new AudioCaptureResult { Success = false, ErrorMessage = firstError ?? "No audio was captured." };
+            }
+
+            _logger.LogInformation("AudioCaptureService: recording stopped. Files={Count}, Duration={Duration:g}",
+                allPaths.Count, duration);
+            return new AudioCaptureResult { Success = true, AudioFilePaths = allPaths, Duration = duration };
         }
         finally
         {
             _stateLock.Release();
         }
+    }
+
+    private async Task<AudioCaptureResult> MaybeConvertMicAsync(AudioCaptureResult micResult)
+    {
+        if (_desiredMicOutputPath is null)
+            return micResult;
+
+        var tempM4aPath = micResult.FilePath;
+        var convertedResult = await ConvertToTargetFormatAsync(tempM4aPath, _desiredMicOutputPath, micResult.Duration);
+
+        if (convertedResult.Success)
+        {
+            TryDeleteFile(tempM4aPath);
+            _logger.LogInformation("AudioCaptureService: converted mic to {Ext}. Path={Path}",
+                Path.GetExtension(_desiredMicOutputPath), _desiredMicOutputPath);
+            return convertedResult;
+        }
+
+        _logger.LogWarning("AudioCaptureService: format conversion failed ({Err}) — keeping temp M4A at {Path}",
+            convertedResult.ErrorMessage, tempM4aPath);
+
+        // Return temp M4A as a fallback so the recording is not lost.
+        return new AudioCaptureResult
+        {
+            Success = true,
+            AudioFilePaths = [tempM4aPath],
+            Duration = micResult.Duration
+        };
     }
 
     private async Task<AudioCaptureResult> ConvertToTargetFormatAsync(
@@ -221,7 +267,6 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     private async Task<AudioCaptureResult> ConvertToFlacAsync(
         string sourcePath, string targetPath, TimeSpan duration)
     {
-        // afconvert is always present on macOS.
         var (exitCode, stderr) = await RunProcessAsync(
             "/usr/bin/afconvert",
             $"-f fLaC -d fLaC \"{sourcePath}\" \"{targetPath}\"");
@@ -235,8 +280,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
                 ErrorMessage = $"FLAC conversion failed (afconvert exited {exitCode}). {stderr}".Trim()
             };
         }
-
-        return new AudioCaptureResult { Success = true, FilePath = targetPath, Duration = duration };
+        return new AudioCaptureResult { Success = true, AudioFilePaths = [targetPath], Duration = duration };
     }
 
     private async Task<AudioCaptureResult> ConvertToMp3Async(
@@ -245,7 +289,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         var ffmpeg = FindFfmpeg();
         if (ffmpeg is null)
         {
-            _logger.LogWarning("ffmpeg not found — cannot convert to MP3. Install via 'brew install ffmpeg'.");
+            _logger.LogWarning("ffmpeg not found — cannot convert to MP3.");
             return new AudioCaptureResult
             {
                 Success = false,
@@ -254,8 +298,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         }
 
         var (exitCode, stderr) = await RunProcessAsync(
-            ffmpeg,
-            $"-i \"{sourcePath}\" -q:a 2 -y \"{targetPath}\"");
+            ffmpeg, $"-i \"{sourcePath}\" -q:a 2 -y \"{targetPath}\"");
 
         if (exitCode != 0 || !File.Exists(targetPath))
         {
@@ -266,8 +309,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
                 ErrorMessage = $"MP3 conversion failed (ffmpeg exited {exitCode}). {stderr}".Trim()
             };
         }
-
-        return new AudioCaptureResult { Success = true, FilePath = targetPath, Duration = duration };
+        return new AudioCaptureResult { Success = true, AudioFilePaths = [targetPath], Duration = duration };
     }
 
     private static string? FindFfmpeg()
@@ -276,8 +318,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         return candidates.FirstOrDefault(File.Exists);
     }
 
-    private static async Task<(int ExitCode, string Stderr)> RunProcessAsync(
-        string fileName, string arguments)
+    private static async Task<(int ExitCode, string Stderr)> RunProcessAsync(string fileName, string arguments)
     {
         var psi = new ProcessStartInfo
         {
@@ -303,7 +344,6 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             _systemAudio.Dispose();
             _systemAudio = null;
         }
-
         _micAudio?.Stop();
         _micAudio?.Dispose();
         _micAudio = null;
@@ -313,6 +353,13 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     {
         _state = newState;
         StateChanged?.Invoke(this, newState);
+    }
+
+    private static void EnsureDirectory(string filePath)
+    {
+        var dir = Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrWhiteSpace(dir))
+            Directory.CreateDirectory(dir);
     }
 
     private static void TryDeleteFile(string? path)
@@ -325,7 +372,8 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     {
         _systemAudio?.Dispose();
         _micAudio?.Dispose();
-        _writer?.Dispose();
+        _micWriter?.Dispose();
+        _sysWriter?.Dispose();
         _stateLock.Dispose();
     }
 }

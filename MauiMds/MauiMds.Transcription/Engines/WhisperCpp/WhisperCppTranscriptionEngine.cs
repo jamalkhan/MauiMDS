@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Transcription.Engines.WhisperCpp;
@@ -81,7 +82,7 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
                 progress?.Report(0.20);
             }
 
-            await RunWhisperAsync(inputPath, outputBase, cancellationToken);
+            await RunWhisperAsync(inputPath, outputBase, progress, cancellationToken);
 
             progress?.Report(0.85);
 
@@ -126,21 +127,29 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
 
         using var process = new Process { StartInfo = psi };
         process.Start();
-        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
 
-        if (process.ExitCode != 0 || !File.Exists(outputPath))
+        try
         {
-            _logger.LogError("ffmpeg MP3 conversion failed (code {Code}): {Err}", process.ExitCode, stderr);
-            throw new InvalidOperationException(
-                $"Failed to convert audio to MP3 (ffmpeg exited {process.ExitCode}). {stderr}".Trim());
+            var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.StandardOutput.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode != 0 || !File.Exists(outputPath))
+            {
+                _logger.LogError("ffmpeg MP3 conversion failed (code {Code}): {Err}", process.ExitCode, stderr);
+                throw new InvalidOperationException(
+                    $"Failed to convert audio to MP3 (ffmpeg exited {process.ExitCode}). {stderr}".Trim());
+            }
+        }
+        catch when (cancellationToken.IsCancellationRequested)
+        {
+            KillSafely(process);
+            throw;
         }
     }
 
     private async Task ConvertToWavAsync(string inputPath, string outputPath, CancellationToken cancellationToken)
     {
-        // afconvert is always present on macOS.
-        // LEI16@16000 = 16-bit PCM at 16 kHz mono — optimal for whisper.cpp.
         var psi = new ProcessStartInfo
         {
             FileName = "/usr/bin/afconvert",
@@ -153,26 +162,40 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
 
         using var process = new Process { StartInfo = psi };
         process.Start();
-        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
 
-        if (process.ExitCode != 0 || !File.Exists(outputPath))
+        try
         {
-            _logger.LogError("afconvert failed (code {Code}): {Err}", process.ExitCode, stderr);
-            throw new InvalidOperationException(
-                $"Failed to convert audio to WAV (afconvert exited {process.ExitCode}). {stderr}".Trim());
+            var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.StandardOutput.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode != 0 || !File.Exists(outputPath))
+            {
+                _logger.LogError("afconvert failed (code {Code}): {Err}", process.ExitCode, stderr);
+                throw new InvalidOperationException(
+                    $"Failed to convert audio to WAV (afconvert exited {process.ExitCode}). {stderr}".Trim());
+            }
+        }
+        catch when (cancellationToken.IsCancellationRequested)
+        {
+            KillSafely(process);
+            throw;
         }
     }
+
+    // Matches: "whisper_print_progress_callback: progress = 25%"
+    private static readonly Regex WhisperProgressRegex =
+        new(@"progress\s*=\s*(\d+)\s*%", RegexOptions.Compiled);
 
     private async Task RunWhisperAsync(
         string audioFilePath,
         string outputBase,
+        IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
         var psi = new ProcessStartInfo
         {
             FileName = _binaryPath,
-            // -m model  -f input  -oj output-json  -of output-base
             Arguments = $"-m \"{_modelPath}\" -f \"{audioFilePath}\" -oj -of \"{outputBase}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -183,17 +206,54 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
         using var process = new Process { StartInfo = psi };
         process.Start();
 
-        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        var stderrCapture = new System.Text.StringBuilder();
+
+        var stderrTask = Task.Run(async () =>
+        {
+            while (true)
+            {
+                var line = await process.StandardError.ReadLineAsync(cancellationToken);
+                if (line is null) break;
+                stderrCapture.AppendLine(line);
+
+                if (!string.IsNullOrWhiteSpace(line))
+                    _logger.LogDebug("whisper-cli: {Line}", line);
+
+                var m = WhisperProgressRegex.Match(line);
+                if (m.Success && int.TryParse(m.Groups[1].Value, out var pct))
+                {
+                    // Map whisper's 0–100 into our 20%–85% band (20% was used for conversion).
+                    progress?.Report(0.20 + pct / 100.0 * 0.65);
+                }
+            }
+        }, cancellationToken);
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+
+        try
+        {
+            await Task.WhenAll(stderrTask, stdoutTask);
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch when (cancellationToken.IsCancellationRequested)
+        {
+            KillSafely(process);
+            throw;
+        }
 
         if (process.ExitCode != 0)
         {
-            _logger.LogError("whisper-cli exited with code {Code}. Stderr: {Err}",
-                process.ExitCode, stderr);
+            _logger.LogError("whisper-cli exited with code {Code}.\nStderr:\n{Err}",
+                process.ExitCode, stderrCapture.ToString());
             throw new InvalidOperationException(
                 $"whisper-cli exited with code {process.ExitCode}. " +
                 "Verify the binary and model paths are correct.");
         }
+    }
+
+    private static void KillSafely(Process process)
+    {
+        try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
     }
 
     private IReadOnlyList<TranscriptSegment> ParseWhisperJson(string jsonPath)

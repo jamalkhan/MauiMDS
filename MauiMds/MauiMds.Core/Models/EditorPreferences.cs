@@ -19,6 +19,12 @@ public sealed class EditorPreferences
     public string PyannotePythonPath { get; init; } = string.Empty;
     public RecordingFormat RecordingFormat { get; init; } = RecordingFormat.M4A;
 
+    /// <summary>
+    /// How often (in seconds) the workspace file explorer auto-refreshes from disk.
+    /// 0 = disabled; a FileSystemWatcher handles instant updates regardless.
+    /// </summary>
+    public int WorkspaceRefreshIntervalSeconds { get; init; } = 30;
+
     public static readonly IReadOnlyList<KeyboardShortcutDefinition> DefaultShortcuts =
     [
         new KeyboardShortcutDefinition { Action = EditorActionType.Header1, Key = "1" },

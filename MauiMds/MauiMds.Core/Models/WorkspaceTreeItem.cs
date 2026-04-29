@@ -9,14 +9,17 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
     private bool _isExpanded = true;
     private bool _isSelected;
     private bool _isRenaming;
+    private bool _isPendingDelete;
     private string _renameText;
 
-    public WorkspaceTreeItem(string fullPath, bool isDirectory, int depth, WorkspaceTreeItem? parent = null)
+    public WorkspaceTreeItem(string fullPath, bool isDirectory, int depth, WorkspaceTreeItem? parent = null,
+        RecordingGroup? recordingGroup = null)
     {
         _fullPath = fullPath;
         IsDirectory = isDirectory;
         Depth = depth;
         Parent = parent;
+        RecordingGroup = recordingGroup;
         _renameText = Name;
     }
 
@@ -28,13 +31,25 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
     public int Depth { get; }
     public double IndentWidth => Depth * 14;
     public bool HasChildren => Children.Count > 0;
-    public bool CanRename => !IsDirectory;
+    public bool CanDelete => !IsDirectory;
+    public bool CanRename => !IsDirectory && !IsRecordingGroup && !IsPendingDelete;
     public string ExpandGlyph => IsExpanded ? "▾" : "▸";
     public string SecondaryText => IsDirectory ? "Folder" : Path.GetDirectoryName(FullPath) ?? string.Empty;
+
+    /// <summary>Non-null when this item represents a recording group in the workspace tree.</summary>
+    public RecordingGroup? RecordingGroup { get; }
+
+    public bool IsRecordingGroup => RecordingGroup is not null;
+
     public WorkspaceItemIconKind ItemIconKind
     {
         get
         {
+            if (IsRecordingGroup)
+                return RecordingGroup!.HasTranscript
+                    ? WorkspaceItemIconKind.AudioTranscribed
+                    : WorkspaceItemIconKind.Audio;
+
             if (IsDirectory)
             {
                 return string.Equals(Name, "Recordings", StringComparison.OrdinalIgnoreCase)
@@ -51,7 +66,7 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         }
     }
 
-    public bool IsAudioFile => !IsDirectory && IsAudioExtension(Path.GetExtension(FullPath));
+    public bool IsAudioFile => !IsDirectory && !IsRecordingGroup && IsAudioExtension(Path.GetExtension(FullPath));
 
     private static bool IsAudioExtension(string ext) =>
         string.Equals(ext, ".m4a", StringComparison.OrdinalIgnoreCase) ||
@@ -63,11 +78,7 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         get => _fullPath;
         private set
         {
-            if (_fullPath == value)
-            {
-                return;
-            }
-
+            if (_fullPath == value) return;
             _fullPath = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(Name));
@@ -75,18 +86,16 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         }
     }
 
-    public string Name => Path.GetFileName(FullPath);
+    public string Name => IsRecordingGroup
+        ? RecordingGroup!.DisplayName
+        : Path.GetFileName(FullPath);
 
     public bool IsExpanded
     {
         get => _isExpanded;
         set
         {
-            if (_isExpanded == value)
-            {
-                return;
-            }
-
+            if (_isExpanded == value) return;
             _isExpanded = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ExpandGlyph));
@@ -98,11 +107,7 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         get => _isSelected;
         set
         {
-            if (_isSelected == value)
-            {
-                return;
-            }
-
+            if (_isSelected == value) return;
             _isSelected = value;
             OnPropertyChanged();
         }
@@ -113,13 +118,21 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         get => _isRenaming;
         set
         {
-            if (_isRenaming == value)
-            {
-                return;
-            }
-
+            if (_isRenaming == value) return;
             _isRenaming = value;
             OnPropertyChanged();
+        }
+    }
+
+    public bool IsPendingDelete
+    {
+        get => _isPendingDelete;
+        set
+        {
+            if (_isPendingDelete == value) return;
+            _isPendingDelete = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanRename));
         }
     }
 
@@ -128,11 +141,7 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         get => _renameText;
         set
         {
-            if (_renameText == value)
-            {
-                return;
-            }
-
+            if (_renameText == value) return;
             _renameText = value;
             OnPropertyChanged();
         }

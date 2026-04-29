@@ -36,7 +36,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 WhisperBinaryPath = preferences.WhisperBinaryPath,
                 WhisperModelPath = preferences.WhisperModelPath,
                 PyannotePythonPath = preferences.PyannotePythonPath,
-                RecordingFormat = preferences.RecordingFormat
+                RecordingFormat = preferences.RecordingFormat,
+                WorkspaceRefreshIntervalSeconds = Math.Max(0, preferences.WorkspaceRefreshIntervalSeconds)
             };
         }
         catch
@@ -67,7 +68,8 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             WhisperBinaryPath = preferences.WhisperBinaryPath,
             WhisperModelPath = preferences.WhisperModelPath,
             PyannotePythonPath = preferences.PyannotePythonPath,
-            RecordingFormat = preferences.RecordingFormat
+            RecordingFormat = preferences.RecordingFormat,
+            WorkspaceRefreshIntervalSeconds = Math.Max(0, preferences.WorkspaceRefreshIntervalSeconds)
         };
 
         var json = JsonSerializer.Serialize(normalized, JsonOptions);

@@ -193,8 +193,8 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
         if (item.IsDirectory)
         {
             SetSelectedWorkspaceItem(null);
-            CurrentWorkspaceFolderPath = item.FullPath;
-            await RefreshWorkspaceItemsAsync();
+            // Reload from disk so newly-created files in this folder are visible.
+            await LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: item.FullPath);
         }
     }
 
@@ -216,8 +216,22 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
             parentDirectory = WorkspaceRootPath;
         }
 
-        CurrentWorkspaceFolderPath = parentDirectory;
         SetSelectedWorkspaceItem(null);
+        // Reload from disk so newly-created files are visible.
+        await LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: parentDirectory);
+    }
+
+    /// <summary>Re-scans the workspace root from disk without changing the current folder or selection.</summary>
+    public async Task ReloadFromDiskAsync()
+    {
+        if (string.IsNullOrWhiteSpace(WorkspaceRootPath)) return;
+        var tree = await _workspaceBrowserService.LoadWorkspaceTreeAsync(WorkspaceRootPath);
+        var rootItems = tree.Select(info => BuildWorkspaceItem(info, 0, null)).ToList();
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            _workspaceRootItems.Clear();
+            _workspaceRootItems.AddRange(rootItems);
+        });
         await RefreshWorkspaceItemsAsync();
     }
 
@@ -295,7 +309,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
 
     private WorkspaceTreeItem BuildWorkspaceItem(WorkspaceNodeInfo info, int depth, WorkspaceTreeItem? parent)
     {
-        var item = new WorkspaceTreeItem(info.FullPath, info.IsDirectory, depth, parent);
+        var item = new WorkspaceTreeItem(info.FullPath, info.IsDirectory, depth, parent, info.RecordingGroup);
         foreach (var child in info.Children)
         {
             item.Children.Add(BuildWorkspaceItem(child, depth + 1, item));

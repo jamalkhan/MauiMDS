@@ -9,6 +9,13 @@ namespace MauiMds;
 
 public partial class App : Application
 {
+    /// <summary>
+    /// Set to true in applicationWillTerminate (before UIKit begins tearing down views).
+    /// Managed UI event handlers must guard against running after this point or they risk
+    /// throwing inside _traitCollectionDidChange: which causes SIGABRT on Mac Catalyst.
+    /// </summary>
+    internal static volatile bool IsTerminating;
+
     private readonly ILogger<App> _logger;
     private readonly MainPage _mainPage;
     private NavigationPage? _rootPage;

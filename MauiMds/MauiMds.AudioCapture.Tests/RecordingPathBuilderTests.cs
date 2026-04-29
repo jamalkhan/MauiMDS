@@ -5,6 +5,8 @@ public sealed class RecordingPathBuilderTests
 {
     private static readonly DateTimeOffset FixedTime = new(2026, 4, 22, 15, 30, 45, TimeSpan.Zero);
 
+    // ── Build (legacy) ────────────────────────────────────────────────────
+
     [TestMethod]
     public void Build_PlacesFileInRecordingsSubfolder()
     {
@@ -87,5 +89,139 @@ public sealed class RecordingPathBuilderTests
         const string deep = "/a/b/c/d";
         var path = RecordingPathBuilder.Build(deep, FixedTime);
         StringAssert.StartsWith(path, deep);
+    }
+
+    // ── BuildMic ──────────────────────────────────────────────────────────
+
+    [TestMethod]
+    public void BuildMic_FileNameHasMicSuffix()
+    {
+        var path = RecordingPathBuilder.BuildMic("/base", FixedTime);
+        StringAssert.Contains(Path.GetFileNameWithoutExtension(path), "_mic");
+    }
+
+    [TestMethod]
+    public void BuildMic_DefaultExtensionIsM4a()
+    {
+        var path = RecordingPathBuilder.BuildMic("/base", FixedTime);
+        StringAssert.EndsWith(path, ".m4a");
+    }
+
+    [TestMethod]
+    public void BuildMic_CustomExtensionIsApplied()
+    {
+        var path = RecordingPathBuilder.BuildMic("/base", FixedTime, ".mp3");
+        StringAssert.EndsWith(path, ".mp3");
+    }
+
+    [TestMethod]
+    public void BuildMic_FullFileNameMatchesExpectedPattern()
+    {
+        var path = RecordingPathBuilder.BuildMic("/base", FixedTime);
+        Assert.AreEqual("audio_capture_2026_04_22_153045_mic.m4a", Path.GetFileName(path));
+    }
+
+    // ── BuildSys ──────────────────────────────────────────────────────────
+
+    [TestMethod]
+    public void BuildSys_FileNameHasSysSuffix()
+    {
+        var path = RecordingPathBuilder.BuildSys("/base", FixedTime);
+        StringAssert.Contains(Path.GetFileNameWithoutExtension(path), "_sys");
+    }
+
+    [TestMethod]
+    public void BuildSys_DefaultExtensionIsM4a()
+    {
+        var path = RecordingPathBuilder.BuildSys("/base", FixedTime);
+        StringAssert.EndsWith(path, ".m4a");
+    }
+
+    [TestMethod]
+    public void BuildSys_FullFileNameMatchesExpectedPattern()
+    {
+        var path = RecordingPathBuilder.BuildSys("/base", FixedTime);
+        Assert.AreEqual("audio_capture_2026_04_22_153045_sys.m4a", Path.GetFileName(path));
+    }
+
+    // ── BuildTranscript ───────────────────────────────────────────────────
+
+    [TestMethod]
+    public void BuildTranscript_FileNameHasTranscriptSuffix()
+    {
+        var path = RecordingPathBuilder.BuildTranscript("/base", FixedTime);
+        StringAssert.Contains(Path.GetFileNameWithoutExtension(path), "_transcript");
+    }
+
+    [TestMethod]
+    public void BuildTranscript_ExtensionIsMds()
+    {
+        var path = RecordingPathBuilder.BuildTranscript("/base", FixedTime);
+        StringAssert.EndsWith(path, ".mds");
+    }
+
+    [TestMethod]
+    public void BuildTranscript_FullFileNameMatchesExpectedPattern()
+    {
+        var path = RecordingPathBuilder.BuildTranscript("/base", FixedTime);
+        Assert.AreEqual("audio_capture_2026_04_22_153045_transcript.mds", Path.GetFileName(path));
+    }
+
+    // ── TryParseGroupFile ─────────────────────────────────────────────────
+
+    [TestMethod]
+    public void TryParseGroupFile_MicFile_ReturnsTrueWithCorrectParts()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "audio_capture_2026_04_22_153045_mic.m4a", out var baseName, out var role);
+        Assert.IsTrue(result);
+        Assert.AreEqual("audio_capture_2026_04_22_153045", baseName);
+        Assert.AreEqual("mic", role);
+    }
+
+    [TestMethod]
+    public void TryParseGroupFile_SysFile_ReturnsTrueWithCorrectParts()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "audio_capture_2026_04_22_153045_sys.m4a", out var baseName, out var role);
+        Assert.IsTrue(result);
+        Assert.AreEqual("audio_capture_2026_04_22_153045", baseName);
+        Assert.AreEqual("sys", role);
+    }
+
+    [TestMethod]
+    public void TryParseGroupFile_TranscriptFile_ReturnsTrueWithCorrectParts()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "audio_capture_2026_04_22_153045_transcript.mds", out var baseName, out var role);
+        Assert.IsTrue(result);
+        Assert.AreEqual("audio_capture_2026_04_22_153045", baseName);
+        Assert.AreEqual("transcript", role);
+    }
+
+    [TestMethod]
+    public void TryParseGroupFile_LegacyFile_ReturnsFalse()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "audio_capture_2026_04_22_153045.m4a", out var baseName, out var role);
+        Assert.IsFalse(result);
+        Assert.AreEqual(string.Empty, baseName);
+        Assert.AreEqual(string.Empty, role);
+    }
+
+    [TestMethod]
+    public void TryParseGroupFile_ArbitraryFile_ReturnsFalse()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile("notes.md", out _, out _);
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void TryParseGroupFile_IsCaseInsensitive()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "AUDIO_CAPTURE_2026_04_22_153045_MIC.M4A", out _, out var role);
+        Assert.IsTrue(result);
+        Assert.AreEqual("mic", role);
     }
 }

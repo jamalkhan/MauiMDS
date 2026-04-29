@@ -114,7 +114,7 @@
                         <!-- Tab content row -->
                         <Grid Grid.Row="1">
                             <!-- General tab -->
-                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
                                   RowSpacing="12"
                                   IsVisible="{Binding IsGeneralTabActive}">
                                 <HorizontalStackLayout Spacing="12">
@@ -180,6 +180,20 @@
                                            TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
                                     <Switch IsToggled="{Binding PreferencesUse24HourTime}" />
                                     <Label Text="Default is 12-hour"
+                                           VerticalTextAlignment="Center"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                </HorizontalStackLayout>
+
+                                <HorizontalStackLayout Grid.Row="5"
+                                                       Spacing="12">
+                                    <Label Text="Explorer Auto-Refresh (seconds)"
+                                           VerticalTextAlignment="Center"
+                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                                    <Entry WidthRequest="90"
+                                           Keyboard="Numeric"
+                                           Text="{Binding PreferencesWorkspaceRefreshIntervalSeconds}" />
+                                    <Label Text="0 = disabled, default 30"
                                            VerticalTextAlignment="Center"
                                            FontSize="12"
                                            TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
@@ -531,6 +545,12 @@
 
                 <views:ViewerHostView x:Name="ViewerHost"
                                       Grid.Row="3" />
+
+                <views:RecordingGroupView x:Name="RecordingGroupView"
+                                           Grid.Row="3"
+                                           VerticalOptions="End"
+                                           IsVisible="{Binding IsRecordingGroupSelected}"
+                                           BindingContext="{Binding}" />
 
                 <views:LogsDockView x:Name="LogsDock"
                                     Grid.Row="4" />

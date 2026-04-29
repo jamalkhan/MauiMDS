@@ -65,11 +65,27 @@ public partial class MainPage : ContentPage
             Loaded += OnLoaded;
             SizeChanged += OnPageSizeChanged;
             _logger.LogDebug("MainPage initialized successfully.");
+
+            HandlerChanging += OnPageHandlerChanging;
         }
         catch (Exception ex)
         {
             _logger.LogCritical(ex, "MainPage initialization failed.");
             throw;
+        }
+    }
+
+    private void OnPageHandlerChanging(object? sender, HandlerChangingEventArgs args)
+    {
+        // When the native handler is removed (app quitting), unsubscribe all
+        // managed event handlers so they cannot fire during UIKit teardown.
+        // An unhandled exception inside _traitCollectionDidChange: causes SIGABRT.
+        if (args.NewHandler is null && BindingContext is MainViewModel vm)
+        {
+            vm.PropertyChanged -= OnViewModelPropertyChanged;
+            vm.EditorActionRequested -= OnEditorActionRequested;
+            _snackbarService.PropertyChanged -= OnSnackbarPropertyChanged;
+            _snackbarService.History.CollectionChanged -= OnSnackbarHistoryChanged;
         }
     }
 
@@ -165,6 +181,7 @@ public partial class MainPage : ContentPage
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (App.IsTerminating) return;
         if (BindingContext is not MainViewModel vm)
         {
             return;
@@ -193,6 +210,7 @@ public partial class MainPage : ContentPage
 
     private void OnSnackbarPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (App.IsTerminating) return;
         if (e.PropertyName is nameof(SnackbarService.CurrentMessage) or nameof(SnackbarService.HasCurrentMessage))
         {
             RefreshSnackbar();
@@ -201,10 +219,37 @@ public partial class MainPage : ContentPage
 
     private void OnSnackbarHistoryChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        RenderSnackbarHistory();
-        RefreshHistoryPaneState();
-        RefreshSnackbar();
+        if (App.IsTerminating) return;
+
+        // Incremental updates — avoid the full Children.Clear() + rebuild on every
+        // Add/Remove, which caused O(n) view creation per log message and pegged
+        // the CPU when whisper logged hundreds of lines during transcription.
+        switch (e.Action)
+        {
+            case NotifyCollectionChangedAction.Add when e.NewItems?.Count == 1:
+                LogsDock.HistoryStack.Children.Add(CreateHistoryEntry((SnackbarMessage)e.NewItems[0]!));
+                UpdateHistoryCountLabel();
+                RefreshHistoryPaneState();
+                RefreshSnackbar();
+                break;
+
+            case NotifyCollectionChangedAction.Remove when e.OldItems?.Count == 1:
+                if (e.OldStartingIndex >= 0 && e.OldStartingIndex < LogsDock.HistoryStack.Children.Count)
+                    LogsDock.HistoryStack.Children.RemoveAt(e.OldStartingIndex);
+                UpdateHistoryCountLabel();
+                break;
+
+            default:
+                RenderSnackbarHistory();
+                RefreshHistoryPaneState();
+                RefreshSnackbar();
+                break;
+        }
     }
+
+    private void UpdateHistoryCountLabel() =>
+        LogsDock.HistoryCountLabelControl.Text =
+            $"{_snackbarService.History.Count} / {_snackbarService.HistoryCapacity}";
 
     private async void OnSnackbarTapped(object? sender, TappedEventArgs e)
     {

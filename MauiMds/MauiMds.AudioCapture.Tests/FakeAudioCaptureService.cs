@@ -63,10 +63,16 @@ internal sealed class FakeAudioCaptureService : IAudioCaptureService
         Transition(AudioCaptureState.Stopping);
         Transition(AudioCaptureState.Idle);
 
+        var paths = new List<string>();
+        if (!string.IsNullOrEmpty(LastOptions?.OutputPath))
+            paths.Add(LastOptions.OutputPath);
+        if (!string.IsNullOrEmpty(LastOptions?.SysOutputPath))
+            paths.Add(LastOptions.SysOutputPath);
+
         return Task.FromResult(new AudioCaptureResult
         {
             Success = !ShouldFailStop,
-            FilePath = LastOptions?.OutputPath ?? string.Empty,
+            AudioFilePaths = ShouldFailStop ? [] : paths,
             Duration = TimeSpan.FromSeconds(5),
             ErrorMessage = ShouldFailStop ? "Simulated stop failure." : null
         });

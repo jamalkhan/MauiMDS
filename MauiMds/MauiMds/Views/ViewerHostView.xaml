@@ -11,6 +11,18 @@
             Margin="0,-13,0,0"
             StrokeShape="RoundRectangle 0,0,18,18">
         <Grid>
+            <Button Text="⟳ Re-transcribe"
+                    Command="{Binding ReTranscribeGroupCommand}"
+                    IsVisible="{Binding CanReTranscribeGroup}"
+                    VerticalOptions="Start"
+                    HorizontalOptions="End"
+                    ZIndex="10"
+                    Padding="14,8"
+                    FontSize="13"
+                    BackgroundColor="{AppThemeBinding Light=#5A4E42CC, Dark=#4A4340CC}"
+                    TextColor="White"
+                    Margin="0,8,8,0" />
+
             <markdown:MarkdownView x:Name="ReaderView"
                                    IsVisible="{Binding IsReaderMode}"
                                    IsRenderingEnabled="{Binding IsReaderMode}"

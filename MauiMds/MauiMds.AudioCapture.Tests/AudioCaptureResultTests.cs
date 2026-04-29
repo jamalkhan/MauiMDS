@@ -18,6 +18,13 @@ public sealed class AudioCaptureResultTests
     }
 
     [TestMethod]
+    public void Default_AudioFilePaths_IsEmpty()
+    {
+        var result = new AudioCaptureResult();
+        Assert.AreEqual(0, result.AudioFilePaths.Count);
+    }
+
+    [TestMethod]
     public void Default_ErrorMessage_IsNull()
     {
         var result = new AudioCaptureResult();
@@ -32,19 +39,33 @@ public sealed class AudioCaptureResultTests
     }
 
     [TestMethod]
+    public void FilePath_ReturnsFirstAudioFilePath()
+    {
+        var result = new AudioCaptureResult
+        {
+            Success = true,
+            AudioFilePaths = ["/recordings/mic.m4a", "/recordings/sys.m4a"],
+            Duration = TimeSpan.FromMinutes(1)
+        };
+
+        Assert.AreEqual("/recordings/mic.m4a", result.FilePath);
+    }
+
+    [TestMethod]
     public void WithInit_AllPropertiesCanBeSet()
     {
         var duration = TimeSpan.FromMinutes(3.5);
         var result = new AudioCaptureResult
         {
             Success = true,
-            FilePath = "/recordings/test.m4a",
+            AudioFilePaths = ["/recordings/mic.m4a"],
             Duration = duration,
             ErrorMessage = null
         };
 
         Assert.IsTrue(result.Success);
-        Assert.AreEqual("/recordings/test.m4a", result.FilePath);
+        Assert.AreEqual("/recordings/mic.m4a", result.FilePath);
+        Assert.AreEqual(1, result.AudioFilePaths.Count);
         Assert.AreEqual(duration, result.Duration);
         Assert.IsNull(result.ErrorMessage);
     }

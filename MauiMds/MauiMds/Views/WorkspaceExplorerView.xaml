@@ -23,7 +23,7 @@
                         TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
 
                 <Grid Grid.Row="1"
-                      ColumnDefinitions="Auto,Auto,*"
+                      ColumnDefinitions="Auto,Auto,Auto,*"
                       ColumnSpacing="8">
                     <Button Text="Up"
                             Command="{Binding NavigateUpWorkspaceCommand}"
@@ -31,12 +31,19 @@
                             BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
                             TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
                     <Button Grid.Column="1"
+                            Text="⟳"
+                            Command="{Binding RefreshWorkspaceCommand}"
+                            Padding="10,8"
+                            FontSize="16"
+                            BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"
+                            TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
+                    <Button Grid.Column="2"
                             Text="Set Workspace"
                             Command="{Binding SetWorkspaceFolderToCurrentCommand}"
                             Padding="12,8"
                             BackgroundColor="{AppThemeBinding Light=#D4DDCF, Dark=#344136}"
                             TextColor="{AppThemeBinding Light=#182018, Dark=#F0F6EF}" />
-                    <Entry Grid.Column="2"
+                    <Entry Grid.Column="3"
                            Placeholder="Search workspace"
                            Text="{Binding WorkspaceSearchText}"
                            ClearButtonVisibility="WhileEditing"
@@ -100,47 +107,41 @@
                                         <Setter Property="BackgroundColor"
                                                 Value="{AppThemeBinding Light=#E8E0CF, Dark=#393835}" />
                                     </DataTrigger>
+                                    <DataTrigger TargetType="Border"
+                                                 Binding="{Binding IsPendingDelete}"
+                                                 Value="True">
+                                        <Setter Property="BackgroundColor" Value="#CC2222" />
+                                    </DataTrigger>
                                 </Border.Triggers>
 
-                                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto"
+                                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto"
                                       ColumnSpacing="6">
                                     <controls:WorkspaceItemIconView Grid.Column="0"
                                                                     Kind="{Binding ItemIconKind}"
                                                                     VerticalOptions="Center" />
 
                                     <Grid Grid.Column="1">
-                                        <VerticalStackLayout Spacing="1">
-                                            <Label Text="{Binding Name}"
-                                                   FontSize="12"
-                                                   LineBreakMode="MiddleTruncation"
-                                                   MaxLines="1"
-                                                   VerticalTextAlignment="Center"
-                                                   TextColor="{AppThemeBinding Light=#1B1A18, Dark=#F3EDE2}">
-                                                <Label.Triggers>
-                                                    <DataTrigger TargetType="Label"
-                                                                 Binding="{Binding IsRenaming}"
-                                                                 Value="True">
-                                                        <Setter Property="IsVisible"
-                                                                Value="False" />
-                                                    </DataTrigger>
-                                                </Label.Triggers>
-                                            </Label>
-
-                                            <Label Text="{Binding SecondaryText}"
-                                                   FontSize="10"
-                                                   LineBreakMode="TailTruncation"
-                                                   MaxLines="1"
-                                                   TextColor="{AppThemeBinding Light=#736C61, Dark=#AEA79C}">
-                                                <Label.Triggers>
-                                                    <DataTrigger TargetType="Label"
-                                                                 Binding="{Binding IsRenaming}"
-                                                                 Value="True">
-                                                        <Setter Property="IsVisible"
-                                                                Value="False" />
-                                                    </DataTrigger>
-                                                </Label.Triggers>
-                                            </Label>
-                                        </VerticalStackLayout>
+                                        <Label Text="{Binding Name}"
+                                               FontSize="12"
+                                               LineBreakMode="MiddleTruncation"
+                                               MaxLines="1"
+                                               VerticalTextAlignment="Center"
+                                               TextColor="{AppThemeBinding Light=#1B1A18, Dark=#F3EDE2}">
+                                            <Label.Triggers>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding IsRenaming}"
+                                                             Value="True">
+                                                    <Setter Property="IsVisible"
+                                                            Value="False" />
+                                                </DataTrigger>
+                                                <DataTrigger TargetType="Label"
+                                                             Binding="{Binding IsPendingDelete}"
+                                                             Value="True">
+                                                    <Setter Property="TextColor" Value="White" />
+                                                    <Setter Property="TextDecorations" Value="Strikethrough" />
+                                                </DataTrigger>
+                                            </Label.Triggers>
+                                        </Label>
 
                                         <Entry Text="{Binding RenameText}"
                                                FontSize="12"
@@ -180,15 +181,18 @@
                                             BackgroundColor="Transparent"
                                             TextColor="{AppThemeBinding Light=#6B6358, Dark=#D4CCBF}" />
 
-                                    <Button Grid.Column="5"
-                                            Text="Transcribe"
-                                            IsVisible="{Binding IsAudioFile}"
-                                            Padding="8,4"
-                                            FontSize="10"
-                                            Command="{Binding Source={x:Reference RootExplorerView}, Path=BindingContext.TranscribeAudioCommand}"
+                                    <Button Grid.Column="4"
+                                            Text="✕"
+                                            WidthRequest="22"
+                                            HeightRequest="22"
+                                            Padding="0"
+                                            FontSize="11"
+                                            Command="{Binding Source={x:Reference RootExplorerView}, Path=BindingContext.DeleteWorkspaceItemCommand}"
                                             CommandParameter="{Binding .}"
-                                            BackgroundColor="{AppThemeBinding Light=#3A7DD4, Dark=#2A5DA0}"
-                                            TextColor="White" />
+                                            IsVisible="{Binding CanDelete}"
+                                            BackgroundColor="Transparent"
+                                            TextColor="{AppThemeBinding Light=#AA2222, Dark=#DD5555}" />
+
                                 </Grid>
 
                                 <Border.GestureRecognizers>

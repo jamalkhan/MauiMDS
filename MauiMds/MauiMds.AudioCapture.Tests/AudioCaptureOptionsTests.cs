@@ -25,16 +25,30 @@ public sealed class AudioCaptureOptionsTests
     }
 
     [TestMethod]
-    public void Default_CaptureSystemAudio_IsTrue()
+    public void Default_CaptureSystemAudio_IsFalse_WhenNoSysPath()
     {
         var options = new AudioCaptureOptions();
+        Assert.IsFalse(options.CaptureSystemAudio);
+    }
+
+    [TestMethod]
+    public void CaptureSystemAudio_IsTrue_WhenSysPathProvided()
+    {
+        var options = new AudioCaptureOptions { SysOutputPath = "/path/to/sys.m4a" };
         Assert.IsTrue(options.CaptureSystemAudio);
     }
 
     [TestMethod]
-    public void Default_CaptureMicrophone_IsTrue()
+    public void Default_CaptureMicrophone_IsFalse_WhenNoOutputPath()
     {
         var options = new AudioCaptureOptions();
+        Assert.IsFalse(options.CaptureMicrophone);
+    }
+
+    [TestMethod]
+    public void CaptureMicrophone_IsTrue_WhenOutputPathProvided()
+    {
+        var options = new AudioCaptureOptions { OutputPath = "/path/to/mic.m4a" };
         Assert.IsTrue(options.CaptureMicrophone);
     }
 
@@ -46,23 +60,30 @@ public sealed class AudioCaptureOptionsTests
     }
 
     [TestMethod]
+    public void Default_SysOutputPath_IsEmpty()
+    {
+        var options = new AudioCaptureOptions();
+        Assert.AreEqual(string.Empty, options.SysOutputPath);
+    }
+
+    [TestMethod]
     public void WithInit_AllPropertiesCanBeSet()
     {
         var options = new AudioCaptureOptions
         {
-            OutputPath = "/path/to/output.m4a",
+            OutputPath = "/path/to/mic.m4a",
+            SysOutputPath = "/path/to/sys.m4a",
             SampleRate = 44_100,
             ChannelCount = 1,
             EncoderBitRate = 64_000,
-            CaptureSystemAudio = false,
-            CaptureMicrophone = false
         };
 
-        Assert.AreEqual("/path/to/output.m4a", options.OutputPath);
+        Assert.AreEqual("/path/to/mic.m4a", options.OutputPath);
+        Assert.AreEqual("/path/to/sys.m4a", options.SysOutputPath);
         Assert.AreEqual(44_100, options.SampleRate);
         Assert.AreEqual(1, options.ChannelCount);
         Assert.AreEqual(64_000, options.EncoderBitRate);
-        Assert.IsFalse(options.CaptureSystemAudio);
-        Assert.IsFalse(options.CaptureMicrophone);
+        Assert.IsTrue(options.CaptureSystemAudio);
+        Assert.IsTrue(options.CaptureMicrophone);
     }
 }

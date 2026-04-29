@@ -10,6 +10,7 @@ using MauiMds.Processors;
 using MauiMds.Services;
 using MauiMds.ViewModels;
 using Microsoft.Extensions.Logging;
+using Microsoft.Maui.LifecycleEvents;
 
 namespace MauiMds;
 
@@ -30,6 +31,16 @@ public static class MauiProgram
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+			})
+			.ConfigureLifecycleEvents(events =>
+			{
+#if MACCATALYST
+				// Set the terminating flag before UIKit begins dismantling the view
+				// hierarchy. Without this, _traitCollectionDidChange: callbacks fire
+				// on managed views during teardown, and any exception they throw
+				// escapes to ObjC and triggers SIGABRT via xamarin_process_managed_exception.
+				events.AddiOS(ios => ios.WillTerminate(_ => App.IsTerminating = true));
+#endif
 			})
 #if MACCATALYST
 			.ConfigureMauiHandlers(handlers =>
@@ -70,6 +81,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<SessionRestoreCoordinator>();
 		builder.Services.AddSingleton<IPdfExportService, PdfExportService>();
 		builder.Services.AddSingleton<IAudioCaptureService, AudioCaptureService>();
+		builder.Services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
 		builder.Services.AddSingleton<ITranscriptionPipelineFactory, TranscriptionPipelineFactory>();
 		builder.Services.AddSingleton<MainViewModel>();
 		builder.Services.AddSingleton<Views.MainPage>();
