@@ -832,8 +832,22 @@ public class MainViewModel : INotifyPropertyChanged
 
             if (item.IsRecordingGroup)
             {
-                await _workspaceBrowserService.RenameRecordingGroupAsync(item.RecordingGroup!, item.RenameText);
-                await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: item.RecordingGroup!.DirectoryPath);
+                var group = item.RecordingGroup!;
+                var newBaseName = item.RenameText;
+                await _workspaceBrowserService.RenameRecordingGroupAsync(group, newBaseName);
+
+                // If the open document is the old transcript, reload it from the renamed path.
+                if (group.TranscriptPath is { } oldTranscript
+                    && string.Equals(FilePath, oldTranscript, StringComparison.Ordinal))
+                {
+                    var oldPrefix = Path.Combine(group.DirectoryPath, group.BaseName);
+                    var newPrefix = Path.Combine(group.DirectoryPath, newBaseName);
+                    var newTranscriptPath = newPrefix + oldTranscript[oldPrefix.Length..];
+                    var renamedDocument = await _documentService.LoadDocumentAsync(newTranscriptPath);
+                    await LoadDocumentIntoStateAsync(renamedDocument);
+                }
+
+                await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: group.DirectoryPath);
             }
             else
             {
@@ -2041,7 +2055,7 @@ public class MainViewModel : INotifyPropertyChanged
             AppendSpeakerGroupedSegments(sb, allSegments.OrderBy(s => s.Start),
                 groupRecordingStart == default ? null : groupRecordingStart);
 
-            var transcriptPath = Path.Combine(group.DirectoryPath, group.BaseName + "_transcript.mds");
+            var transcriptPath = Path.Combine(group.DirectoryPath, group.BaseName + "_transcript.md");
             await File.WriteAllTextAsync(transcriptPath, sb.ToString());
 
             if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
@@ -2080,7 +2094,7 @@ public class MainViewModel : INotifyPropertyChanged
         if (_selectedRecordingGroup is not { } group) return;
         if (!group.HasTranscript || group.TranscriptPath is not { } transcriptPath) return;
 
-        // Rotate the existing transcript: _transcript.mds → _transcript.old.mds → _transcript.old1.mds …
+        // Rotate the existing transcript: _transcript.md → _transcript.old.md → _transcript.old1.md …
         var rotated = GetRotatedTranscriptPath(transcriptPath);
         File.Move(transcriptPath, rotated);
         _logger.LogInformation(
@@ -2373,7 +2387,8 @@ public class MainViewModel : INotifyPropertyChanged
                 {
                     var name = Path.GetFileName(file);
                     if (name.StartsWith(transcriptBase, StringComparison.OrdinalIgnoreCase) &&
-                        name.EndsWith(".mds", StringComparison.OrdinalIgnoreCase))
+                        (name.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ||
+                         name.EndsWith(".mds", StringComparison.OrdinalIgnoreCase)))
                         MoveToTrash(file);
                 }
             }
@@ -2500,7 +2515,7 @@ public class MainViewModel : INotifyPropertyChanged
         SelectedRecordingGroup = null;
         _audioPlayerService.Stop();
 
-        if (!item.IsDirectory)
+        if (!item.IsDirectory && !item.IsAudioFile)
         {
             await OpenDocumentAsync(
                 () => Task.FromResult<string?>(item.FullPath),

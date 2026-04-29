@@ -27,7 +27,7 @@ public static class RecordingPathBuilder
 
     public static string BuildTranscript(string baseFolder, DateTimeOffset timestamp)
     {
-        var fileName = $"audio_capture_{timestamp:yyyy_MM_dd_HHmmss}_transcript.mds";
+        var fileName = $"audio_capture_{timestamp:yyyy_MM_dd_HHmmss}_transcript.md";
         return Path.Combine(baseFolder, RecordingsFolderName, fileName);
     }
 

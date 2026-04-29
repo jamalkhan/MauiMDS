@@ -20,7 +20,7 @@ public sealed class RecordingGroup
     /// <summary>Full path to the system-audio recording, if it exists.</summary>
     public string? SysFilePath { get; init; }
 
-    /// <summary>Full path to the transcript .mds file, if it exists.</summary>
+    /// <summary>Full path to the transcript .md file, if it exists.</summary>
     public string? TranscriptPath { get; init; }
 
     /// <summary>Display-friendly label shown in the workspace tree.</summary>

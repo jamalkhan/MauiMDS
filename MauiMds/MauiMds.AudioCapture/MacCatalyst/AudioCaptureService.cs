@@ -15,6 +15,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     private AudioFileWriter? _micWriter;
     private AudioFileWriter? _sysWriter;
     private AudioCaptureOptions? _activeOptions;
+    private bool _micPermissionGrantedThisSession;
 
     // When the mic target format is not M4A, we record to temp M4A and convert after stop.
     private string? _desiredMicOutputPath;
@@ -28,20 +29,27 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         _logger = logger;
     }
 
-    public async Task<AudioPermissionStatus> CheckMicrophonePermissionAsync()
+    public Task<AudioPermissionStatus> CheckMicrophonePermissionAsync()
     {
+        if (_micPermissionGrantedThisSession)
+            return Task.FromResult(AudioPermissionStatus.Granted);
+
         var status = AVCaptureDevice.GetAuthorizationStatus(AVAuthorizationMediaType.Audio);
-        return status switch
+        return Task.FromResult(status switch
         {
             AVAuthorizationStatus.Authorized => AudioPermissionStatus.Granted,
             AVAuthorizationStatus.Denied or AVAuthorizationStatus.Restricted => AudioPermissionStatus.Denied,
             _ => AudioPermissionStatus.NotDetermined
-        };
+        });
     }
 
     public async Task<AudioPermissionStatus> RequestMicrophonePermissionAsync()
     {
+        if (_micPermissionGrantedThisSession)
+            return AudioPermissionStatus.Granted;
+
         var granted = await AVCaptureDevice.RequestAccessForMediaTypeAsync(AVAuthorizationMediaType.Audio);
+        if (granted) _micPermissionGrantedThisSession = true;
         return granted ? AudioPermissionStatus.Granted : AudioPermissionStatus.Denied;
     }
 

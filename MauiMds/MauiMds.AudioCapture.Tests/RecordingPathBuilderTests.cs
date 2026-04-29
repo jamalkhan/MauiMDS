@@ -154,17 +154,17 @@ public sealed class RecordingPathBuilderTests
     }
 
     [TestMethod]
-    public void BuildTranscript_ExtensionIsMds()
+    public void BuildTranscript_ExtensionIsMd()
     {
         var path = RecordingPathBuilder.BuildTranscript("/base", FixedTime);
-        StringAssert.EndsWith(path, ".mds");
+        StringAssert.EndsWith(path, ".md");
     }
 
     [TestMethod]
     public void BuildTranscript_FullFileNameMatchesExpectedPattern()
     {
         var path = RecordingPathBuilder.BuildTranscript("/base", FixedTime);
-        Assert.AreEqual("audio_capture_2026_04_22_153045_transcript.mds", Path.GetFileName(path));
+        Assert.AreEqual("audio_capture_2026_04_22_153045_transcript.md", Path.GetFileName(path));
     }
 
     // ── TryParseGroupFile ─────────────────────────────────────────────────
@@ -194,6 +194,16 @@ public sealed class RecordingPathBuilderTests
     {
         var result = RecordingPathBuilder.TryParseGroupFile(
             "audio_capture_2026_04_22_153045_transcript.mds", out var baseName, out var role);
+        Assert.IsTrue(result);
+        Assert.AreEqual("audio_capture_2026_04_22_153045", baseName);
+        Assert.AreEqual("transcript", role);
+    }
+
+    [TestMethod]
+    public void TryParseGroupFile_TranscriptFileMdExtension_ReturnsTrueWithCorrectParts()
+    {
+        var result = RecordingPathBuilder.TryParseGroupFile(
+            "audio_capture_2026_04_22_153045_transcript.md", out var baseName, out var role);
         Assert.IsTrue(result);
         Assert.AreEqual("audio_capture_2026_04_22_153045", baseName);
         Assert.AreEqual("transcript", role);
