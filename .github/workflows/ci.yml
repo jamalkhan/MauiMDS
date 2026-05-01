@@ -1,0 +1,111 @@
+name: CI / Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Tests ────────────────────────────────────────────────────────────────
+  # Run on Linux — all test projects target net10.0 (no Mac-specific code).
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Run tests
+        run: |
+          for proj in \
+            MauiMds/MauiMds.Tests/MauiMds.Tests.csproj \
+            MauiMds/MauiMds.Core.Tests/MauiMds.Core.Tests.csproj \
+            MauiMds/MauiMds.AudioCapture.Tests/MauiMds.AudioCapture.Tests.csproj \
+            MauiMds/MauiMds.Pdf.Tests/MauiMds.Pdf.Tests.csproj; do
+            dotnet test "$proj" -c Release --logger "console;verbosity=normal"
+          done
+
+  # ── Build & Package ──────────────────────────────────────────────────────
+  # Requires macOS + Xcode to build Mac Catalyst. Uses ad-hoc signing (no
+  # Apple Developer account needed). Users must right-click → Open on first
+  # launch to bypass Gatekeeper.
+  build:
+    name: Build macOS DMG
+    needs: test
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set version
+        run: echo "VERSION=1.0.${{ github.run_number }}" >> $GITHUB_ENV
+
+      - name: Build Mac Catalyst app
+        run: |
+          dotnet publish MauiMds/MauiMds/MauiMds.csproj \
+            -f net10.0-maccatalyst \
+            -c Release \
+            /p:ApplicationDisplayVersion=${{ env.VERSION }} \
+            /p:ApplicationVersion=${{ github.run_number }} \
+            /p:CodesignKey="-" \
+            /p:CodesignProvision="" \
+            -o ./publish
+
+      - name: Locate .app bundle
+        run: |
+          APP=$(find ./publish -name "*.app" -maxdepth 3 | head -1)
+          if [ -z "$APP" ]; then
+            echo "ERROR: No .app bundle found in ./publish" && find ./publish && exit 1
+          fi
+          echo "APP_PATH=$APP" >> $GITHUB_ENV
+          echo "Found: $APP"
+
+      - name: Create DMG
+        run: |
+          DMG="MauiMds-${{ env.VERSION }}.dmg"
+
+          # Staging folder: app + Applications symlink for drag-install UX
+          mkdir dmg_staging
+          cp -R "${{ env.APP_PATH }}" dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+
+          hdiutil create \
+            -volname "MauiMds ${{ env.VERSION }}" \
+            -srcfolder dmg_staging \
+            -ov -format UDZO \
+            "$DMG"
+
+          echo "DMG=$DMG" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: MauiMds v${{ env.VERSION }}
+          body: |
+            ## MauiMds v${{ env.VERSION }}
+
+            **Requires Apple Silicon (M1 / M2 / M3 / M4).** Intel build coming when we set up a Developer ID.
+
+            ### Installation
+            1. Download `MauiMds-${{ env.VERSION }}.dmg` below
+            2. Open the DMG and drag **MauiMds** into Applications
+            3. **First launch only:** right-click the app → **Open**, then click **Open** in the dialog
+               — or go to **System Settings → Privacy & Security → Open Anyway**
+
+            > Gatekeeper will warn about an unidentified developer. This is expected for unsigned builds — a Developer ID + notarization is on the roadmap.
+
+            Built from [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+          files: ${{ env.DMG }}
+          draft: false
+          prerelease: false
