@@ -394,9 +394,9 @@
                                     </HorizontalStackLayout>
                                 </VerticalStackLayout>
 
-                                <!-- pyannote Python path — only shown when pyannote selected -->
-                                <Grid ColumnDefinitions="*"
-                                      IsVisible="{Binding IsPyannoteSelected}">
+                                <!-- pyannote settings — only shown when pyannote selected -->
+                                <VerticalStackLayout Spacing="8"
+                                                     IsVisible="{Binding IsPyannoteSelected}">
                                     <VerticalStackLayout Spacing="4">
                                         <Label Text="Python Executable"
                                                FontSize="12"
@@ -404,7 +404,18 @@
                                         <Entry Placeholder="/usr/local/bin/python3"
                                                Text="{Binding PreferencesPyannotePythonPath}" />
                                     </VerticalStackLayout>
-                                </Grid>
+                                    <VerticalStackLayout Spacing="4">
+                                        <Label Text="Hugging Face Token (hf_…)"
+                                               FontSize="12"
+                                               TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
+                                        <Entry Placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
+                                               IsPassword="True"
+                                               Text="{Binding PreferencesPyannoteHfToken}" />
+                                        <Label Text="Accept model terms at huggingface.co/pyannote/speaker-diarization-3.1 before use."
+                                               FontSize="11"
+                                               TextColor="{AppThemeBinding Light=#8A837A, Dark=#9A9289}" />
+                                    </VerticalStackLayout>
+                                </VerticalStackLayout>
 
                             </VerticalStackLayout>
                         </Grid>

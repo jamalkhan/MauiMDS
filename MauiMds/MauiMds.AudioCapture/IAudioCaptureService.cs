@@ -18,8 +18,8 @@ public interface IAudioCaptureService
     Task<AudioPermissionStatus> RequestMicrophonePermissionAsync();
 
     /// <summary>
-    /// Non-null when the last <see cref="StartAsync"/> succeeded but with degraded capability
-    /// (e.g. system audio was requested but fell back to microphone-only due to missing permission).
+    /// Non-null when the last <see cref="StartAsync"/> succeeded but with degraded capability.
+    /// "screen_recording_denied" means system audio fell back to mic-only due to missing TCC permission.
     /// Reset to null at the start of each <see cref="StartAsync"/> call.
     /// </summary>
     string? LastStartWarning { get; }

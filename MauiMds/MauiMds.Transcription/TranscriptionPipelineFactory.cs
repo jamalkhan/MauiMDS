@@ -37,6 +37,7 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
         new NoDiarizationEngine(),
         new PyannoteDiarizationEngine(
             string.Empty,
+            string.Empty,
             _loggerFactory.CreateLogger<PyannoteDiarizationEngine>())
     ];
 
@@ -45,7 +46,8 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
         DiarizationEngineType diarization,
         string whisperBinaryPath = "",
         string whisperModelPath = "",
-        string pyannotePythonPath = "")
+        string pyannotePythonPath = "",
+        string pyannoteHfToken = "")
     {
         var transcriptionEngine = engine switch
         {
@@ -66,6 +68,7 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
             DiarizationEngineType.Pyannote =>
                 new PyannoteDiarizationEngine(
                     pyannotePythonPath,
+                    pyannoteHfToken,
                     _loggerFactory.CreateLogger<PyannoteDiarizationEngine>()),
             _ => throw new ArgumentOutOfRangeException(nameof(diarization), diarization, null)
         };

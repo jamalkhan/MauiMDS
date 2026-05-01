@@ -104,9 +104,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
                     _logger.LogWarning(ex, "AudioCaptureService: system audio unavailable, falling back to microphone-only.");
                     _systemAudio.Dispose();
                     _systemAudio = null;
-                    LastStartWarning =
-                        "System audio could not be captured (Screen Recording permission may need an app restart). " +
-                        "Recording microphone only.";
+                    LastStartWarning = "screen_recording_denied";
                 }
             }
 

@@ -13,7 +13,8 @@ public interface ITranscriptionPipelineFactory
         DiarizationEngineType diarization,
         string whisperBinaryPath = "",
         string whisperModelPath = "",
-        string pyannotePythonPath = "");
+        string pyannotePythonPath = "",
+        string pyannoteHfToken = "");
 
     IReadOnlyList<ITranscriptionEngine> AvailableTranscriptionEngines { get; }
     IReadOnlyList<IDiarizationEngine> AvailableDiarizationEngines { get; }

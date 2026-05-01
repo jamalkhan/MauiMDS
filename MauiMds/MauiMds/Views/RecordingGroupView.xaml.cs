@@ -71,6 +71,9 @@ public partial class RecordingGroupView : ContentView
 
             foreach (var filePath in group.AudioFilePaths)
                 ChipsContainer.Children.Add(BuildChip(filePath));
+
+            if (group.HasTranscript)
+                ChipsContainer.Children.Add(BuildReTranscribeButton());
         }
         catch (Exception)
         {
@@ -79,6 +82,22 @@ public partial class RecordingGroupView : ContentView
             // native objects are being destroyed; any managed exception that
             // escapes the trampoline causes SIGABRT.
         }
+    }
+
+    private View BuildReTranscribeButton()
+    {
+        var isDark = Application.Current?.RequestedTheme == AppTheme.Dark;
+        var btn = new Button
+        {
+            Text = "Re-transcribe",
+            FontSize = 12,
+            Padding = new Thickness(12, 6),
+            HorizontalOptions = LayoutOptions.Start,
+            BackgroundColor = isDark ? Color.FromArgb("#3A3835") : Color.FromArgb("#DDD3BF"),
+            TextColor = isDark ? Color.FromArgb("#C8B89A") : Color.FromArgb("#5A4E42")
+        };
+        btn.Clicked += (_, _) => _vm?.ReTranscribeGroupCommand.Execute(null);
+        return btn;
     }
 
     private View BuildChip(string filePath)

@@ -17,6 +17,7 @@ public sealed class EditorPreferences
     public string WhisperBinaryPath { get; init; } = string.Empty;
     public string WhisperModelPath { get; init; } = string.Empty;
     public string PyannotePythonPath { get; init; } = string.Empty;
+    public string PyannoteHfToken { get; init; } = string.Empty;
     public RecordingFormat RecordingFormat { get; init; } = RecordingFormat.M4A;
 
     /// <summary>

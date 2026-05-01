@@ -76,6 +76,7 @@ public class MainViewModel : INotifyPropertyChanged
     private string _preferencesWhisperBinaryPath = string.Empty;
     private string _preferencesWhisperModelPath = string.Empty;
     private string _preferencesPyannotePythonPath = string.Empty;
+    private string _preferencesPyannoteHfToken = string.Empty;
     private RecordingFormat _preferencesRecordingFormat = RecordingFormat.M4A;
     private string _shortcutKeyHeader1 = "1";
     private string _shortcutKeyHeader2 = "2";
@@ -732,6 +733,12 @@ public class MainViewModel : INotifyPropertyChanged
         set { if (_preferencesPyannotePythonPath != value) { _preferencesPyannotePythonPath = value; OnPropertyChanged(); } }
     }
 
+    public string PreferencesPyannoteHfToken
+    {
+        get => _preferencesPyannoteHfToken;
+        set { if (_preferencesPyannoteHfToken != value) { _preferencesPyannoteHfToken = value; OnPropertyChanged(); } }
+    }
+
     public bool IsWhisperCppSelected => _preferencesTranscriptionEngine == TranscriptionEngineType.WhisperCpp;
     public bool IsPyannoteSelected => _preferencesDiarizationEngine == DiarizationEngineType.Pyannote;
 
@@ -812,6 +819,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         _isInitialized = true;
+        _ = _audioCaptureService.RequestMicrophonePermissionAsync();
         await RestoreSessionAsync();
     }
 
@@ -1078,12 +1086,14 @@ public class MainViewModel : INotifyPropertyChanged
         _preferencesWhisperBinaryPath = _preferences.WhisperBinaryPath;
         _preferencesWhisperModelPath = _preferences.WhisperModelPath;
         _preferencesPyannotePythonPath = _preferences.PyannotePythonPath;
+        _preferencesPyannoteHfToken = _preferences.PyannoteHfToken;
         _preferencesRecordingFormat = _preferences.RecordingFormat;
         OnPropertyChanged(nameof(PreferencesTranscriptionEngine));
         OnPropertyChanged(nameof(PreferencesDiarizationEngine));
         OnPropertyChanged(nameof(PreferencesWhisperBinaryPath));
         OnPropertyChanged(nameof(PreferencesWhisperModelPath));
         OnPropertyChanged(nameof(PreferencesPyannotePythonPath));
+        OnPropertyChanged(nameof(PreferencesPyannoteHfToken));
         OnPropertyChanged(nameof(PreferencesRecordingFormat));
         OnPropertyChanged(nameof(IsWhisperCppSelected));
         OnPropertyChanged(nameof(IsPyannoteSelected));
@@ -1135,6 +1145,7 @@ public class MainViewModel : INotifyPropertyChanged
             WhisperBinaryPath = _preferencesWhisperBinaryPath,
             WhisperModelPath = _preferencesWhisperModelPath,
             PyannotePythonPath = _preferencesPyannotePythonPath,
+            PyannoteHfToken = _preferencesPyannoteHfToken,
             RecordingFormat = _preferencesRecordingFormat,
             WorkspaceRefreshIntervalSeconds = Math.Max(0, _preferencesWorkspaceRefreshIntervalSeconds)
         };
@@ -1874,10 +1885,12 @@ public class MainViewModel : INotifyPropertyChanged
                 SetActiveRecordingBaseName(activeBaseName);
                 _logger.LogInformation("Recording started: mic={Mic}, sys={Sys}", micPath, sysPath);
 
-                if (_audioCaptureService.LastStartWarning is { } warning)
+                if (_audioCaptureService.LastStartWarning == "screen_recording_denied")
                 {
-                    _logger.LogWarning("Recording started with warning: {Warning}", warning);
-                    await Application.Current!.Windows[0].Page!.DisplayAlert("Recording started", warning, "OK");
+                    await ReportErrorAsync(
+                        "Recording started without system audio: Screen Recording permission denied.",
+                        null,
+                        "System audio unavailable — grant Screen Recording permission in System Settings → Privacy & Security → Screen Recording, then restart.");
                 }
             }
             catch (Exception ex)
@@ -1910,7 +1923,8 @@ public class MainViewModel : INotifyPropertyChanged
                 _preferencesDiarizationEngine,
                 _preferencesWhisperBinaryPath,
                 _preferencesWhisperModelPath,
-                _preferencesPyannotePythonPath);
+                _preferencesPyannotePythonPath,
+                _preferencesPyannoteHfToken);
 
             var progress = new Progress<double>(v => MainThread.BeginInvokeOnMainThread(() =>
                 InlineErrorMessage = $"Transcribing… {v:P0}"));
@@ -2025,7 +2039,8 @@ public class MainViewModel : INotifyPropertyChanged
                 _preferencesDiarizationEngine,
                 _preferencesWhisperBinaryPath,
                 _preferencesWhisperModelPath,
-                _preferencesPyannotePythonPath);
+                _preferencesPyannotePythonPath,
+                _preferencesPyannoteHfToken);
 
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"# Transcript: {group.DisplayName}");
@@ -2515,7 +2530,13 @@ public class MainViewModel : INotifyPropertyChanged
         SelectedRecordingGroup = null;
         _audioPlayerService.Stop();
 
-        if (!item.IsDirectory && !item.IsAudioFile)
+        if (item.IsAudioFile)
+        {
+            await _audioPlayerService.PlayAsync(item.FullPath);
+            return;
+        }
+
+        if (!item.IsDirectory)
         {
             await OpenDocumentAsync(
                 () => Task.FromResult<string?>(item.FullPath),
