@@ -66,14 +66,13 @@ jobs:
             /p:ApplicationVersion=${{ github.run_number }} \
             /p:CodesignKey="-" \
             /p:CodesignProvision="" \
-            /p:CreatePackage=false \
-            -o ./publish
+            /p:CreatePackage=false
 
       - name: Locate .app bundle
         run: |
-          APP=$(find ./publish -name "*.app" -maxdepth 3 | head -1)
+          APP=$(find MauiMds/MauiMds/bin/Release -name "*.app" -type d | head -1)
           if [ -z "$APP" ]; then
-            echo "ERROR: No .app bundle found in ./publish" && find ./publish && exit 1
+            echo "ERROR: No .app bundle found — searching tree:" && find MauiMds/MauiMds/bin/Release && exit 1
           fi
           echo "APP_PATH=$APP" >> $GITHUB_ENV
           echo "Found: $APP"
