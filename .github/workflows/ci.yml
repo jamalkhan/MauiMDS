@@ -38,7 +38,7 @@ jobs:
   build:
     name: Build macOS DMG
     needs: test
-    runs-on: macos-15
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +62,6 @@ jobs:
             /p:ApplicationVersion=${{ github.run_number }} \
             /p:CodesignKey="-" \
             /p:CodesignProvision="" \
-            /p:PublishTrimmed=false \
             -o ./publish
 
       - name: Locate .app bundle
