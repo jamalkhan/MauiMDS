@@ -23,16 +23,13 @@ jobs:
 
       - name: Run tests
         run: |
-          dotnet test MauiMds/MauiMds.Tests/MauiMds.Tests.csproj \
-            -c Release --logger "console;verbosity=normal"
-          dotnet test MauiMds/MauiMds.Core.Tests/MauiMds.Core.Tests.csproj \
-            -c Release --logger "console;verbosity=normal"
-          # AudioCapture references a dual-TFM project; pin to net10.0 so the
-          # maccatalyst workload isn't required on Linux.
-          dotnet test MauiMds/MauiMds.AudioCapture.Tests/MauiMds.AudioCapture.Tests.csproj \
-            -f net10.0 -c Release --logger "console;verbosity=normal"
-          dotnet test MauiMds/MauiMds.Pdf.Tests/MauiMds.Pdf.Tests.csproj \
-            -c Release --logger "console;verbosity=normal"
+          for proj in \
+            MauiMds/MauiMds.Tests/MauiMds.Tests.csproj \
+            MauiMds/MauiMds.Core.Tests/MauiMds.Core.Tests.csproj \
+            MauiMds/MauiMds.AudioCapture.Tests/MauiMds.AudioCapture.Tests.csproj \
+            MauiMds/MauiMds.Pdf.Tests/MauiMds.Pdf.Tests.csproj; do
+            dotnet test "$proj" -c Release --logger "console;verbosity=normal"
+          done
 
   # ── Build & Package ──────────────────────────────────────────────────────
   # Requires macOS + Xcode to build Mac Catalyst. Uses ad-hoc signing (no
