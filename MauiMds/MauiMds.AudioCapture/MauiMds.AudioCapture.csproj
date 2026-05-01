@@ -1,11 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0;net10.0-maccatalyst</TargetFrameworks>
-    <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('osx'))">net10.0</TargetFrameworks>
+    <TargetFrameworks>net10.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ValidateXcodeVersion>false</ValidateXcodeVersion>
+  </PropertyGroup>
+
+  <!-- maccatalyst TFM is only buildable on macOS; skip it on Linux CI runners -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('osx'))">
+    <TargetFrameworks>net10.0;net10.0-maccatalyst</TargetFrameworks>
   </PropertyGroup>
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
