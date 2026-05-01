@@ -43,13 +43,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pin to the 10.0.100 feature band — its MAUI workloads target
-      # MacCatalyst 18.x (Xcode 16). The 10.0.200+ band pulls in
-      # Microsoft.MacCatalyst 26.x which requires Xcode 26 beta and
-      # fails with MT4162 on the macos-15 runner (Xcode 16.4).
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.1xx'
+          dotnet-version: '10.0.x'
 
       - name: Install workloads
         run: dotnet workload restore MauiMds/MauiMds/MauiMds.csproj
@@ -66,6 +62,7 @@ jobs:
             /p:ApplicationVersion=${{ github.run_number }} \
             /p:CodesignKey="-" \
             /p:CodesignProvision="" \
+            /p:PublishTrimmed=false \
             -o ./publish
 
       - name: Locate .app bundle
