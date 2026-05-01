@@ -62,7 +62,7 @@ jobs:
             /p:ApplicationVersion=${{ github.run_number }} \
             /p:CodesignKey="-" \
             /p:CodesignProvision="" \
-            /p:PublishTrimmed=false \
+            /p:MtouchLink=None \
             -o ./publish
 
       - name: Locate .app bundle
