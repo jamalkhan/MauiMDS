@@ -149,7 +149,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         {
             using var reader = new WaveFileReader(wavPath);
             var mp3Type = MediaFoundationEncoder.SelectMediaType(
-                AudioSubTypes.MpegLayer3,
+                AudioSubtypes.MpegLayer3,
                 reader.WaveFormat,
                 bitRate);
             using var encoder = new MediaFoundationEncoder(mp3Type);
