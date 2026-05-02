@@ -1,4 +1,7 @@
+#pragma warning disable CA1416  // MediaFoundation APIs require Windows 10 build 19041+; this file is Windows-only.
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using NAudio.MediaFoundation;
 using NAudio.Wave;
 
 namespace MauiMds.AudioCapture.Windows;
@@ -11,8 +14,13 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     private AudioCaptureState _state = AudioCaptureState.Idle;
     private WaveInEvent? _waveIn;
     private WaveFileWriter? _waveWriter;
-    private string? _wavOutputPath;
+    private string? _tempWavPath;
+    private string? _desiredOutputPath;
+    private int _encoderBitRate;
     private DateTimeOffset _recordingStarted;
+
+    // Raw GUID for MPEG Layer 3 (MP3) — avoids NAudio AudioSubtypes member availability issues.
+    private static readonly Guid Mp3SubType = new("00000055-0000-0010-8000-00aa00389b71");
 
     public AudioCaptureState State => _state;
     public string? LastStartWarning { get; private set; }
@@ -56,18 +64,22 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             if (!options.CaptureMicrophone)
                 throw new InvalidOperationException("Microphone capture must be enabled; system audio is not yet supported on Windows.");
 
-            _wavOutputPath = Path.ChangeExtension(options.OutputPath, ".wav");
+            _desiredOutputPath = options.OutputPath;
+            _encoderBitRate = options.EncoderBitRate;
 
-            var dir = Path.GetDirectoryName(_wavOutputPath);
+            // Always record to a temporary WAV; encode to the desired format on stop.
+            var dir = Path.GetDirectoryName(options.OutputPath) ?? string.Empty;
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
+
+            _tempWavPath = Path.Combine(dir, Path.GetFileNameWithoutExtension(options.OutputPath) + ".tmp.wav");
 
             _waveIn = new WaveInEvent
             {
                 WaveFormat = new WaveFormat(options.SampleRate, 16, options.ChannelCount),
                 BufferMilliseconds = 50,
             };
-            _waveWriter = new WaveFileWriter(_wavOutputPath, _waveIn.WaveFormat);
+            _waveWriter = new WaveFileWriter(_tempWavPath, _waveIn.WaveFormat);
             _waveIn.DataAvailable += OnDataAvailable;
             _waveIn.StartRecording();
 
@@ -80,8 +92,9 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             _waveIn = null;
             _waveWriter?.Dispose();
             _waveWriter = null;
-            TryDelete(_wavOutputPath);
-            _wavOutputPath = null;
+            TryDelete(_tempWavPath);
+            _tempWavPath = null;
+            _desiredOutputPath = null;
             SetState(AudioCaptureState.Idle);
             throw;
         }
@@ -93,6 +106,11 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
 
     public async Task<AudioCaptureResult> StopAsync()
     {
+        string? tempWavPath;
+        string? desiredOutputPath;
+        int encoderBitRate;
+        DateTimeOffset recordingStarted;
+
         await _stateLock.WaitAsync();
         try
         {
@@ -110,22 +128,129 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             _waveWriter.Dispose();
             _waveWriter = null;
 
-            var wavPath = _wavOutputPath!;
-            _wavOutputPath = null;
-            var duration = DateTimeOffset.UtcNow - _recordingStarted;
-
-            SetState(AudioCaptureState.Idle);
-
-            return new AudioCaptureResult
-            {
-                Success = true,
-                AudioFilePaths = [wavPath],
-                Duration = duration,
-            };
+            tempWavPath = _tempWavPath!;
+            desiredOutputPath = _desiredOutputPath!;
+            encoderBitRate = _encoderBitRate;
+            recordingStarted = _recordingStarted;
+            _tempWavPath = null;
+            _desiredOutputPath = null;
         }
         finally
         {
             _stateLock.Release();
+        }
+
+        // Encode outside the lock — can take several seconds for large files.
+        var duration = DateTimeOffset.UtcNow - recordingStarted;
+        var (outputPath, encodingWarning) = await EncodeAsync(tempWavPath, desiredOutputPath, encoderBitRate);
+
+        SetState(AudioCaptureState.Idle);
+
+        return new AudioCaptureResult
+        {
+            Success = true,
+            AudioFilePaths = [outputPath],
+            Duration = duration,
+            ErrorMessage = encodingWarning,
+        };
+    }
+
+    private async Task<(string outputPath, string? warning)> EncodeAsync(
+        string tempWavPath, string desiredOutputPath, int bitRate)
+    {
+        var ext = Path.GetExtension(desiredOutputPath).ToLowerInvariant();
+        try
+        {
+            switch (ext)
+            {
+                case ".mp3":
+                    if (TryEncodeToMp3WithMediaFoundation(tempWavPath, desiredOutputPath, bitRate))
+                    {
+                        TryDelete(tempWavPath);
+                        _logger.LogInformation("AudioCaptureService: MP3 encoded via MediaFoundation.");
+                        return (desiredOutputPath, null);
+                    }
+                    EncodeToMp3WithLame(tempWavPath, desiredOutputPath, bitRate);
+                    TryDelete(tempWavPath);
+                    _logger.LogInformation("AudioCaptureService: MP3 encoded via NAudio.Lame.");
+                    return (desiredOutputPath, null);
+
+                case ".flac":
+                    if (await TryEncodeToFlacWithFfmpegAsync(tempWavPath, desiredOutputPath))
+                    {
+                        TryDelete(tempWavPath);
+                        _logger.LogInformation("AudioCaptureService: FLAC encoded via ffmpeg.");
+                        return (desiredOutputPath, null);
+                    }
+                    // ffmpeg not available or failed — keep WAV
+                    var wavFallback = Path.ChangeExtension(desiredOutputPath, ".wav");
+                    File.Move(tempWavPath, wavFallback, overwrite: true);
+                    _logger.LogWarning("AudioCaptureService: ffmpeg unavailable; saved as WAV instead of FLAC.");
+                    return (wavFallback, "ffmpeg not found in PATH; recording saved as WAV.");
+
+                default:
+                    // .wav or .m4a (m4a not supported on Windows — save as .wav)
+                    var wavOut = Path.ChangeExtension(desiredOutputPath, ".wav");
+                    File.Move(tempWavPath, wavOut, overwrite: true);
+                    return (wavOut, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AudioCaptureService: encoding failed; returning temp WAV.");
+            return (tempWavPath, $"Encoding failed: {ex.Message}");
+        }
+    }
+
+    private bool TryEncodeToMp3WithMediaFoundation(string wavPath, string mp3Path, int bitRate)
+    {
+        try
+        {
+            using var reader = new WaveFileReader(wavPath);
+            var mediaType = MediaFoundationEncoder.SelectMediaType(Mp3SubType, reader.WaveFormat, bitRate);
+            if (mediaType is null)
+                return false;
+
+            using var encoder = new MediaFoundationEncoder(mediaType);
+            encoder.Encode(mp3Path, reader);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AudioCaptureService: MediaFoundation MP3 encoding failed; falling back to LAME.");
+            return false;
+        }
+    }
+
+    private static void EncodeToMp3WithLame(string wavPath, string mp3Path, int bitRate)
+    {
+        using var reader = new WaveFileReader(wavPath);
+        using var writer = new NAudio.Lame.LameMP3FileWriter(mp3Path, reader.WaveFormat, bitRate / 1000);
+        reader.CopyTo(writer);
+    }
+
+    private async Task<bool> TryEncodeToFlacWithFfmpegAsync(string wavPath, string flacPath)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("ffmpeg")
+            {
+                Arguments = $"-y -i \"{wavPath}\" -compression_level 8 \"{flacPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var process = Process.Start(psi);
+            if (process is null)
+                return false;
+            await process.WaitForExitAsync();
+            return process.ExitCode == 0 && File.Exists(flacPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AudioCaptureService: ffmpeg FLAC encoding failed.");
+            return false;
         }
     }
 
@@ -148,6 +273,6 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     {
         _waveWriter?.Dispose();
         _waveIn?.Dispose();
-        TryDelete(_wavOutputPath);
+        TryDelete(_tempWavPath);
     }
 }

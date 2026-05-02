@@ -744,8 +744,16 @@ public class MainViewModel : INotifyPropertyChanged
     public RecordingFormat PreferencesRecordingFormat
     {
         get => _preferencesRecordingFormat;
-        set { if (_preferencesRecordingFormat != value) { _preferencesRecordingFormat = value; OnPropertyChanged(); } }
+        set { if (_preferencesRecordingFormat != value) { _preferencesRecordingFormat = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShowWindowsFlacWarning)); } }
     }
+
+#if WINDOWS
+    public bool IsWindowsPlatform => true;
+#else
+    public bool IsWindowsPlatform => false;
+#endif
+
+    public bool ShowWindowsFlacWarning => IsWindowsPlatform && _preferencesRecordingFormat == RecordingFormat.FLAC;
 
     public string ShortcutKeyHeader1
     {

@@ -306,26 +306,35 @@
 
                                 <VerticalStackLayout Spacing="6">
                                     <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="M4A  (default)"
-                                                     GroupName="RecordingFormat"
+                                        <RadioButton GroupName="RecordingFormat"
                                                      IsChecked="{Binding PreferencesRecordingFormat,
                                                          Converter={StaticResource EnumToBoolConverter},
-                                                         ConverterParameter=M4A}" />
+                                                         ConverterParameter=M4A}">
+                                            <RadioButton.Content>
+                                                <OnPlatform x:TypeArguments="x:String"
+                                                            Default="M4A  (default)"
+                                                            WinUI="M4A  (saved as WAV on Windows)" />
+                                            </RadioButton.Content>
+                                        </RadioButton>
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="MP3  (requires ffmpeg)"
+                                        <RadioButton Content="MP3"
                                                      GroupName="RecordingFormat"
                                                      IsChecked="{Binding PreferencesRecordingFormat,
                                                          Converter={StaticResource EnumToBoolConverter},
                                                          ConverterParameter=MP3}" />
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="FLAC"
+                                        <RadioButton Content="FLAC  (requires ffmpeg)"
                                                      GroupName="RecordingFormat"
                                                      IsChecked="{Binding PreferencesRecordingFormat,
                                                          Converter={StaticResource EnumToBoolConverter},
                                                          ConverterParameter=FLAC}" />
                                     </HorizontalStackLayout>
+                                    <Label Text="⚠  FLAC requires ffmpeg in PATH on Windows. If not found, recording will be saved as WAV."
+                                           FontSize="12"
+                                           TextColor="#CC7700"
+                                           IsVisible="{Binding ShowWindowsFlacWarning}" />
                                 </VerticalStackLayout>
 
                                 <!-- Transcription Engine -->
