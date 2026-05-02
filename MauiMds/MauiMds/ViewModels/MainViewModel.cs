@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using MauiMds.AudioCapture;
-using MauiMds.AudioCapture.MacCatalyst;
 using MauiMds.Transcription;
 using MauiMds.Features.Editor;
 using MauiMds.Features.Export;
