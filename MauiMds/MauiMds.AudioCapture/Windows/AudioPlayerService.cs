@@ -6,6 +6,7 @@ namespace MauiMds.AudioCapture.Windows;
 public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
 {
     private readonly ILogger<AudioPlayerService> _logger;
+    private readonly SynchronizationContext? _syncContext;
     private WaveOutEvent? _output;
     private AudioFileReader? _reader;
     private string? _currentPath;
@@ -19,6 +20,7 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
     public AudioPlayerService(ILogger<AudioPlayerService> logger)
     {
         _logger = logger;
+        _syncContext = SynchronizationContext.Current;
     }
 
     public Task PlayAsync(string filePath)
@@ -81,9 +83,13 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
         RaiseStateChanged();
     }
 
-    private void RaiseStateChanged() =>
-        Microsoft.Maui.ApplicationModel.MainThread.BeginInvokeOnMainThread(
-            () => PlaybackStateChanged?.Invoke(this, EventArgs.Empty));
+    private void RaiseStateChanged()
+    {
+        if (_syncContext is not null)
+            _syncContext.Post(_ => PlaybackStateChanged?.Invoke(this, EventArgs.Empty), null);
+        else
+            PlaybackStateChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     public void Dispose()
     {

@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.Maui.ApplicationModel;
 using NAudio.MediaFoundation;
 using NAudio.Wave;
 
@@ -27,17 +26,14 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         _logger = logger;
     }
 
-    public async Task<AudioPermissionStatus> CheckMicrophonePermissionAsync()
-    {
-        var status = await Permissions.CheckStatusAsync<Permissions.Microphone>();
-        return MapStatus(status);
-    }
+    // Unpackaged Windows apps don't have an app-level microphone permission dialog.
+    // Microphone access is governed by Windows Privacy Settings at the OS level.
+    // If access is blocked there, WaveInEvent.StartRecording() will throw.
+    public Task<AudioPermissionStatus> CheckMicrophonePermissionAsync() =>
+        Task.FromResult(AudioPermissionStatus.Granted);
 
-    public async Task<AudioPermissionStatus> RequestMicrophonePermissionAsync()
-    {
-        var status = await Permissions.RequestAsync<Permissions.Microphone>();
-        return MapStatus(status);
-    }
+    public Task<AudioPermissionStatus> RequestMicrophonePermissionAsync() =>
+        Task.FromResult(AudioPermissionStatus.Granted);
 
     public async Task StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default)
     {
@@ -179,13 +175,6 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         if (path is not null)
             try { File.Delete(path); } catch { }
     }
-
-    private static AudioPermissionStatus MapStatus(PermissionStatus status) => status switch
-    {
-        PermissionStatus.Granted => AudioPermissionStatus.Granted,
-        PermissionStatus.Denied or PermissionStatus.Restricted => AudioPermissionStatus.Denied,
-        _ => AudioPermissionStatus.NotDetermined,
-    };
 
     public void Dispose()
     {
