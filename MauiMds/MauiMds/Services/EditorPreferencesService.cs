@@ -37,7 +37,7 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 WhisperModelPath = preferences.WhisperModelPath,
                 PyannotePythonPath = preferences.PyannotePythonPath,
                 PyannoteHfToken = preferences.PyannoteHfToken,
-                RecordingFormat = NormalizeRecordingFormat(preferences.RecordingFormat),
+                RecordingFormat = preferences.RecordingFormat,
                 WorkspaceRefreshIntervalSeconds = Math.Max(0, preferences.WorkspaceRefreshIntervalSeconds)
             };
         }
@@ -90,7 +90,6 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             FileLogLevel = Microsoft.Extensions.Logging.LogLevel.Information,
 #if WINDOWS
             TranscriptionEngine = TranscriptionEngineType.WhisperCpp,
-            RecordingFormat = RecordingFormat.MP3,
 #endif
         };
     }
@@ -103,16 +102,6 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             return TranscriptionEngineType.WhisperCpp;
 #endif
         return engine;
-    }
-
-    // M4A encoding is not supported on Windows; map it to MP3.
-    private static RecordingFormat NormalizeRecordingFormat(RecordingFormat format)
-    {
-#if WINDOWS
-        if (format == RecordingFormat.M4A)
-            return RecordingFormat.MP3;
-#endif
-        return format;
     }
 
     private static Microsoft.Extensions.Logging.LogLevel NormalizeLogLevel(Microsoft.Extensions.Logging.LogLevel logLevel)

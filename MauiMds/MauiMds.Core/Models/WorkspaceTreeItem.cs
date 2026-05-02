@@ -77,7 +77,8 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
     private static bool IsAudioExtension(string ext) =>
         string.Equals(ext, ".m4a", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(ext, ".mp3", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(ext, ".flac", StringComparison.OrdinalIgnoreCase);
+        string.Equals(ext, ".flac", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(ext, ".wav", StringComparison.OrdinalIgnoreCase);
 
     public string FullPath
     {

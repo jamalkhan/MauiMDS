@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using NAudio.MediaFoundation;
 using NAudio.Wave;
 
 namespace MauiMds.AudioCapture.Windows;
@@ -12,9 +11,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     private AudioCaptureState _state = AudioCaptureState.Idle;
     private WaveInEvent? _waveIn;
     private WaveFileWriter? _waveWriter;
-    private string? _tempWavPath;   // intermediate PCM file written during capture
-    private string? _mp3OutputPath; // final .mp3 path returned to the caller
-    private int _encoderBitRate;
+    private string? _wavOutputPath;
     private DateTimeOffset _recordingStarted;
 
     public AudioCaptureState State => _state;
@@ -59,12 +56,9 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             if (!options.CaptureMicrophone)
                 throw new InvalidOperationException("Microphone capture must be enabled; system audio is not yet supported on Windows.");
 
-            // Capture to a temp PCM WAV; encode to MP3 after stop via Media Foundation.
-            _mp3OutputPath = Path.ChangeExtension(options.OutputPath, ".mp3");
-            _tempWavPath   = Path.ChangeExtension(options.OutputPath, ".tmp.wav");
-            _encoderBitRate = options.EncoderBitRate;
+            _wavOutputPath = Path.ChangeExtension(options.OutputPath, ".wav");
 
-            var dir = Path.GetDirectoryName(_mp3OutputPath);
+            var dir = Path.GetDirectoryName(_wavOutputPath);
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
@@ -73,7 +67,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
                 WaveFormat = new WaveFormat(options.SampleRate, 16, options.ChannelCount),
                 BufferMilliseconds = 50,
             };
-            _waveWriter = new WaveFileWriter(_tempWavPath, _waveIn.WaveFormat);
+            _waveWriter = new WaveFileWriter(_wavOutputPath, _waveIn.WaveFormat);
             _waveIn.DataAvailable += OnDataAvailable;
             _waveIn.StartRecording();
 
@@ -86,8 +80,8 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             _waveIn = null;
             _waveWriter?.Dispose();
             _waveWriter = null;
-            TryDelete(_tempWavPath);
-            _tempWavPath = null;
+            TryDelete(_wavOutputPath);
+            _wavOutputPath = null;
             SetState(AudioCaptureState.Idle);
             throw;
         }
@@ -116,48 +110,22 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             _waveWriter.Dispose();
             _waveWriter = null;
 
-            var tempWav = _tempWavPath!;
-            var mp3Path = _mp3OutputPath!;
-            _tempWavPath = null;
-            _mp3OutputPath = null;
+            var wavPath = _wavOutputPath!;
+            _wavOutputPath = null;
             var duration = DateTimeOffset.UtcNow - _recordingStarted;
-
-            // Encode temp WAV → MP3 using Windows Media Foundation (no extra DLLs needed).
-            _logger.LogInformation("Encoding {Wav} → {Mp3}", tempWav, mp3Path);
-            EncodeToMp3(tempWav, mp3Path, _encoderBitRate);
-            TryDelete(tempWav);
 
             SetState(AudioCaptureState.Idle);
 
             return new AudioCaptureResult
             {
                 Success = true,
-                AudioFilePaths = [mp3Path],
+                AudioFilePaths = [wavPath],
                 Duration = duration,
             };
         }
         finally
         {
             _stateLock.Release();
-        }
-    }
-
-    private static void EncodeToMp3(string wavPath, string mp3Path, int bitRate)
-    {
-        MediaFoundationApi.Startup();
-        try
-        {
-            using var reader = new WaveFileReader(wavPath);
-            var mp3Type = MediaFoundationEncoder.SelectMediaType(
-                AudioSubtypes.MpegLayer3,
-                reader.WaveFormat,
-                bitRate);
-            using var encoder = new MediaFoundationEncoder(mp3Type);
-            encoder.Encode(mp3Path, reader);
-        }
-        finally
-        {
-            MediaFoundationApi.Shutdown();
         }
     }
 
@@ -180,6 +148,6 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     {
         _waveWriter?.Dispose();
         _waveIn?.Dispose();
-        TryDelete(_tempWavPath);
+        TryDelete(_wavOutputPath);
     }
 }
