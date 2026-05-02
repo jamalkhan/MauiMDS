@@ -1,7 +1,6 @@
 using MauiMds.AudioCapture;
 using MauiMds.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.Maui.Storage;
 #if MACCATALYST
 using Foundation;
 using UniformTypeIdentifiers;
@@ -44,9 +43,18 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
             pickedUrl.Path,
             _currentWorkspaceAccess.HasAccess);
         return pickedUrl.Path;
+#elif WINDOWS
+        var picker = new Windows.Storage.Pickers.FolderPicker();
+        picker.FileTypeFilter.Add("*");
+        // Unpackaged Windows apps must associate the picker with the window handle.
+        var platformView = Application.Current?.Windows.FirstOrDefault()?.Handler?.PlatformView;
+        if (platformView is not null)
+            WinRT.Interop.InitializeWithWindow.Initialize(
+                picker, WinRT.Interop.WindowNative.GetWindowHandle(platformView));
+        var folder = await picker.PickSingleFolderAsync();
+        return folder?.Path;
 #else
-        var result = await FolderPicker.Default.PickAsync(default);
-        return result.IsSuccessful ? result.Folder.Path : null;
+        return null;
 #endif
     }
 
