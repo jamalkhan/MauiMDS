@@ -1,5 +1,7 @@
 using MauiMds.Models;
+#if MACCATALYST
 using MauiMds.Transcription.Engines.AppleSpeech;
+#endif
 using MauiMds.Transcription.Engines.NoOp;
 using MauiMds.Transcription.Engines.Pyannote;
 using MauiMds.Transcription.Engines.WhisperCpp;
@@ -25,8 +27,10 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
     // whether the binary/model exist once the user has configured them.
     public IReadOnlyList<ITranscriptionEngine> AvailableTranscriptionEngines =>
     [
+#if MACCATALYST
         new AppleSpeechTranscriptionEngine(
             _loggerFactory.CreateLogger<AppleSpeechTranscriptionEngine>()),
+#endif
         new WhisperCppTranscriptionEngine(
             string.Empty, string.Empty,
             _loggerFactory.CreateLogger<WhisperCppTranscriptionEngine>())
@@ -51,9 +55,11 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
     {
         var transcriptionEngine = engine switch
         {
+#if MACCATALYST
             TranscriptionEngineType.AppleSpeech =>
                 (ITranscriptionEngine)new AppleSpeechTranscriptionEngine(
                     _loggerFactory.CreateLogger<AppleSpeechTranscriptionEngine>()),
+#endif
             TranscriptionEngineType.WhisperCpp =>
                 new WhisperCppTranscriptionEngine(
                     whisperBinaryPath, whisperModelPath,

@@ -31,12 +31,13 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 Use24HourTime = preferences.Use24HourTime,
                 FileLogLevel = NormalizeLogLevel(preferences.FileLogLevel),
                 KeyboardShortcuts = preferences.KeyboardShortcuts ?? EditorPreferences.DefaultShortcuts,
-                TranscriptionEngine = preferences.TranscriptionEngine,
+                TranscriptionEngine = NormalizeTranscriptionEngine(preferences.TranscriptionEngine),
                 DiarizationEngine = preferences.DiarizationEngine,
                 WhisperBinaryPath = preferences.WhisperBinaryPath,
                 WhisperModelPath = preferences.WhisperModelPath,
                 PyannotePythonPath = preferences.PyannotePythonPath,
-                RecordingFormat = preferences.RecordingFormat,
+                PyannoteHfToken = preferences.PyannoteHfToken,
+                RecordingFormat = NormalizeRecordingFormat(preferences.RecordingFormat),
                 WorkspaceRefreshIntervalSeconds = Math.Max(0, preferences.WorkspaceRefreshIntervalSeconds)
             };
         }
@@ -68,6 +69,7 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             WhisperBinaryPath = preferences.WhisperBinaryPath,
             WhisperModelPath = preferences.WhisperModelPath,
             PyannotePythonPath = preferences.PyannotePythonPath,
+            PyannoteHfToken = preferences.PyannoteHfToken,
             RecordingFormat = preferences.RecordingFormat,
             WorkspaceRefreshIntervalSeconds = Math.Max(0, preferences.WorkspaceRefreshIntervalSeconds)
         };
@@ -85,8 +87,32 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
             MaxLogFileSizeMb = 2,
             InitialViewerRenderLineCount = 20,
             Use24HourTime = false,
-            FileLogLevel = Microsoft.Extensions.Logging.LogLevel.Information
+            FileLogLevel = Microsoft.Extensions.Logging.LogLevel.Information,
+#if WINDOWS
+            TranscriptionEngine = TranscriptionEngineType.WhisperCpp,
+            RecordingFormat = RecordingFormat.MP3,
+#endif
         };
+    }
+
+    // Apple Speech is Mac Catalyst only; silently fall back to WhisperCpp on Windows.
+    private static TranscriptionEngineType NormalizeTranscriptionEngine(TranscriptionEngineType engine)
+    {
+#if WINDOWS
+        if (engine == TranscriptionEngineType.AppleSpeech)
+            return TranscriptionEngineType.WhisperCpp;
+#endif
+        return engine;
+    }
+
+    // M4A encoding is not supported on Windows; map it to MP3.
+    private static RecordingFormat NormalizeRecordingFormat(RecordingFormat format)
+    {
+#if WINDOWS
+        if (format == RecordingFormat.M4A)
+            return RecordingFormat.MP3;
+#endif
+        return format;
     }
 
     private static Microsoft.Extensions.Logging.LogLevel NormalizeLogLevel(Microsoft.Extensions.Logging.LogLevel logLevel)
