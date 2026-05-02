@@ -1,5 +1,9 @@
 ﻿using MauiMds.AudioCapture;
+#if MACCATALYST
 using MauiMds.AudioCapture.MacCatalyst;
+#elif WINDOWS
+using MauiMds.AudioCapture.Windows;
+#endif
 using MauiMds.Transcription;
 using MauiMds.Features.Editor;
 using MauiMds.Features.Export;

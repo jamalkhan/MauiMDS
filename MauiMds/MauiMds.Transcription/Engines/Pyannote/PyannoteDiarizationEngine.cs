@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Transcription.Engines.Pyannote;
@@ -85,15 +86,32 @@ public sealed class PyannoteDiarizationEngine : IDiarizationEngine
 
     private async Task ConvertToWavAsync(string inputPath, string outputPath, CancellationToken ct)
     {
-        // Use afconvert (always present on macOS) to produce 16-bit PCM WAV at 16 kHz mono.
-        var psi = new ProcessStartInfo
+        ProcessStartInfo psi;
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            FileName = "/usr/bin/afconvert",
-            Arguments = $"-f WAVE -d LEI16@16000 -c 1 \"{inputPath}\" \"{outputPath}\"",
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+            // Windows: requires ffmpeg in PATH or installed.
+            psi = new ProcessStartInfo
+            {
+                FileName = "ffmpeg",
+                Arguments = $"-y -i \"{inputPath}\" -ar 16000 -ac 1 -f wav \"{outputPath}\"",
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+        }
+        else
+        {
+            // macOS: afconvert is always present.
+            psi = new ProcessStartInfo
+            {
+                FileName = "/usr/bin/afconvert",
+                Arguments = $"-f WAVE -d LEI16@16000 -c 1 \"{inputPath}\" \"{outputPath}\"",
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+        }
 
         using var process = new Process { StartInfo = psi };
         process.Start();
@@ -102,7 +120,7 @@ public sealed class PyannoteDiarizationEngine : IDiarizationEngine
 
         if (process.ExitCode != 0)
             throw new InvalidOperationException(
-                $"afconvert failed (exit {process.ExitCode}): {stderr}");
+                $"Audio conversion failed (exit {process.ExitCode}): {stderr}");
     }
 
     private async Task<string> RunPythonAsync(

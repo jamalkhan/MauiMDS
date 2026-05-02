@@ -95,6 +95,7 @@ jobs:
           echo "DMG=$DMG" >> $GITHUB_ENV
 
       - name: Create GitHub Release
+        id: release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.VERSION }}
@@ -116,3 +117,57 @@ jobs:
           files: ${{ env.DMG }}
           draft: false
           prerelease: false
+
+  # ── Windows Build ─────────────────────────────────────────────────────────
+  # Runs after the macOS build so the GitHub Release already exists and we
+  # can append the Windows ZIP to it.
+  build-windows:
+    name: Build Windows EXE
+    needs: build
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install workloads
+        run: dotnet workload restore MauiMds/MauiMds/MauiMds.csproj
+
+      - name: Set version
+        run: echo "VERSION=1.0.${{ github.run_number }}" >> $env:GITHUB_ENV
+
+      - name: Build Windows app
+        run: |
+          dotnet publish MauiMds/MauiMds/MauiMds.csproj `
+            -f net10.0-windows10.0.19041.0 `
+            -c Release `
+            /p:ApplicationDisplayVersion=${{ env.VERSION }} `
+            /p:ApplicationVersion=${{ github.run_number }} `
+            /p:WindowsPackageType=None `
+            /p:SelfContained=true `
+            /p:RuntimeIdentifier=win-x64
+
+      - name: Locate publish output
+        run: |
+          $dir = Get-ChildItem -Recurse -Directory "MauiMds/MauiMds/bin/Release" |
+                 Where-Object { $_.Name -eq "publish" } |
+                 Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dir) {
+            Write-Host "ERROR: publish dir not found. Tree:"
+            Get-ChildItem -Recurse "MauiMds/MauiMds/bin/Release" | Select-Object FullName
+            exit 1
+          }
+          Write-Host "Found: $dir"
+          "PUBLISH_DIR=$dir" >> $env:GITHUB_ENV
+
+      - name: Zip output
+        run: Compress-Archive -Path "${{ env.PUBLISH_DIR }}/*" -DestinationPath "MauiMds-${{ env.VERSION }}-windows-x64.zip"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ env.VERSION }}
+          files: MauiMds-${{ env.VERSION }}-windows-x64.zip
