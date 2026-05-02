@@ -1,3 +1,6 @@
+// SCContentFilter, SCStream, SCStreamConfiguration etc. are macOS 12.3/13.0+ only.
+// This file is MacCatalyst-only and our minimum deployment is Mac Catalyst 18.2 (macOS 15+).
+#pragma warning disable CA1416
 using CoreMedia;
 using Foundation;
 using ScreenCaptureKit;
