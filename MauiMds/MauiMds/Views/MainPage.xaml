@@ -308,15 +308,10 @@
                                 <VerticalStackLayout Spacing="6">
                                     <HorizontalStackLayout Spacing="8">
                                         <RadioButton GroupName="RecordingFormat"
+                                                     Content="{OnPlatform 'M4A  (default)', WinUI='M4A  (saved as WAV on Windows)'}"
                                                      IsChecked="{Binding PreferencesRecordingFormat,
                                                          Converter={StaticResource EnumToBoolConverter},
-                                                         ConverterParameter=M4A}">
-                                            <RadioButton.Content>
-                                                <OnPlatform x:TypeArguments="x:String" Default="M4A  (default)">
-                                                    <On Platform="WinUI" Value="M4A  (saved as WAV on Windows)" />
-                                                </OnPlatform>
-                                            </RadioButton.Content>
-                                        </RadioButton>
+                                                         ConverterParameter=M4A}" />
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Spacing="8">
                                         <RadioButton Content="MP3"
