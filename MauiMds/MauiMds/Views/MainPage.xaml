@@ -344,7 +344,8 @@
                                        TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
 
                                 <VerticalStackLayout Spacing="6">
-                                    <HorizontalStackLayout Spacing="8">
+                                    <HorizontalStackLayout Spacing="8"
+                                                          IsVisible="{Binding IsAppleSpeechAvailable}">
                                         <RadioButton Content="Apple Speech Framework"
                                                      GroupName="TranscriptionEngine"
                                                      IsChecked="{Binding PreferencesTranscriptionEngine,

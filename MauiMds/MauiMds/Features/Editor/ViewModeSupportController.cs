@@ -15,9 +15,11 @@ public sealed class EditorModeSupportController
         _logger = logger;
     }
 
-    public bool IsVisualEditorSupported => DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst;
+    public bool IsVisualEditorSupported =>
+        DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst ||
+        DeviceInfo.Current.Platform == DevicePlatform.WinUI;
 
-    public string VisualEditorUnavailableMessage => "Coming Soon: Visual Editor is currently available on macOS only.";
+    public string VisualEditorUnavailableMessage => "Visual Editor is not available on this platform.";
 
     public EditorViewMode ResolveSupportedViewMode(EditorViewMode requestedMode, bool showUnsupportedSnackbar)
     {

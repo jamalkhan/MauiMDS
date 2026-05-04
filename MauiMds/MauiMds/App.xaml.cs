@@ -13,8 +13,13 @@ public partial class App : Application
     /// Set to true in applicationWillTerminate (before UIKit begins tearing down views).
     /// Managed UI event handlers must guard against running after this point or they risk
     /// throwing inside _traitCollectionDidChange: which causes SIGABRT on Mac Catalyst.
+    /// Only assigned on Mac; always false on other platforms.
     /// </summary>
+#if MACCATALYST
     internal static volatile bool IsTerminating;
+#else
+    internal static bool IsTerminating => false;
+#endif
 
     private readonly ILogger<App> _logger;
     private readonly MainPage _mainPage;

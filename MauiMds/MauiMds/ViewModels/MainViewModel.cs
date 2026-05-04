@@ -755,6 +755,8 @@ public class MainViewModel : INotifyPropertyChanged
 
     public bool ShowWindowsFlacWarning => IsWindowsPlatform && _preferencesRecordingFormat == RecordingFormat.FLAC;
 
+    public bool IsAppleSpeechAvailable => DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst;
+
     public string ShortcutKeyHeader1
     {
         get => _shortcutKeyHeader1;
@@ -1945,9 +1947,9 @@ public class MainViewModel : INotifyPropertyChanged
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                var page = Microsoft.Maui.Controls.Application.Current?.MainPage;
+                var page = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
                 if (page is not null)
-                    await page.DisplayAlert(
+                    await page.DisplayAlertAsync(
                         "Transcription Complete",
                         $"Transcript saved to:\n{Path.GetFileName(transcriptPath)}",
                         "OK");
