@@ -1,5 +1,6 @@
 using Foundation;
 using MauiMds.ViewModels;
+using Microsoft.Extensions.Logging;
 using ObjCRuntime;
 using UIKit;
 
@@ -30,6 +31,9 @@ public class AppDelegate : MauiUIApplicationDelegate
 
     private static async Task PromptStopRecordingAndQuitAsync(MainViewModel vm)
     {
+        var logger = IPlatformApplication.Current?.Services
+            .GetService<ILoggerFactory>()?.CreateLogger<AppDelegate>();
+
         try
         {
             var shouldQuit = await MainThread.InvokeOnMainThreadAsync(async () =>
@@ -51,9 +55,10 @@ public class AppDelegate : MauiUIApplicationDelegate
 
             ReplyToShouldTerminate(shouldQuit);
         }
-        catch
+        catch (Exception ex)
         {
             // Safety net — allow termination so the app cannot get stuck.
+            logger?.LogError(ex, "AppDelegate: error during quit prompt; forcing termination.");
             ReplyToShouldTerminate(true);
         }
     }

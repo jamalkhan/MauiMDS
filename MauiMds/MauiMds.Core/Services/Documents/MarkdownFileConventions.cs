@@ -56,8 +56,9 @@ public static class MarkdownFileConventions
         {
             return Encoding.GetEncoding(encodingName);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"MarkdownFileConventions: unknown encoding '{encodingName}', falling back to UTF-8. {ex.Message}");
             return Encoding.UTF8;
         }
     }

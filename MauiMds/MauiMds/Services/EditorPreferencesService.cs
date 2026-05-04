@@ -41,8 +41,9 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
                 WorkspaceRefreshIntervalSeconds = Math.Max(0, preferences.WorkspaceRefreshIntervalSeconds)
             };
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"EditorPreferencesService: failed to load preferences, using defaults. {ex}");
             return CreateDefaultPreferences();
         }
     }

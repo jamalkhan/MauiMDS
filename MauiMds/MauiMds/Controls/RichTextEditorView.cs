@@ -504,7 +504,10 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
                 var text = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(b64));
                 HandleWebTextChange(text);
             }
-            catch { /* ignore malformed payload */ }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"VisualEditorView: malformed WebView text payload — {ex.Message}");
+            }
         }
         // Cursor-only update: mauimds://k/{cursor}/{selection}
         else if (e.Url.StartsWith("mauimds://k/"))
