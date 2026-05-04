@@ -87,6 +87,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAudioCaptureService, AudioCaptureService>();
 		builder.Services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
 		builder.Services.AddSingleton<ITranscriptionPipelineFactory, TranscriptionPipelineFactory>();
+		builder.Services.AddSingleton<PreferencesViewModel>();
 		builder.Services.AddSingleton<MainViewModel>();
 		builder.Services.AddSingleton<Views.MainPage>();
 

@@ -551,7 +551,7 @@ public partial class MainPage : ContentPage
 
     private string GetPreferredTimeFormat()
     {
-        return BindingContext is MainViewModel vm ? vm.PreferredTimeFormat : "h:mm:ss tt";
+        return BindingContext is MainViewModel vm ? vm.Preferences.PreferredTimeFormat : "h:mm:ss tt";
     }
 
     private void AttachResizePointerInteractions()

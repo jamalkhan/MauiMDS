@@ -87,10 +87,9 @@ public class MainViewModel : INotifyPropertyChanged
     public MainViewModel(
         IMarkdownDocumentService documentService,
         IWorkspaceBrowserService workspaceBrowserService,
-        IEditorPreferencesService preferencesService,
+        PreferencesViewModel preferencesViewModel,
         IDocumentWatchService documentWatchService,
         IClock clock,
-        FileLogLevelSwitch fileLogLevelSwitch,
         WorkspaceExplorerState workspaceExplorerState,
         DocumentApplyController documentApplyController,
         DocumentWorkflowController documentWorkflowController,
@@ -121,7 +120,9 @@ public class MainViewModel : INotifyPropertyChanged
         Workspace = workspaceExplorerState;
         _workspacePanelWidth = ClampWorkspacePanelWidth(_sessionState.WorkspacePanelWidth);
 
-        Preferences = new PreferencesViewModel(preferencesService, fileLogLevelSwitch, ReportErrorAsync);
+        Preferences = preferencesViewModel;
+        Preferences.SaveError += async (_, args) =>
+            await ReportErrorAsync(args.Message, args.Exception, args.InlineMessage);
 
         _documentWatchService.DocumentChanged += OnWatchedDocumentChanged;
         Workspace.PropertyChanged += OnWorkspacePropertyChanged;
@@ -193,7 +194,7 @@ public class MainViewModel : INotifyPropertyChanged
         Recording = new RecordingSessionViewModel(
             audioCaptureService, audioPlayerService, clock,
             loggerFactory.CreateLogger<RecordingSessionViewModel>(),
-            () => Preferences.PreferencesRecordingFormat,
+            () => Preferences.Current.RecordingFormat,
             () => WorkspaceRootPath,
             ReportErrorAsync);
 
@@ -201,9 +202,9 @@ public class MainViewModel : INotifyPropertyChanged
             transcriptionPipelineFactory, Workspace,
             loggerFactory.CreateLogger<TranscriptionQueueViewModel>(),
             () => new TranscriptionConfig(
-                Preferences.PreferencesTranscriptionEngine, Preferences.PreferencesDiarizationEngine,
-                Preferences.PreferencesWhisperBinaryPath, Preferences.PreferencesWhisperModelPath,
-                Preferences.PreferencesPyannotePythonPath, Preferences.PreferencesPyannoteHfToken),
+                Preferences.Current.TranscriptionEngine, Preferences.Current.DiarizationEngine,
+                Preferences.Current.WhisperBinaryPath, Preferences.Current.WhisperModelPath,
+                Preferences.Current.PyannotePythonPath, Preferences.Current.PyannoteHfToken),
             () => Recording.SelectedRecordingGroup,
             group => Recording.SelectedRecordingGroup = group,
             ReportErrorAsync,
@@ -513,9 +514,6 @@ public class MainViewModel : INotifyPropertyChanged
 
     public bool HasInlineError => !string.IsNullOrWhiteSpace(InlineErrorMessage);
 
-    public int InitialViewerRenderLineCount => Math.Max(5, Preferences.Current.InitialViewerRenderLineCount);
-    public string PreferredTimeFormat => Preferences.Current.Use24HourTime ? "HH:mm:ss" : "h:mm:ss tt";
-
     public bool IsViewerLoading
     {
         get => _isViewerLoading;
@@ -780,8 +778,6 @@ public class MainViewModel : INotifyPropertyChanged
     {
         KeyboardShortcutsChanged?.Invoke(this, EventArgs.Empty);
         ApplyWorkspaceRefreshSettings();
-        OnPropertyChanged(nameof(InitialViewerRenderLineCount));
-        OnPropertyChanged(nameof(PreferredTimeFormat));
         OnPropertyChanged(nameof(StatusText));
         ScheduleAutoSave();
         PersistSessionState();

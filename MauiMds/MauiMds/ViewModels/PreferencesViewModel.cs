@@ -24,7 +24,8 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
 
     private readonly IEditorPreferencesService _preferencesService;
     private readonly FileLogLevelSwitch _fileLogLevelSwitch;
-    private readonly Func<string, Exception?, string, Task> _reportError;
+
+    public event EventHandler<(string Message, Exception? Exception, string InlineMessage)>? SaveError;
 
     private bool _isPreferencesVisible;
     private string _preferencesAutoSaveDelaySecondsText = "30";
@@ -51,12 +52,10 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
 
     public PreferencesViewModel(
         IEditorPreferencesService preferencesService,
-        FileLogLevelSwitch fileLogLevelSwitch,
-        Func<string, Exception?, string, Task> reportError)
+        FileLogLevelSwitch fileLogLevelSwitch)
     {
         _preferencesService = preferencesService;
         _fileLogLevelSwitch = fileLogLevelSwitch;
-        _reportError = reportError;
 
         Current = _preferencesService.Load();
         LoadFieldsFromCurrent();
@@ -248,6 +247,8 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
     }
 
     public IReadOnlyList<KeyboardShortcutDefinition> CurrentShortcuts => Current.KeyboardShortcuts;
+    public int InitialViewerRenderLineCount => Math.Max(5, Current.InitialViewerRenderLineCount);
+    public string PreferredTimeFormat => Current.Use24HourTime ? "HH:mm:ss" : "h:mm:ss tt";
 
     public string PreferencesFileLogLevelText
     {
@@ -327,25 +328,25 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
     {
         if (!int.TryParse(PreferencesAutoSaveDelaySecondsText, out var delaySeconds) || delaySeconds < 5)
         {
-            await _reportError("Invalid autosave preference.", null, "Autosave delay must be at least 5 seconds.");
+            SaveError?.Invoke(this, ("Invalid autosave preference.", null, "Autosave delay must be at least 5 seconds."));
             return;
         }
 
         if (!int.TryParse(PreferencesMaxLogFileSizeMbText, out var maxLogFileSizeMb) || maxLogFileSizeMb < 1)
         {
-            await _reportError("Invalid log size preference.", null, "Max log size must be at least 1 MB.");
+            SaveError?.Invoke(this, ("Invalid log size preference.", null, "Max log size must be at least 1 MB."));
             return;
         }
 
         if (!int.TryParse(PreferencesInitialViewerRenderLineCountText, out var initialViewerRenderLineCount) || initialViewerRenderLineCount < 5)
         {
-            await _reportError("Invalid viewer render preference.", null, "Initial viewer render lines must be at least 5.");
+            SaveError?.Invoke(this, ("Invalid viewer render preference.", null, "Initial viewer render lines must be at least 5."));
             return;
         }
 
         if (!TryParseFileLogLevel(PreferencesFileLogLevelText, out var fileLogLevel))
         {
-            await _reportError("Invalid log level preference.", null, "File log level must be Trace, Debug, Information, Warning, or Error.");
+            SaveError?.Invoke(this, ("Invalid log level preference.", null, "File log level must be Trace, Debug, Information, Warning, or Error."));
             return;
         }
 
@@ -372,6 +373,8 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         _fileLogLevelSwitch.MinimumLevel = fileLogLevel;
         Current = saved;
         OnPropertyChanged(nameof(CurrentShortcuts));
+        OnPropertyChanged(nameof(InitialViewerRenderLineCount));
+        OnPropertyChanged(nameof(PreferredTimeFormat));
         IsPreferencesVisible = false;
         PreferencesSaved?.Invoke(this, saved);
     }
