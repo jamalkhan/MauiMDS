@@ -136,7 +136,7 @@ public partial class App : Application
             viewMenu.Add(CreateMenuItem("Visual Editor", viewModel.SetViewModeCommand, EditorViewMode.RichTextEditor, isEnabled: viewModel.IsVisualEditorSupported));
 
             var toolsMenu = new MenuBarItem { Text = "Tools" };
-            toolsMenu.Add(CreateMenuItem("Preferences", viewModel.ShowPreferencesCommand));
+            toolsMenu.Add(CreateMenuItem("Preferences", viewModel.Preferences.ShowPreferencesCommand));
 
             rootPage.MenuBarItems.Add(fileMenu);
             rootPage.MenuBarItems.Add(editMenu);
@@ -153,7 +153,7 @@ public partial class App : Application
 
     private void BuildFormatMenuItems(MenuBarItem formatMenu, MainViewModel viewModel)
     {
-        var shortcuts = viewModel.CurrentShortcuts;
+        var shortcuts = viewModel.Preferences.CurrentShortcuts;
         formatMenu.Add(CreateMenuItem("Paragraph", viewModel.FormatParagraphCommand));
         formatMenu.Add(CreateMenuItem("H1", viewModel.FormatHeader1Command, key: GetShortcutKey(shortcuts, EditorActionType.Header1, "1"), primaryModifier: true));
         formatMenu.Add(CreateMenuItem("H2", viewModel.FormatHeader2Command, key: GetShortcutKey(shortcuts, EditorActionType.Header2, "2"), primaryModifier: true));

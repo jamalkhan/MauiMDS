@@ -68,7 +68,7 @@
 
                 <Button Grid.Column="4"
                         Text="Preferences"
-                        Command="{Binding ShowPreferencesCommand}"
+                        Command="{Binding Preferences.ShowPreferencesCommand}"
                         VerticalOptions="Center"
                         Padding="18,10"
                         BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#3A3835}"

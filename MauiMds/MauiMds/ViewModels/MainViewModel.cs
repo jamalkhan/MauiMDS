@@ -32,11 +32,9 @@ public class MainViewModel : INotifyPropertyChanged
 
     private readonly IMarkdownDocumentService _documentService;
     private readonly IWorkspaceBrowserService _workspaceBrowserService;
-    private readonly IEditorPreferencesService _preferencesService;
     private readonly IDocumentWatchService _documentWatchService;
     private readonly IClock _clock;
     private readonly ILogger<MainViewModel> _logger;
-    private readonly FileLogLevelSwitch _fileLogLevelSwitch;
     private readonly DocumentApplyController _documentApplyController;
     private readonly DocumentWorkflowController _documentWorkflowController;
     private readonly PreviewPipelineController _previewPipelineController;
@@ -47,10 +45,10 @@ public class MainViewModel : INotifyPropertyChanged
 
     public RecordingSessionViewModel Recording { get; }
     public TranscriptionQueueViewModel TranscriptionQueue { get; }
+    public PreferencesViewModel Preferences { get; }
 
     private EditorDocumentState _document = new();
     private EditorViewMode _selectedViewMode = EditorViewMode.Viewer;
-    private EditorPreferences _preferences;
     private SessionState _sessionState;
 
     private IReadOnlyList<MarkdownBlock> _parsedBlocks = Array.Empty<MarkdownBlock>();
@@ -58,31 +56,10 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isOpeningDocument;
     private bool _isSavingDocument;
     private bool _isWorkspacePanelVisible;
-    private bool _isPreferencesVisible;
     private bool _isLoadingDocument;
     private double _workspacePanelWidth = DefaultWorkspacePanelWidth;
     private string _editorText = string.Empty;
     private string _inlineErrorMessage = string.Empty;
-    private string _preferencesAutoSaveDelaySecondsText = "30";
-    private string _preferencesMaxLogFileSizeMbText = "2";
-    private string _preferencesInitialViewerRenderLineCountText = "20";
-    private string _preferencesFileLogLevelText = "Info";
-    private bool _preferencesAutoSaveEnabled = true;
-    private bool _preferencesUse24HourTime;
-    private bool _isShortcutsTabActive;
-    private bool _isTranscriptionTabActive;
-    private TranscriptionEngineType _preferencesTranscriptionEngine = TranscriptionEngineType.AppleSpeech;
-    private DiarizationEngineType _preferencesDiarizationEngine = DiarizationEngineType.None;
-    private string _preferencesWhisperBinaryPath = string.Empty;
-    private string _preferencesWhisperModelPath = string.Empty;
-    private string _preferencesPyannotePythonPath = string.Empty;
-    private string _preferencesPyannoteHfToken = string.Empty;
-    private RecordingFormat _preferencesRecordingFormat = RecordingFormat.M4A;
-    private string _shortcutKeyHeader1 = "1";
-    private string _shortcutKeyHeader2 = "2";
-    private string _shortcutKeyHeader3 = "3";
-    private string _shortcutKeyBold = "B";
-    private string _shortcutKeyItalic = "I";
     private bool _isViewerLoading;
     private string _viewerLoadingPreviewText = string.Empty;
     private DateTimeOffset? _lastParsedBlocksAssignedUtc;
@@ -93,7 +70,6 @@ public class MainViewModel : INotifyPropertyChanged
     private string _deferredPreviewContent = string.Empty;
     private string _deferredPreviewFilePath = string.Empty;
     private EditorViewMode? _deferredPreviewViewMode;
-    private int _preferencesWorkspaceRefreshIntervalSeconds = 30;
 
     // Workspace auto-refresh
     private FileSystemWatcher? _workspaceWatcher;
@@ -131,10 +107,8 @@ public class MainViewModel : INotifyPropertyChanged
     {
         _documentService = documentService;
         _workspaceBrowserService = workspaceBrowserService;
-        _preferencesService = preferencesService;
         _documentWatchService = documentWatchService;
         _clock = clock;
-        _fileLogLevelSwitch = fileLogLevelSwitch;
         _documentApplyController = documentApplyController;
         _documentWorkflowController = documentWorkflowController;
         _previewPipelineController = previewPipelineController;
@@ -143,17 +117,11 @@ public class MainViewModel : INotifyPropertyChanged
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
         _pdfExportService = pdfExportService;
         _logger = logger;
-        _preferences = _preferencesService.Load();
         _sessionState = _sessionRestoreCoordinator.Load();
         Workspace = workspaceExplorerState;
-        _preferencesAutoSaveEnabled = _preferences.AutoSaveEnabled;
-        _preferencesUse24HourTime = _preferences.Use24HourTime;
-        _preferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
-        _preferencesMaxLogFileSizeMbText = _preferences.MaxLogFileSizeMb.ToString();
-        _preferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
-        _preferencesFileLogLevelText = FormatLogLevel(_preferences.FileLogLevel);
-        _preferencesWorkspaceRefreshIntervalSeconds = _preferences.WorkspaceRefreshIntervalSeconds;
         _workspacePanelWidth = ClampWorkspacePanelWidth(_sessionState.WorkspacePanelWidth);
+
+        Preferences = new PreferencesViewModel(preferencesService, fileLogLevelSwitch, ReportErrorAsync);
 
         _documentWatchService.DocumentChanged += OnWatchedDocumentChanged;
         Workspace.PropertyChanged += OnWorkspacePropertyChanged;
@@ -166,9 +134,6 @@ public class MainViewModel : INotifyPropertyChanged
         RevertCommand = new Command(async () => await RevertDocumentAsync(), () => !IsBusy);
         CloseDocumentCommand = new Command(async () => await CloseDocumentAsync(), () => !IsBusy);
         ExportPdfCommand = new Command(async () => await ExportAsPdfAsync(), () => !IsBusy && _parsedBlocks.Count > 0);
-        ShowPreferencesCommand = new Command(ShowPreferences);
-        SavePreferencesCommand = new Command(async () => await SavePreferencesAsync());
-        CancelPreferencesCommand = new Command(CancelPreferences);
         SetViewModeCommand = new Command<EditorViewMode>(SetViewMode);
         ToggleWorkspacePanelCommand = new Command(ToggleWorkspacePanel);
         OpenFolderCommand = new Command(async () => await OpenFolderAsync());
@@ -223,17 +188,12 @@ public class MainViewModel : INotifyPropertyChanged
         FormatCodeCommand = new Command(() => RequestEditorAction(EditorActionType.Code));
         FormatBoldCommand = new Command(() => RequestEditorAction(EditorActionType.Bold));
         FormatItalicCommand = new Command(() => RequestEditorAction(EditorActionType.Italic));
-        ShowGeneralTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = false; });
-        ShowShortcutsTabCommand = new Command(() => { IsShortcutsTabActive = true; IsTranscriptionTabActive = false; });
-        ShowTranscriptionTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = true; });
         RefreshWorkspaceCommand = new Command(async () => await RefreshWorkspaceFromDiskAsync());
-        LoadShortcutKeyFields();
-        LoadTranscriptionFields();
 
         Recording = new RecordingSessionViewModel(
             audioCaptureService, audioPlayerService, clock,
             loggerFactory.CreateLogger<RecordingSessionViewModel>(),
-            () => _preferencesRecordingFormat,
+            () => Preferences.PreferencesRecordingFormat,
             () => WorkspaceRootPath,
             ReportErrorAsync);
 
@@ -241,9 +201,9 @@ public class MainViewModel : INotifyPropertyChanged
             transcriptionPipelineFactory, Workspace,
             loggerFactory.CreateLogger<TranscriptionQueueViewModel>(),
             () => new TranscriptionConfig(
-                _preferencesTranscriptionEngine, _preferencesDiarizationEngine,
-                _preferencesWhisperBinaryPath, _preferencesWhisperModelPath,
-                _preferencesPyannotePythonPath, _preferencesPyannoteHfToken),
+                Preferences.PreferencesTranscriptionEngine, Preferences.PreferencesDiarizationEngine,
+                Preferences.PreferencesWhisperBinaryPath, Preferences.PreferencesWhisperModelPath,
+                Preferences.PreferencesPyannotePythonPath, Preferences.PreferencesPyannoteHfToken),
             () => Recording.SelectedRecordingGroup,
             group => Recording.SelectedRecordingGroup = group,
             ReportErrorAsync,
@@ -290,6 +250,8 @@ public class MainViewModel : INotifyPropertyChanged
             if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
                 await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath);
         };
+
+        Preferences.PreferencesSaved += OnPreferencesSaved;
     }
 
     public event EventHandler? KeyboardShortcutsChanged;
@@ -325,9 +287,6 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand RevertCommand { get; }
     public ICommand CloseDocumentCommand { get; }
     public ICommand ExportPdfCommand { get; }
-    public ICommand ShowPreferencesCommand { get; }
-    public ICommand SavePreferencesCommand { get; }
-    public ICommand CancelPreferencesCommand { get; }
     public ICommand SetViewModeCommand { get; }
     public ICommand ToggleWorkspacePanelCommand { get; }
     public ICommand OpenFolderCommand { get; }
@@ -355,16 +314,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand FormatCodeCommand { get; }
     public ICommand FormatBoldCommand { get; }
     public ICommand FormatItalicCommand { get; }
-    public ICommand ShowGeneralTabCommand { get; }
-    public ICommand ShowShortcutsTabCommand { get; }
-    public ICommand ShowTranscriptionTabCommand { get; }
     public ICommand RefreshWorkspaceCommand { get; }
-
-    public int PreferencesWorkspaceRefreshIntervalSeconds
-    {
-        get => _preferencesWorkspaceRefreshIntervalSeconds;
-        set { if (_preferencesWorkspaceRefreshIntervalSeconds != value) { _preferencesWorkspaceRefreshIntervalSeconds = value; OnPropertyChanged(); } }
-    }
 
     public string FilePath
     {
@@ -563,243 +513,8 @@ public class MainViewModel : INotifyPropertyChanged
 
     public bool HasInlineError => !string.IsNullOrWhiteSpace(InlineErrorMessage);
 
-    public bool IsPreferencesVisible
-    {
-        get => _isPreferencesVisible;
-        private set
-        {
-            if (_isPreferencesVisible == value)
-            {
-                return;
-            }
-
-            _isPreferencesVisible = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public bool PreferencesAutoSaveEnabled
-    {
-        get => _preferencesAutoSaveEnabled;
-        set
-        {
-            if (_preferencesAutoSaveEnabled == value)
-            {
-                return;
-            }
-
-            _preferencesAutoSaveEnabled = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public string PreferencesAutoSaveDelaySecondsText
-    {
-        get => _preferencesAutoSaveDelaySecondsText;
-        set
-        {
-            if (_preferencesAutoSaveDelaySecondsText == value)
-            {
-                return;
-            }
-
-            _preferencesAutoSaveDelaySecondsText = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public string PreferencesMaxLogFileSizeMbText
-    {
-        get => _preferencesMaxLogFileSizeMbText;
-        set
-        {
-            if (_preferencesMaxLogFileSizeMbText == value)
-            {
-                return;
-            }
-
-            _preferencesMaxLogFileSizeMbText = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public string PreferencesInitialViewerRenderLineCountText
-    {
-        get => _preferencesInitialViewerRenderLineCountText;
-        set
-        {
-            if (_preferencesInitialViewerRenderLineCountText == value)
-            {
-                return;
-            }
-
-            _preferencesInitialViewerRenderLineCountText = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public int InitialViewerRenderLineCount => Math.Max(5, _preferences.InitialViewerRenderLineCount);
-    public IReadOnlyList<string> AvailableFileLogLevels { get; } =
-        ["Info", "Warning", "Error", "Debug", "Trace"];
-
-    public bool PreferencesUse24HourTime
-    {
-        get => _preferencesUse24HourTime;
-        set
-        {
-            if (_preferencesUse24HourTime == value)
-            {
-                return;
-            }
-
-            _preferencesUse24HourTime = value;
-            OnPropertyChanged();
-        }
-    }
-
-    public string PreferredTimeFormat => _preferences.Use24HourTime ? "HH:mm:ss" : "h:mm:ss tt";
-
-    public bool IsShortcutsTabActive
-    {
-        get => _isShortcutsTabActive;
-        set
-        {
-            if (_isShortcutsTabActive == value) return;
-            _isShortcutsTabActive = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(IsGeneralTabActive));
-            OnPropertyChanged(nameof(IsTranscriptionTabActive));
-        }
-    }
-
-    public bool IsTranscriptionTabActive
-    {
-        get => _isTranscriptionTabActive;
-        set
-        {
-            if (_isTranscriptionTabActive == value) return;
-            _isTranscriptionTabActive = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(IsGeneralTabActive));
-            OnPropertyChanged(nameof(IsShortcutsTabActive));
-        }
-    }
-
-    public bool IsGeneralTabActive => !_isShortcutsTabActive && !_isTranscriptionTabActive;
-
-    public TranscriptionEngineType PreferencesTranscriptionEngine
-    {
-        get => _preferencesTranscriptionEngine;
-        set
-        {
-            if (_preferencesTranscriptionEngine == value) return;
-            _preferencesTranscriptionEngine = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(IsWhisperCppSelected));
-        }
-    }
-
-    public DiarizationEngineType PreferencesDiarizationEngine
-    {
-        get => _preferencesDiarizationEngine;
-        set
-        {
-            if (_preferencesDiarizationEngine == value) return;
-            _preferencesDiarizationEngine = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(IsPyannoteSelected));
-        }
-    }
-
-    public string PreferencesWhisperBinaryPath
-    {
-        get => _preferencesWhisperBinaryPath;
-        set { if (_preferencesWhisperBinaryPath != value) { _preferencesWhisperBinaryPath = value; OnPropertyChanged(); } }
-    }
-
-    public string PreferencesWhisperModelPath
-    {
-        get => _preferencesWhisperModelPath;
-        set { if (_preferencesWhisperModelPath != value) { _preferencesWhisperModelPath = value; OnPropertyChanged(); } }
-    }
-
-    public string PreferencesPyannotePythonPath
-    {
-        get => _preferencesPyannotePythonPath;
-        set { if (_preferencesPyannotePythonPath != value) { _preferencesPyannotePythonPath = value; OnPropertyChanged(); } }
-    }
-
-    public string PreferencesPyannoteHfToken
-    {
-        get => _preferencesPyannoteHfToken;
-        set { if (_preferencesPyannoteHfToken != value) { _preferencesPyannoteHfToken = value; OnPropertyChanged(); } }
-    }
-
-    public bool IsWhisperCppSelected => _preferencesTranscriptionEngine == TranscriptionEngineType.WhisperCpp;
-    public bool IsPyannoteSelected => _preferencesDiarizationEngine == DiarizationEngineType.Pyannote;
-
-    public RecordingFormat PreferencesRecordingFormat
-    {
-        get => _preferencesRecordingFormat;
-        set { if (_preferencesRecordingFormat != value) { _preferencesRecordingFormat = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShowWindowsFlacWarning)); } }
-    }
-
-#if WINDOWS
-    public bool IsWindowsPlatform => true;
-#else
-    public bool IsWindowsPlatform => false;
-#endif
-
-    public bool ShowWindowsFlacWarning => IsWindowsPlatform && _preferencesRecordingFormat == RecordingFormat.FLAC;
-
-    public bool IsAppleSpeechAvailable => DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst;
-
-    public string ShortcutKeyHeader1
-    {
-        get => _shortcutKeyHeader1;
-        set { if (_shortcutKeyHeader1 != value) { _shortcutKeyHeader1 = value; OnPropertyChanged(); } }
-    }
-
-    public string ShortcutKeyHeader2
-    {
-        get => _shortcutKeyHeader2;
-        set { if (_shortcutKeyHeader2 != value) { _shortcutKeyHeader2 = value; OnPropertyChanged(); } }
-    }
-
-    public string ShortcutKeyHeader3
-    {
-        get => _shortcutKeyHeader3;
-        set { if (_shortcutKeyHeader3 != value) { _shortcutKeyHeader3 = value; OnPropertyChanged(); } }
-    }
-
-    public string ShortcutKeyBold
-    {
-        get => _shortcutKeyBold;
-        set { if (_shortcutKeyBold != value) { _shortcutKeyBold = value; OnPropertyChanged(); } }
-    }
-
-    public string ShortcutKeyItalic
-    {
-        get => _shortcutKeyItalic;
-        set { if (_shortcutKeyItalic != value) { _shortcutKeyItalic = value; OnPropertyChanged(); } }
-    }
-
-    public IReadOnlyList<KeyboardShortcutDefinition> CurrentShortcuts => _preferences.KeyboardShortcuts;
-
-    public string PreferencesFileLogLevelText
-    {
-        get => _preferencesFileLogLevelText;
-        set
-        {
-            if (_preferencesFileLogLevelText == value)
-            {
-                return;
-            }
-
-            _preferencesFileLogLevelText = value;
-            OnPropertyChanged();
-        }
-    }
+    public int InitialViewerRenderLineCount => Math.Max(5, Preferences.Current.InitialViewerRenderLineCount);
+    public string PreferredTimeFormat => Preferences.Current.Use24HourTime ? "HH:mm:ss" : "h:mm:ss tt";
 
     public bool IsViewerLoading
     {
@@ -1061,105 +776,9 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void ShowPreferences()
+    private async void OnPreferencesSaved(object? sender, EditorPreferences saved)
     {
-        PreferencesAutoSaveEnabled = _preferences.AutoSaveEnabled;
-        PreferencesUse24HourTime = _preferences.Use24HourTime;
-        PreferencesAutoSaveDelaySecondsText = _preferences.AutoSaveDelaySeconds.ToString();
-        PreferencesMaxLogFileSizeMbText = _preferences.MaxLogFileSizeMb.ToString();
-        PreferencesInitialViewerRenderLineCountText = _preferences.InitialViewerRenderLineCount.ToString();
-        PreferencesFileLogLevelText = FormatLogLevel(_preferences.FileLogLevel);
-        IsShortcutsTabActive = false;
-        IsTranscriptionTabActive = false;
-        LoadShortcutKeyFields();
-        LoadTranscriptionFields();
-        IsPreferencesVisible = true;
-    }
-
-    private void LoadShortcutKeyFields()
-    {
-        ShortcutKeyHeader1 = GetShortcutKey(EditorActionType.Header1);
-        ShortcutKeyHeader2 = GetShortcutKey(EditorActionType.Header2);
-        ShortcutKeyHeader3 = GetShortcutKey(EditorActionType.Header3);
-        ShortcutKeyBold = GetShortcutKey(EditorActionType.Bold);
-        ShortcutKeyItalic = GetShortcutKey(EditorActionType.Italic);
-    }
-
-    private void LoadTranscriptionFields()
-    {
-        _preferencesTranscriptionEngine = _preferences.TranscriptionEngine;
-        _preferencesDiarizationEngine = _preferences.DiarizationEngine;
-        _preferencesWhisperBinaryPath = _preferences.WhisperBinaryPath;
-        _preferencesWhisperModelPath = _preferences.WhisperModelPath;
-        _preferencesPyannotePythonPath = _preferences.PyannotePythonPath;
-        _preferencesPyannoteHfToken = _preferences.PyannoteHfToken;
-        _preferencesRecordingFormat = _preferences.RecordingFormat;
-        OnPropertyChanged(nameof(PreferencesTranscriptionEngine));
-        OnPropertyChanged(nameof(PreferencesDiarizationEngine));
-        OnPropertyChanged(nameof(PreferencesWhisperBinaryPath));
-        OnPropertyChanged(nameof(PreferencesWhisperModelPath));
-        OnPropertyChanged(nameof(PreferencesPyannotePythonPath));
-        OnPropertyChanged(nameof(PreferencesPyannoteHfToken));
-        OnPropertyChanged(nameof(PreferencesRecordingFormat));
-        OnPropertyChanged(nameof(IsWhisperCppSelected));
-        OnPropertyChanged(nameof(IsPyannoteSelected));
-    }
-
-    private string GetShortcutKey(EditorActionType action)
-    {
-        return _preferences.KeyboardShortcuts
-            .FirstOrDefault(s => s.Action == action)?.Key.ToUpperInvariant() ?? string.Empty;
-    }
-
-    private async Task SavePreferencesAsync()
-    {
-        if (!int.TryParse(PreferencesAutoSaveDelaySecondsText, out var delaySeconds) || delaySeconds < 5)
-        {
-            await ReportErrorAsync("Invalid autosave preference.", null, "Autosave delay must be at least 5 seconds.");
-            return;
-        }
-
-        if (!int.TryParse(PreferencesMaxLogFileSizeMbText, out var maxLogFileSizeMb) || maxLogFileSizeMb < 1)
-        {
-            await ReportErrorAsync("Invalid log size preference.", null, "Max log size must be at least 1 MB.");
-            return;
-        }
-
-        if (!int.TryParse(PreferencesInitialViewerRenderLineCountText, out var initialViewerRenderLineCount) || initialViewerRenderLineCount < 5)
-        {
-            await ReportErrorAsync("Invalid viewer render preference.", null, "Initial viewer render lines must be at least 5.");
-            return;
-        }
-
-        if (!TryParseFileLogLevel(PreferencesFileLogLevelText, out var fileLogLevel))
-        {
-            await ReportErrorAsync("Invalid log level preference.", null, "File log level must be Trace, Debug, Information, Warning, or Error.");
-            return;
-        }
-
-        _preferences = new EditorPreferences
-        {
-            AutoSaveEnabled = PreferencesAutoSaveEnabled,
-            AutoSaveDelaySeconds = delaySeconds,
-            MaxLogFileSizeMb = maxLogFileSizeMb,
-            InitialViewerRenderLineCount = initialViewerRenderLineCount,
-            Use24HourTime = PreferencesUse24HourTime,
-            FileLogLevel = fileLogLevel,
-            KeyboardShortcuts = BuildShortcutsFromFields(),
-            TranscriptionEngine = _preferencesTranscriptionEngine,
-            DiarizationEngine = _preferencesDiarizationEngine,
-            WhisperBinaryPath = _preferencesWhisperBinaryPath,
-            WhisperModelPath = _preferencesWhisperModelPath,
-            PyannotePythonPath = _preferencesPyannotePythonPath,
-            PyannoteHfToken = _preferencesPyannoteHfToken,
-            RecordingFormat = _preferencesRecordingFormat,
-            WorkspaceRefreshIntervalSeconds = Math.Max(0, _preferencesWorkspaceRefreshIntervalSeconds)
-        };
-
-        _preferencesService.Save(_preferences);
         KeyboardShortcutsChanged?.Invoke(this, EventArgs.Empty);
-        _fileLogLevelSwitch.MinimumLevel = fileLogLevel;
-        IsPreferencesVisible = false;
         ApplyWorkspaceRefreshSettings();
         OnPropertyChanged(nameof(InitialViewerRenderLineCount));
         OnPropertyChanged(nameof(PreferredTimeFormat));
@@ -1167,45 +786,6 @@ public class MainViewModel : INotifyPropertyChanged
         ScheduleAutoSave();
         PersistSessionState();
         await ClearInlineErrorAsync();
-    }
-
-    private void CancelPreferences()
-    {
-        IsPreferencesVisible = false;
-    }
-
-    private List<KeyboardShortcutDefinition> BuildShortcutsFromFields()
-    {
-        return
-        [
-            new KeyboardShortcutDefinition { Action = EditorActionType.Header1, Key = NormalizeShortcutKey(ShortcutKeyHeader1, "1") },
-            new KeyboardShortcutDefinition { Action = EditorActionType.Header2, Key = NormalizeShortcutKey(ShortcutKeyHeader2, "2") },
-            new KeyboardShortcutDefinition { Action = EditorActionType.Header3, Key = NormalizeShortcutKey(ShortcutKeyHeader3, "3") },
-            new KeyboardShortcutDefinition { Action = EditorActionType.Bold,    Key = NormalizeShortcutKey(ShortcutKeyBold, "B") },
-            new KeyboardShortcutDefinition { Action = EditorActionType.Italic,  Key = NormalizeShortcutKey(ShortcutKeyItalic, "I") },
-        ];
-    }
-
-    private static string NormalizeShortcutKey(string raw, string fallback)
-    {
-        var trimmed = raw.Trim().ToUpperInvariant();
-        return trimmed.Length > 0 && (char.IsLetterOrDigit(trimmed[0])) ? trimmed[0].ToString() : fallback;
-    }
-
-    private static string FormatLogLevel(LogLevel logLevel)
-    {
-        return logLevel == LogLevel.Information ? "Info" : logLevel.ToString();
-    }
-
-    private static bool TryParseFileLogLevel(string text, out LogLevel logLevel)
-    {
-        if (string.Equals(text, "Info", StringComparison.OrdinalIgnoreCase))
-        {
-            logLevel = LogLevel.Information;
-            return true;
-        }
-
-        return Enum.TryParse(text, ignoreCase: true, out logLevel) && logLevel != LogLevel.None;
     }
 
     private void SetViewMode(EditorViewMode mode)
@@ -1505,11 +1085,11 @@ public class MainViewModel : INotifyPropertyChanged
     private void ScheduleAutoSave()
     {
         _autosaveCoordinator.Schedule(
-            _preferences.AutoSaveEnabled,
+            Preferences.Current.AutoSaveEnabled,
             _document.IsUntitled,
             _document.IsDirty,
             _document.FilePath,
-            TimeSpan.FromSeconds(_preferences.AutoSaveDelaySeconds),
+            TimeSpan.FromSeconds(Preferences.Current.AutoSaveDelaySeconds),
             () => SaveCurrentDocumentInternalAsync(forceSaveAs: false));
     }
 
@@ -1598,7 +1178,7 @@ public class MainViewModel : INotifyPropertyChanged
             parts.Add("Loading preview");
         }
 
-        parts.Add(_preferences.AutoSaveEnabled ? $"Autosave {_preferences.AutoSaveDelaySeconds}s" : "Autosave off");
+        parts.Add(Preferences.Current.AutoSaveEnabled ? $"Autosave {Preferences.Current.AutoSaveDelaySeconds}s" : "Autosave off");
         parts.Add(SelectedViewMode switch
         {
             EditorViewMode.Viewer => "Reader",
@@ -1990,7 +1570,7 @@ public class MainViewModel : INotifyPropertyChanged
         _workspaceRefreshTimer?.Dispose();
         _workspaceRefreshTimer = null;
 
-        var intervalSeconds = _preferences.WorkspaceRefreshIntervalSeconds;
+        var intervalSeconds = Preferences.Current.WorkspaceRefreshIntervalSeconds;
         if (intervalSeconds > 0 && HasWorkspaceRoot)
         {
             var intervalMs = intervalSeconds * 1000;

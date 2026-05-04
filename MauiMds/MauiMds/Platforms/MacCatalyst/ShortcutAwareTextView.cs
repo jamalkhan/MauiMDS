@@ -37,7 +37,7 @@ internal sealed class ShortcutAwareTextView : MauiTextView
             if (vm is null)
                 continue;
 
-            var shortcut = vm.CurrentShortcuts.FirstOrDefault(s =>
+            var shortcut = vm.Preferences.CurrentShortcuts.FirstOrDefault(s =>
                 string.Equals(s.Key, pressedKey, StringComparison.OrdinalIgnoreCase));
             if (shortcut is null)
                 continue;

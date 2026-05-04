@@ -28,7 +28,8 @@
                         StrokeThickness="1"
                         Padding="18,14"
                         StrokeShape="RoundRectangle 18"
-                        IsVisible="{Binding IsPreferencesVisible}">
+                        IsVisible="{Binding IsPreferencesVisible}"
+                        BindingContext="{Binding Preferences}">
                     <Grid RowDefinitions="Auto,Auto,Auto"
                           RowSpacing="14">
 
