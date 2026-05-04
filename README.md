@@ -72,4 +72,4 @@ cd MauiMDS/MauiMds
 dotnet build MauiMds.sln
 ```
 
-Requires .NET 10. Mac builds also require Xcode 16.
+Requires .NET 10. Mac builds also require Xcode 26.3 or later.
