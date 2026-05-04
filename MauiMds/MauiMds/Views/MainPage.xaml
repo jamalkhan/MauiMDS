@@ -311,9 +311,9 @@
                                                          Converter={StaticResource EnumToBoolConverter},
                                                          ConverterParameter=M4A}">
                                             <RadioButton.Content>
-                                                <OnPlatform x:TypeArguments="x:String"
-                                                            Default="M4A  (default)"
-                                                            WinUI="M4A  (saved as WAV on Windows)" />
+                                                <OnPlatform x:TypeArguments="x:String" Default="M4A  (default)">
+                                                    <On Platform="WinUI" Value="M4A  (saved as WAV on Windows)" />
+                                                </OnPlatform>
                                             </RadioButton.Content>
                                         </RadioButton>
                                     </HorizontalStackLayout>
