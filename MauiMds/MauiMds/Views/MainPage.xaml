@@ -10,6 +10,8 @@
         <converters:EnumToBoolConverter x:Key="EnumToBoolConverter" />
     </ContentPage.Resources>
     <Grid>
+
+        <!-- ── Main layout ── -->
         <Grid Padding="28"
               ColumnDefinitions="Auto,*">
             <views:WorkspaceExplorerView x:Name="WorkspaceExplorer"
@@ -17,427 +19,12 @@
                                          Margin="0,0,20,0" />
 
             <Grid Grid.Column="1"
-                  RowDefinitions="Auto,Auto,Auto,*,Auto"
+                  RowDefinitions="Auto,Auto,*,Auto"
                   RowSpacing="12">
                 <views:DocumentHeaderView x:Name="DocumentHeader"
                                           Grid.Row="0" />
 
                 <Border Grid.Row="1"
-                        BackgroundColor="{AppThemeBinding Light=#F4F0E6, Dark=#2D2C2A}"
-                        Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
-                        StrokeThickness="1"
-                        Padding="18,14"
-                        StrokeShape="RoundRectangle 18"
-                        IsVisible="{Binding IsPreferencesVisible}"
-                        BindingContext="{Binding Preferences}">
-                    <Grid RowDefinitions="Auto,Auto,Auto"
-                          RowSpacing="14">
-
-                        <!-- Header row: title + tab buttons -->
-                        <Grid ColumnDefinitions="*,Auto"
-                              ColumnSpacing="16">
-                            <Label Text="Preferences"
-                                   FontSize="18"
-                                   FontAttributes="Bold"
-                                   VerticalTextAlignment="Center"
-                                   TextColor="{AppThemeBinding Light=#151515, Dark=#F3EDE2}" />
-                            <HorizontalStackLayout Grid.Column="1"
-                                                   Spacing="4">
-                                <Button Text="General"
-                                        FontSize="13"
-                                        Padding="14,6"
-                                        CornerRadius="8"
-                                        Command="{Binding ShowGeneralTabCommand}">
-                                    <Button.Triggers>
-                                        <DataTrigger TargetType="Button"
-                                                     Binding="{Binding IsGeneralTabActive}"
-                                                     Value="True">
-                                            <Setter Property="BackgroundColor"
-                                                    Value="{AppThemeBinding Light=#C8C0B2, Dark=#4A4743}" />
-                                            <Setter Property="FontAttributes" Value="Bold" />
-                                        </DataTrigger>
-                                        <DataTrigger TargetType="Button"
-                                                     Binding="{Binding IsGeneralTabActive}"
-                                                     Value="False">
-                                            <Setter Property="BackgroundColor"
-                                                    Value="{AppThemeBinding Light=#E0D8CC, Dark=#3A3835}" />
-                                            <Setter Property="FontAttributes" Value="None" />
-                                        </DataTrigger>
-                                    </Button.Triggers>
-                                </Button>
-                                <Button Text="Keyboard Shortcuts"
-                                        FontSize="13"
-                                        Padding="14,6"
-                                        CornerRadius="8"
-                                        Command="{Binding ShowShortcutsTabCommand}">
-                                    <Button.Triggers>
-                                        <DataTrigger TargetType="Button"
-                                                     Binding="{Binding IsShortcutsTabActive}"
-                                                     Value="True">
-                                            <Setter Property="BackgroundColor"
-                                                    Value="{AppThemeBinding Light=#C8C0B2, Dark=#4A4743}" />
-                                            <Setter Property="FontAttributes" Value="Bold" />
-                                        </DataTrigger>
-                                        <DataTrigger TargetType="Button"
-                                                     Binding="{Binding IsShortcutsTabActive}"
-                                                     Value="False">
-                                            <Setter Property="BackgroundColor"
-                                                    Value="{AppThemeBinding Light=#E0D8CC, Dark=#3A3835}" />
-                                            <Setter Property="FontAttributes" Value="None" />
-                                        </DataTrigger>
-                                    </Button.Triggers>
-                                </Button>
-                                <Button Text="Transcription"
-                                        FontSize="13"
-                                        Padding="14,6"
-                                        CornerRadius="8"
-                                        Command="{Binding ShowTranscriptionTabCommand}">
-                                    <Button.Triggers>
-                                        <DataTrigger TargetType="Button"
-                                                     Binding="{Binding IsTranscriptionTabActive}"
-                                                     Value="True">
-                                            <Setter Property="BackgroundColor"
-                                                    Value="{AppThemeBinding Light=#C8C0B2, Dark=#4A4743}" />
-                                            <Setter Property="FontAttributes" Value="Bold" />
-                                        </DataTrigger>
-                                        <DataTrigger TargetType="Button"
-                                                     Binding="{Binding IsTranscriptionTabActive}"
-                                                     Value="False">
-                                            <Setter Property="BackgroundColor"
-                                                    Value="{AppThemeBinding Light=#E0D8CC, Dark=#3A3835}" />
-                                            <Setter Property="FontAttributes" Value="None" />
-                                        </DataTrigger>
-                                    </Button.Triggers>
-                                </Button>
-                            </HorizontalStackLayout>
-                        </Grid>
-
-                        <!-- Tab content row -->
-                        <Grid Grid.Row="1">
-                            <!-- General tab -->
-                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
-                                  RowSpacing="12"
-                                  IsVisible="{Binding IsGeneralTabActive}">
-                                <HorizontalStackLayout Spacing="12">
-                                    <Label Text="Autosave"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Switch IsToggled="{Binding PreferencesAutoSaveEnabled}" />
-                                    <Label Text="Delay (seconds)"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Entry WidthRequest="90"
-                                           Keyboard="Numeric"
-                                           Text="{Binding PreferencesAutoSaveDelaySecondsText}" />
-                                </HorizontalStackLayout>
-
-                                <HorizontalStackLayout Grid.Row="1"
-                                                       Spacing="12">
-                                    <Label Text="Max Log Size (MB)"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Entry WidthRequest="90"
-                                           Keyboard="Numeric"
-                                           Text="{Binding PreferencesMaxLogFileSizeMbText}" />
-                                    <Label Text="Default is 2 MB"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                </HorizontalStackLayout>
-
-                                <HorizontalStackLayout Grid.Row="2"
-                                                       Spacing="12">
-                                    <Label Text="Initial Viewer Lines"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Entry WidthRequest="90"
-                                           Keyboard="Numeric"
-                                           Text="{Binding PreferencesInitialViewerRenderLineCountText}" />
-                                    <Label Text="Default is 20"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                </HorizontalStackLayout>
-
-                                <HorizontalStackLayout Grid.Row="3"
-                                                       Spacing="12">
-                                    <Label Text="File Log Level"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Picker WidthRequest="160"
-                                            Title="Log level"
-                                            ItemsSource="{Binding AvailableFileLogLevels}"
-                                            SelectedItem="{Binding PreferencesFileLogLevelText}" />
-                                    <Label Text="Default is Info"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                </HorizontalStackLayout>
-
-                                <HorizontalStackLayout Grid.Row="4"
-                                                       Spacing="12">
-                                    <Label Text="24-Hour Time"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Switch IsToggled="{Binding PreferencesUse24HourTime}" />
-                                    <Label Text="Default is 12-hour"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                </HorizontalStackLayout>
-
-                                <HorizontalStackLayout Grid.Row="5"
-                                                       Spacing="12">
-                                    <Label Text="Explorer Auto-Refresh (seconds)"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Entry WidthRequest="90"
-                                           Keyboard="Numeric"
-                                           Text="{Binding PreferencesWorkspaceRefreshIntervalSeconds}" />
-                                    <Label Text="0 = disabled, default 30"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                </HorizontalStackLayout>
-                            </Grid>
-
-                            <!-- Keyboard Shortcuts tab -->
-                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
-                                  RowSpacing="10"
-                                  IsVisible="{Binding IsShortcutsTabActive}">
-                                <Label Text="Shortcuts use ⌘ + key. Type a single letter or digit."
-                                       FontSize="12"
-                                       TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-
-                                <Grid Grid.Row="1"
-                                      ColumnDefinitions="140,Auto,60"
-                                      ColumnSpacing="8">
-                                    <Label Text="Heading 1"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Label Grid.Column="1"
-                                           Text="⌘ +"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="14"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                    <Entry Grid.Column="2"
-                                           MaxLength="1"
-                                           HorizontalTextAlignment="Center"
-                                           Text="{Binding ShortcutKeyHeader1}" />
-                                </Grid>
-
-                                <Grid Grid.Row="2"
-                                      ColumnDefinitions="140,Auto,60"
-                                      ColumnSpacing="8">
-                                    <Label Text="Heading 2"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Label Grid.Column="1"
-                                           Text="⌘ +"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="14"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                    <Entry Grid.Column="2"
-                                           MaxLength="1"
-                                           HorizontalTextAlignment="Center"
-                                           Text="{Binding ShortcutKeyHeader2}" />
-                                </Grid>
-
-                                <Grid Grid.Row="3"
-                                      ColumnDefinitions="140,Auto,60"
-                                      ColumnSpacing="8">
-                                    <Label Text="Heading 3"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Label Grid.Column="1"
-                                           Text="⌘ +"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="14"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                    <Entry Grid.Column="2"
-                                           MaxLength="1"
-                                           HorizontalTextAlignment="Center"
-                                           Text="{Binding ShortcutKeyHeader3}" />
-                                </Grid>
-
-                                <Grid Grid.Row="4"
-                                      ColumnDefinitions="140,Auto,60"
-                                      ColumnSpacing="8">
-                                    <Label Text="Bold"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Label Grid.Column="1"
-                                           Text="⌘ +"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="14"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                    <Entry Grid.Column="2"
-                                           MaxLength="1"
-                                           HorizontalTextAlignment="Center"
-                                           Text="{Binding ShortcutKeyBold}" />
-                                </Grid>
-
-                                <Grid Grid.Row="5"
-                                      ColumnDefinitions="140,Auto,60"
-                                      ColumnSpacing="8">
-                                    <Label Text="Italic"
-                                           VerticalTextAlignment="Center"
-                                           TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-                                    <Label Grid.Column="1"
-                                           Text="⌘ +"
-                                           VerticalTextAlignment="Center"
-                                           FontSize="14"
-                                           TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                    <Entry Grid.Column="2"
-                                           MaxLength="1"
-                                           HorizontalTextAlignment="Center"
-                                           Text="{Binding ShortcutKeyItalic}" />
-                                </Grid>
-                            </Grid>
-
-                            <!-- Transcription tab -->
-                            <VerticalStackLayout Spacing="14"
-                                                 IsVisible="{Binding IsTranscriptionTabActive}">
-
-                                <!-- Recording Format -->
-                                <Label Text="Record new files to..."
-                                       FontSize="13"
-                                       FontAttributes="Bold"
-                                       TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-
-                                <VerticalStackLayout Spacing="6">
-                                    <HorizontalStackLayout Spacing="8">
-                                        <RadioButton GroupName="RecordingFormat"
-                                                     Content="{OnPlatform 'M4A  (default)', WinUI='M4A  (saved as WAV on Windows)'}"
-                                                     IsChecked="{Binding PreferencesRecordingFormat,
-                                                         Converter={StaticResource EnumToBoolConverter},
-                                                         ConverterParameter=M4A}" />
-                                    </HorizontalStackLayout>
-                                    <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="MP3"
-                                                     GroupName="RecordingFormat"
-                                                     IsChecked="{Binding PreferencesRecordingFormat,
-                                                         Converter={StaticResource EnumToBoolConverter},
-                                                         ConverterParameter=MP3}" />
-                                    </HorizontalStackLayout>
-                                    <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="FLAC  (requires ffmpeg)"
-                                                     GroupName="RecordingFormat"
-                                                     IsChecked="{Binding PreferencesRecordingFormat,
-                                                         Converter={StaticResource EnumToBoolConverter},
-                                                         ConverterParameter=FLAC}" />
-                                    </HorizontalStackLayout>
-                                    <Label Text="⚠  FLAC requires ffmpeg in PATH on Windows. If not found, recording will be saved as WAV."
-                                           FontSize="12"
-                                           TextColor="#CC7700"
-                                           IsVisible="{Binding ShowWindowsFlacWarning}" />
-                                </VerticalStackLayout>
-
-                                <!-- Transcription Engine -->
-                                <Label Text="Transcription Engine"
-                                       FontSize="13"
-                                       FontAttributes="Bold"
-                                       TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
-
-                                <VerticalStackLayout Spacing="6">
-                                    <HorizontalStackLayout Spacing="8"
-                                                          IsVisible="{Binding IsAppleSpeechAvailable}">
-                                        <RadioButton Content="Apple Speech Framework"
-                                                     GroupName="TranscriptionEngine"
-                                                     IsChecked="{Binding PreferencesTranscriptionEngine,
-                                                         Converter={StaticResource EnumToBoolConverter},
-                                                         ConverterParameter=AppleSpeech}" />
-                                    </HorizontalStackLayout>
-                                    <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="Whisper.cpp"
-                                                     GroupName="TranscriptionEngine"
-                                                     IsChecked="{Binding PreferencesTranscriptionEngine,
-                                                         Converter={StaticResource EnumToBoolConverter},
-                                                         ConverterParameter=WhisperCpp}" />
-                                    </HorizontalStackLayout>
-                                </VerticalStackLayout>
-
-                                <!-- Whisper paths — only shown when Whisper.cpp selected -->
-                                <VerticalStackLayout Spacing="8"
-                                                     IsVisible="{Binding IsWhisperCppSelected}">
-                                    <VerticalStackLayout Spacing="4">
-                                        <Label Text="whisper-cli Binary"
-                                               FontSize="12"
-                                               TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                        <Entry Placeholder="/opt/homebrew/bin/whisper-cli"
-                                               Text="{Binding PreferencesWhisperBinaryPath}" />
-                                    </VerticalStackLayout>
-                                    <VerticalStackLayout Spacing="4">
-                                        <Label Text="Whisper Model File (.bin)"
-                                               FontSize="12"
-                                               TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                        <Entry Placeholder="/path/to/ggml-model.bin"
-                                               Text="{Binding PreferencesWhisperModelPath}" />
-                                    </VerticalStackLayout>
-                                </VerticalStackLayout>
-
-                                <!-- Diarization Engine -->
-                                <Label Text="Speaker Diarization Engine"
-                                       FontSize="13"
-                                       FontAttributes="Bold"
-                                       TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}"
-                                       Margin="0,6,0,0" />
-
-                                <VerticalStackLayout Spacing="6">
-                                    <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="None  (all segments labelled Unknown Speaker)"
-                                                     GroupName="DiarizationEngine"
-                                                     IsChecked="{Binding PreferencesDiarizationEngine,
-                                                         Converter={StaticResource EnumToBoolConverter},
-                                                         ConverterParameter=None}" />
-                                    </HorizontalStackLayout>
-                                    <HorizontalStackLayout Spacing="8">
-                                        <RadioButton Content="pyannote.audio 3.1"
-                                                     GroupName="DiarizationEngine"
-                                                     IsChecked="{Binding PreferencesDiarizationEngine,
-                                                         Converter={StaticResource EnumToBoolConverter},
-                                                         ConverterParameter=Pyannote}" />
-                                    </HorizontalStackLayout>
-                                </VerticalStackLayout>
-
-                                <!-- pyannote settings — only shown when pyannote selected -->
-                                <VerticalStackLayout Spacing="8"
-                                                     IsVisible="{Binding IsPyannoteSelected}">
-                                    <VerticalStackLayout Spacing="4">
-                                        <Label Text="Python Executable"
-                                               FontSize="12"
-                                               TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                        <Entry Placeholder="/usr/local/bin/python3"
-                                               Text="{Binding PreferencesPyannotePythonPath}" />
-                                    </VerticalStackLayout>
-                                    <VerticalStackLayout Spacing="4">
-                                        <Label Text="Hugging Face Token (hf_…)"
-                                               FontSize="12"
-                                               TextColor="{AppThemeBinding Light=#6A655D, Dark=#BEB7AC}" />
-                                        <Entry Placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
-                                               IsPassword="True"
-                                               Text="{Binding PreferencesPyannoteHfToken}" />
-                                        <Label Text="Accept model terms at huggingface.co/pyannote/speaker-diarization-3.1 before use."
-                                               FontSize="11"
-                                               TextColor="{AppThemeBinding Light=#8A837A, Dark=#9A9289}" />
-                                    </VerticalStackLayout>
-                                </VerticalStackLayout>
-
-                            </VerticalStackLayout>
-                        </Grid>
-
-                        <!-- Save/Cancel buttons always visible -->
-                        <HorizontalStackLayout Grid.Row="2"
-                                               Spacing="10">
-                            <Button Text="Save Preferences"
-                                    Command="{Binding SavePreferencesCommand}" />
-                            <Button Text="Cancel"
-                                    Command="{Binding CancelPreferencesCommand}" />
-                        </HorizontalStackLayout>
-                    </Grid>
-                </Border>
-
-                <Border Grid.Row="2"
                         BackgroundColor="{AppThemeBinding Light=#E8E0CF, Dark=#32302D}"
                         Stroke="{AppThemeBinding Light=#D8D0C2, Dark=#474542}"
                         StrokeThickness="1"
@@ -561,17 +148,437 @@
                 </Border>
 
                 <views:ViewerHostView x:Name="ViewerHost"
-                                      Grid.Row="3" />
+                                      Grid.Row="2" />
 
                 <views:RecordingGroupView x:Name="RecordingGroupView"
-                                           Grid.Row="3"
+                                           Grid.Row="2"
                                            VerticalOptions="End"
                                            IsVisible="{Binding Recording.IsRecordingGroupSelected}"
                                            BindingContext="{Binding}" />
 
                 <views:LogsDockView x:Name="LogsDock"
-                                    Grid.Row="4" />
+                                    Grid.Row="3" />
             </Grid>
         </Grid>
+
+        <!-- ── Full-screen preferences overlay (stacks on top of everything) ── -->
+        <Grid IsVisible="{Binding Preferences.IsPreferencesVisible}"
+              BindingContext="{Binding Preferences}"
+              BackgroundColor="{AppThemeBinding Light=#EAEAEC, Dark=#28282B}">
+            <ScrollView>
+                <VerticalStackLayout Padding="60,44,60,44"
+                                     MaximumWidthRequest="860"
+                                     HorizontalOptions="Center"
+                                     Spacing="0">
+
+                    <!-- Header: title + tab strip -->
+                    <Grid ColumnDefinitions="*,Auto"
+                          ColumnSpacing="16"
+                          Margin="0,0,0,20">
+                        <Label Text="Preferences"
+                               FontSize="26"
+                               FontAttributes="Bold"
+                               VerticalTextAlignment="Center"
+                               TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                        <HorizontalStackLayout Grid.Column="1"
+                                               Spacing="4">
+                            <Button Text="General"
+                                    FontSize="13"
+                                    Padding="14,6"
+                                    CornerRadius="8"
+                                    Command="{Binding ShowGeneralTabCommand}">
+                                <Button.Triggers>
+                                    <DataTrigger TargetType="Button"
+                                                 Binding="{Binding IsGeneralTabActive}"
+                                                 Value="True">
+                                        <Setter Property="BackgroundColor"
+                                                Value="{AppThemeBinding Light=#AEAEB2, Dark=#58585E}" />
+                                        <Setter Property="FontAttributes" Value="Bold" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Button"
+                                                 Binding="{Binding IsGeneralTabActive}"
+                                                 Value="False">
+                                        <Setter Property="BackgroundColor"
+                                                Value="{AppThemeBinding Light=#D0D0D4, Dark=#3E3E44}" />
+                                        <Setter Property="FontAttributes" Value="None" />
+                                    </DataTrigger>
+                                </Button.Triggers>
+                            </Button>
+                            <Button Text="Keyboard Shortcuts"
+                                    FontSize="13"
+                                    Padding="14,6"
+                                    CornerRadius="8"
+                                    Command="{Binding ShowShortcutsTabCommand}">
+                                <Button.Triggers>
+                                    <DataTrigger TargetType="Button"
+                                                 Binding="{Binding IsShortcutsTabActive}"
+                                                 Value="True">
+                                        <Setter Property="BackgroundColor"
+                                                Value="{AppThemeBinding Light=#AEAEB2, Dark=#58585E}" />
+                                        <Setter Property="FontAttributes" Value="Bold" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Button"
+                                                 Binding="{Binding IsShortcutsTabActive}"
+                                                 Value="False">
+                                        <Setter Property="BackgroundColor"
+                                                Value="{AppThemeBinding Light=#D0D0D4, Dark=#3E3E44}" />
+                                        <Setter Property="FontAttributes" Value="None" />
+                                    </DataTrigger>
+                                </Button.Triggers>
+                            </Button>
+                            <Button Text="Transcription"
+                                    FontSize="13"
+                                    Padding="14,6"
+                                    CornerRadius="8"
+                                    Command="{Binding ShowTranscriptionTabCommand}">
+                                <Button.Triggers>
+                                    <DataTrigger TargetType="Button"
+                                                 Binding="{Binding IsTranscriptionTabActive}"
+                                                 Value="True">
+                                        <Setter Property="BackgroundColor"
+                                                Value="{AppThemeBinding Light=#AEAEB2, Dark=#58585E}" />
+                                        <Setter Property="FontAttributes" Value="Bold" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Button"
+                                                 Binding="{Binding IsTranscriptionTabActive}"
+                                                 Value="False">
+                                        <Setter Property="BackgroundColor"
+                                                Value="{AppThemeBinding Light=#D0D0D4, Dark=#3E3E44}" />
+                                        <Setter Property="FontAttributes" Value="None" />
+                                    </DataTrigger>
+                                </Button.Triggers>
+                            </Button>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <BoxView HeightRequest="1"
+                             Margin="0,0,0,28"
+                             Color="{AppThemeBinding Light=#C8C8CC, Dark=#3E3E44}" />
+
+                    <!-- Tab content -->
+                    <Grid>
+
+                        <!-- General tab -->
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="16"
+                              IsVisible="{Binding IsGeneralTabActive}">
+                            <HorizontalStackLayout Spacing="12">
+                                <Label Text="Autosave"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Switch IsToggled="{Binding PreferencesAutoSaveEnabled}" />
+                                <Label Text="Delay (seconds)"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Entry WidthRequest="90"
+                                       Keyboard="Numeric"
+                                       Text="{Binding PreferencesAutoSaveDelaySecondsText}" />
+                            </HorizontalStackLayout>
+
+                            <HorizontalStackLayout Grid.Row="1"
+                                                   Spacing="12">
+                                <Label Text="Max Log Size (MB)"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Entry WidthRequest="90"
+                                       Keyboard="Numeric"
+                                       Text="{Binding PreferencesMaxLogFileSizeMbText}" />
+                                <Label Text="Default is 2 MB"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                            </HorizontalStackLayout>
+
+                            <HorizontalStackLayout Grid.Row="2"
+                                                   Spacing="12">
+                                <Label Text="Initial Viewer Lines"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Entry WidthRequest="90"
+                                       Keyboard="Numeric"
+                                       Text="{Binding PreferencesInitialViewerRenderLineCountText}" />
+                                <Label Text="Default is 20"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                            </HorizontalStackLayout>
+
+                            <HorizontalStackLayout Grid.Row="3"
+                                                   Spacing="12">
+                                <Label Text="File Log Level"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Picker WidthRequest="160"
+                                        Title="Log level"
+                                        ItemsSource="{Binding AvailableFileLogLevels}"
+                                        SelectedItem="{Binding PreferencesFileLogLevelText}" />
+                                <Label Text="Default is Info"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                            </HorizontalStackLayout>
+
+                            <HorizontalStackLayout Grid.Row="4"
+                                                   Spacing="12">
+                                <Label Text="24-Hour Time"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Switch IsToggled="{Binding PreferencesUse24HourTime}" />
+                                <Label Text="Default is 12-hour"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                            </HorizontalStackLayout>
+
+                            <HorizontalStackLayout Grid.Row="5"
+                                                   Spacing="12">
+                                <Label Text="Explorer Auto-Refresh (seconds)"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Entry WidthRequest="90"
+                                       Keyboard="Numeric"
+                                       Text="{Binding PreferencesWorkspaceRefreshIntervalSeconds}" />
+                                <Label Text="0 = disabled, default 30"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                            </HorizontalStackLayout>
+                        </Grid>
+
+                        <!-- Keyboard Shortcuts tab -->
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="12"
+                              IsVisible="{Binding IsShortcutsTabActive}">
+                            <Label Text="Shortcuts use ⌘ + key. Type a single letter or digit."
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+
+                            <Grid Grid.Row="1"
+                                  ColumnDefinitions="140,Auto,60"
+                                  ColumnSpacing="8">
+                                <Label Text="Heading 1"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Label Grid.Column="1"
+                                       Text="⌘ +"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="14"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                <Entry Grid.Column="2"
+                                       MaxLength="1"
+                                       HorizontalTextAlignment="Center"
+                                       Text="{Binding ShortcutKeyHeader1}" />
+                            </Grid>
+
+                            <Grid Grid.Row="2"
+                                  ColumnDefinitions="140,Auto,60"
+                                  ColumnSpacing="8">
+                                <Label Text="Heading 2"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Label Grid.Column="1"
+                                       Text="⌘ +"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="14"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                <Entry Grid.Column="2"
+                                       MaxLength="1"
+                                       HorizontalTextAlignment="Center"
+                                       Text="{Binding ShortcutKeyHeader2}" />
+                            </Grid>
+
+                            <Grid Grid.Row="3"
+                                  ColumnDefinitions="140,Auto,60"
+                                  ColumnSpacing="8">
+                                <Label Text="Heading 3"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Label Grid.Column="1"
+                                       Text="⌘ +"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="14"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                <Entry Grid.Column="2"
+                                       MaxLength="1"
+                                       HorizontalTextAlignment="Center"
+                                       Text="{Binding ShortcutKeyHeader3}" />
+                            </Grid>
+
+                            <Grid Grid.Row="4"
+                                  ColumnDefinitions="140,Auto,60"
+                                  ColumnSpacing="8">
+                                <Label Text="Bold"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Label Grid.Column="1"
+                                       Text="⌘ +"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="14"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                <Entry Grid.Column="2"
+                                       MaxLength="1"
+                                       HorizontalTextAlignment="Center"
+                                       Text="{Binding ShortcutKeyBold}" />
+                            </Grid>
+
+                            <Grid Grid.Row="5"
+                                  ColumnDefinitions="140,Auto,60"
+                                  ColumnSpacing="8">
+                                <Label Text="Italic"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Label Grid.Column="1"
+                                       Text="⌘ +"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="14"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                <Entry Grid.Column="2"
+                                       MaxLength="1"
+                                       HorizontalTextAlignment="Center"
+                                       Text="{Binding ShortcutKeyItalic}" />
+                            </Grid>
+                        </Grid>
+
+                        <!-- Transcription tab -->
+                        <VerticalStackLayout Spacing="14"
+                                             IsVisible="{Binding IsTranscriptionTabActive}">
+
+                            <Label Text="Record new files to..."
+                                   FontSize="13"
+                                   FontAttributes="Bold"
+                                   TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+
+                            <VerticalStackLayout Spacing="6">
+                                <HorizontalStackLayout Spacing="8">
+                                    <RadioButton GroupName="RecordingFormat"
+                                                 Content="{OnPlatform 'M4A  (default)', WinUI='M4A  (saved as WAV on Windows)'}"
+                                                 IsChecked="{Binding PreferencesRecordingFormat,
+                                                     Converter={StaticResource EnumToBoolConverter},
+                                                     ConverterParameter=M4A}" />
+                                </HorizontalStackLayout>
+                                <HorizontalStackLayout Spacing="8">
+                                    <RadioButton Content="MP3"
+                                                 GroupName="RecordingFormat"
+                                                 IsChecked="{Binding PreferencesRecordingFormat,
+                                                     Converter={StaticResource EnumToBoolConverter},
+                                                     ConverterParameter=MP3}" />
+                                </HorizontalStackLayout>
+                                <HorizontalStackLayout Spacing="8">
+                                    <RadioButton Content="FLAC  (requires ffmpeg)"
+                                                 GroupName="RecordingFormat"
+                                                 IsChecked="{Binding PreferencesRecordingFormat,
+                                                     Converter={StaticResource EnumToBoolConverter},
+                                                     ConverterParameter=FLAC}" />
+                                </HorizontalStackLayout>
+                                <Label Text="⚠  FLAC requires ffmpeg in PATH on Windows. If not found, recording will be saved as WAV."
+                                       FontSize="12"
+                                       TextColor="#CC7700"
+                                       IsVisible="{Binding ShowWindowsFlacWarning}" />
+                            </VerticalStackLayout>
+
+                            <Label Text="Transcription Engine"
+                                   FontSize="13"
+                                   FontAttributes="Bold"
+                                   TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+
+                            <VerticalStackLayout Spacing="6">
+                                <HorizontalStackLayout Spacing="8"
+                                                       IsVisible="{Binding IsAppleSpeechAvailable}">
+                                    <RadioButton Content="Apple Speech Framework"
+                                                 GroupName="TranscriptionEngine"
+                                                 IsChecked="{Binding PreferencesTranscriptionEngine,
+                                                     Converter={StaticResource EnumToBoolConverter},
+                                                     ConverterParameter=AppleSpeech}" />
+                                </HorizontalStackLayout>
+                                <HorizontalStackLayout Spacing="8">
+                                    <RadioButton Content="Whisper.cpp"
+                                                 GroupName="TranscriptionEngine"
+                                                 IsChecked="{Binding PreferencesTranscriptionEngine,
+                                                     Converter={StaticResource EnumToBoolConverter},
+                                                     ConverterParameter=WhisperCpp}" />
+                                </HorizontalStackLayout>
+                            </VerticalStackLayout>
+
+                            <VerticalStackLayout Spacing="8"
+                                                 IsVisible="{Binding IsWhisperCppSelected}">
+                                <VerticalStackLayout Spacing="4">
+                                    <Label Text="whisper-cli Binary"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                    <Entry Placeholder="/opt/homebrew/bin/whisper-cli"
+                                           Text="{Binding PreferencesWhisperBinaryPath}" />
+                                </VerticalStackLayout>
+                                <VerticalStackLayout Spacing="4">
+                                    <Label Text="Whisper Model File (.bin)"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                    <Entry Placeholder="/path/to/ggml-model.bin"
+                                           Text="{Binding PreferencesWhisperModelPath}" />
+                                </VerticalStackLayout>
+                            </VerticalStackLayout>
+
+                            <Label Text="Speaker Diarization Engine"
+                                   FontSize="13"
+                                   FontAttributes="Bold"
+                                   TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}"
+                                   Margin="0,6,0,0" />
+
+                            <VerticalStackLayout Spacing="6">
+                                <HorizontalStackLayout Spacing="8">
+                                    <RadioButton Content="None  (all segments labelled Unknown Speaker)"
+                                                 GroupName="DiarizationEngine"
+                                                 IsChecked="{Binding PreferencesDiarizationEngine,
+                                                     Converter={StaticResource EnumToBoolConverter},
+                                                     ConverterParameter=None}" />
+                                </HorizontalStackLayout>
+                                <HorizontalStackLayout Spacing="8">
+                                    <RadioButton Content="pyannote.audio 3.1"
+                                                 GroupName="DiarizationEngine"
+                                                 IsChecked="{Binding PreferencesDiarizationEngine,
+                                                     Converter={StaticResource EnumToBoolConverter},
+                                                     ConverterParameter=Pyannote}" />
+                                </HorizontalStackLayout>
+                            </VerticalStackLayout>
+
+                            <VerticalStackLayout Spacing="8"
+                                                 IsVisible="{Binding IsPyannoteSelected}">
+                                <VerticalStackLayout Spacing="4">
+                                    <Label Text="Python Executable"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                    <Entry Placeholder="/usr/local/bin/python3"
+                                           Text="{Binding PreferencesPyannotePythonPath}" />
+                                </VerticalStackLayout>
+                                <VerticalStackLayout Spacing="4">
+                                    <Label Text="Hugging Face Token (hf_…)"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                    <Entry Placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
+                                           IsPassword="True"
+                                           Text="{Binding PreferencesPyannoteHfToken}" />
+                                    <Label Text="Accept model terms at huggingface.co/pyannote/speaker-diarization-3.1 before use."
+                                           FontSize="11"
+                                           TextColor="{AppThemeBinding Light=#8A8A90, Dark=#909098}" />
+                                </VerticalStackLayout>
+                            </VerticalStackLayout>
+
+                        </VerticalStackLayout>
+                    </Grid>
+
+                    <BoxView HeightRequest="1"
+                             Margin="0,28,0,24"
+                             Color="{AppThemeBinding Light=#C8C8CC, Dark=#3E3E44}" />
+
+                    <HorizontalStackLayout Spacing="10">
+                        <Button Text="Save Preferences"
+                                Command="{Binding SavePreferencesCommand}" />
+                        <Button Text="Cancel"
+                                Command="{Binding CancelPreferencesCommand}" />
+                    </HorizontalStackLayout>
+
+                </VerticalStackLayout>
+            </ScrollView>
+        </Grid>
+
     </Grid>
 </ContentPage>
