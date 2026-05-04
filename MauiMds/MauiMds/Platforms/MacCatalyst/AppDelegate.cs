@@ -20,7 +20,7 @@ public class AppDelegate : MauiUIApplicationDelegate
         const nuint terminateLater = 2;
 
         var vm = IPlatformApplication.Current?.Services.GetService<MainViewModel>();
-        if (vm?.IsRecording != true)
+        if (vm?.Recording.IsRecording != true)
         {
             return terminateNow;
         }

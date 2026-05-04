@@ -75,19 +75,19 @@
                         TextColor="{AppThemeBinding Light=#1A1A1A, Dark=#F3EDE2}" />
 
                 <Button Grid.Column="5"
-                        Text="{Binding RecordButtonLabel}"
-                        Command="{Binding ToggleRecordingCommand}"
+                        Text="{Binding Recording.RecordButtonLabel}"
+                        Command="{Binding Recording.ToggleRecordingCommand}"
                         VerticalOptions="Center"
                         Padding="18,10"
                         TextColor="White">
                     <Button.Triggers>
                         <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsRecording}"
+                                     Binding="{Binding Recording.IsRecording}"
                                      Value="True">
                             <Setter Property="BackgroundColor" Value="#CC2222" />
                         </DataTrigger>
                         <DataTrigger TargetType="Button"
-                                     Binding="{Binding IsRecording}"
+                                     Binding="{Binding Recording.IsRecording}"
                                      Value="False">
                             <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#5A4E42, Dark=#4A4340}" />
                         </DataTrigger>

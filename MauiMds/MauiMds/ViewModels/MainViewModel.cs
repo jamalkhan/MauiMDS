@@ -1,10 +1,10 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using MauiMds.AudioCapture;
-using MauiMds.Transcription;
 using MauiMds.Features.Editor;
 using MauiMds.Features.Export;
 using MauiMds.Features.Session;
@@ -12,6 +12,7 @@ using MauiMds.Features.Workspace;
 using MauiMds.Logging;
 using MauiMds.Models;
 using MauiMds.Services;
+using MauiMds.Transcription;
 using Microsoft.Extensions.Logging;
 
 namespace MauiMds.ViewModels;
@@ -43,9 +44,9 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly SessionRestoreCoordinator _sessionRestoreCoordinator;
     private readonly EditorModeSupportController _editorModeSupportController;
     private readonly IPdfExportService _pdfExportService;
-    private readonly IAudioCaptureService _audioCaptureService;
-    private readonly IAudioPlayerService _audioPlayerService;
-    private readonly ITranscriptionPipelineFactory _transcriptionPipelineFactory;
+
+    public RecordingSessionViewModel Recording { get; }
+    public TranscriptionQueueViewModel TranscriptionQueue { get; }
 
     private EditorDocumentState _document = new();
     private EditorViewMode _selectedViewMode = EditorViewMode.Viewer;
@@ -92,13 +93,6 @@ public class MainViewModel : INotifyPropertyChanged
     private string _deferredPreviewContent = string.Empty;
     private string _deferredPreviewFilePath = string.Empty;
     private EditorViewMode? _deferredPreviewViewMode;
-    private bool _isRecording;
-    private bool _isRecordingTransitioning;
-    private RecordingGroup? _selectedRecordingGroup;
-    private readonly Queue<RecordingGroup> _transcriptionQueue = new();
-    private readonly HashSet<string> _queuedGroupBaseNames = new(StringComparer.OrdinalIgnoreCase);
-    private readonly CancellationTokenSource _transcriptionCts = new();
-    private bool _isProcessingQueue;
     private int _preferencesWorkspaceRefreshIntervalSeconds = 30;
 
     // Workspace auto-refresh
@@ -113,12 +107,6 @@ public class MainViewModel : INotifyPropertyChanged
     // Slow double-click rename tracking
     private WorkspaceTreeItem? _lastSingleTappedItem;
     private DateTime _lastSingleTapTime;
-
-    // Active recording highlight
-    private string? _activeRecordingBaseName;
-
-    // Transcription queue highlights
-    private string? _activelyTranscribingBaseName;
 
     public MainViewModel(
         IMarkdownDocumentService documentService,
@@ -138,6 +126,7 @@ public class MainViewModel : INotifyPropertyChanged
         IAudioCaptureService audioCaptureService,
         IAudioPlayerService audioPlayerService,
         ITranscriptionPipelineFactory transcriptionPipelineFactory,
+        ILoggerFactory loggerFactory,
         ILogger<MainViewModel> logger)
     {
         _documentService = documentService;
@@ -153,12 +142,7 @@ public class MainViewModel : INotifyPropertyChanged
         _autosaveCoordinator = autosaveCoordinator;
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
         _pdfExportService = pdfExportService;
-        _audioCaptureService = audioCaptureService;
-        _audioPlayerService = audioPlayerService;
-        _transcriptionPipelineFactory = transcriptionPipelineFactory;
-        _audioPlayerService.PlaybackStateChanged += (_, _) => OnPropertyChanged(nameof(CurrentlyPlayingAudioPath));
         _logger = logger;
-        _audioCaptureService.StateChanged += OnAudioCaptureStateChanged;
         _preferences = _preferencesService.Load();
         _sessionState = _sessionRestoreCoordinator.Load();
         Workspace = workspaceExplorerState;
@@ -242,15 +226,70 @@ public class MainViewModel : INotifyPropertyChanged
         ShowGeneralTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = false; });
         ShowShortcutsTabCommand = new Command(() => { IsShortcutsTabActive = true; IsTranscriptionTabActive = false; });
         ShowTranscriptionTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = true; });
-        ToggleRecordingCommand = new Command(async () => await ToggleRecordingAsync(), () => !_isRecordingTransitioning);
-        TranscribeAudioCommand = new Command<WorkspaceTreeItem>(async item => await TranscribeAudioAsync(item));
-        PlayAudioCommand = new Command<string>(async path => await _audioPlayerService.PlayAsync(path));
-        PauseAudioCommand = new Command(() => _audioPlayerService.Pause());
         RefreshWorkspaceCommand = new Command(async () => await RefreshWorkspaceFromDiskAsync());
-        ReTranscribeGroupCommand = new Command(async () => await ReTranscribeGroupAsync());
         LoadShortcutKeyFields();
         LoadTranscriptionFields();
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => _transcriptionCts.Cancel();
+
+        Recording = new RecordingSessionViewModel(
+            audioCaptureService, audioPlayerService, clock,
+            loggerFactory.CreateLogger<RecordingSessionViewModel>(),
+            () => _preferencesRecordingFormat,
+            () => WorkspaceRootPath,
+            ReportErrorAsync);
+
+        TranscriptionQueue = new TranscriptionQueueViewModel(
+            transcriptionPipelineFactory, Workspace,
+            loggerFactory.CreateLogger<TranscriptionQueueViewModel>(),
+            () => new TranscriptionConfig(
+                _preferencesTranscriptionEngine, _preferencesDiarizationEngine,
+                _preferencesWhisperBinaryPath, _preferencesWhisperModelPath,
+                _preferencesPyannotePythonPath, _preferencesPyannoteHfToken),
+            () => Recording.SelectedRecordingGroup,
+            group => Recording.SelectedRecordingGroup = group,
+            ReportErrorAsync,
+            msg => MainThread.BeginInvokeOnMainThread(() => InlineErrorMessage = msg));
+
+        Recording.RecordingStopped += async (_, args) =>
+        {
+            if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
+                await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath);
+
+            if (!string.IsNullOrEmpty(args.BaseName))
+            {
+                var newGroup = Workspace.WorkspaceItems
+                    .FirstOrDefault(i => i.IsRecordingGroup &&
+                        string.Equals(i.RecordingGroup!.BaseName, args.BaseName, StringComparison.Ordinal))
+                    ?.RecordingGroup;
+
+                if (newGroup is not null)
+                    TranscriptionQueue.Enqueue(newGroup);
+            }
+        };
+
+        Recording.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(RecordingSessionViewModel.SelectedRecordingGroup))
+                TranscriptionQueue.NotifyCanReTranscribeGroupChanged();
+        };
+
+        TranscriptionQueue.LoadDocumentRequested += (_, doc) =>
+            _ = LoadDocumentIntoStateAsync(doc, persistSessionState: false);
+
+        TranscriptionQueue.OpenDocumentRequested += (_, path) =>
+            _ = OpenDocumentAsync(() => Task.FromResult<string?>(path),
+                "Failed to open transcript.", "The transcript could not be opened.");
+
+        TranscriptionQueue.EditorProgressUpdated += (_, args) =>
+        {
+            if (ReferenceEquals(Recording.SelectedRecordingGroup, args.Group) && _document.IsUntitled)
+                MainThread.BeginInvokeOnMainThread(() => EditorText = args.Content);
+        };
+
+        TranscriptionQueue.WorkspaceRefreshNeeded += async (_, _) =>
+        {
+            if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
+                await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath);
+        };
     }
 
     public event EventHandler? KeyboardShortcutsChanged;
@@ -319,49 +358,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand ShowGeneralTabCommand { get; }
     public ICommand ShowShortcutsTabCommand { get; }
     public ICommand ShowTranscriptionTabCommand { get; }
-    public ICommand ToggleRecordingCommand { get; }
-    public ICommand TranscribeAudioCommand { get; }
-    public ICommand PlayAudioCommand { get; }
-    public ICommand PauseAudioCommand { get; }
     public ICommand RefreshWorkspaceCommand { get; }
-    public ICommand ReTranscribeGroupCommand { get; }
-
-    public bool IsRecording
-    {
-        get => _isRecording;
-        private set
-        {
-            if (_isRecording == value) return;
-            _isRecording = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(RecordButtonLabel));
-        }
-    }
-
-    public string RecordButtonLabel => IsRecording ? "Stop Recording..." : "Record";
-
-    public RecordingGroup? SelectedRecordingGroup
-    {
-        get => _selectedRecordingGroup;
-        private set
-        {
-            if (ReferenceEquals(_selectedRecordingGroup, value)) return;
-            _selectedRecordingGroup = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(IsRecordingGroupSelected));
-            OnPropertyChanged(nameof(CanReTranscribeGroup));
-        }
-    }
-
-    public bool IsRecordingGroupSelected => _selectedRecordingGroup is not null;
-
-    /// <summary>True when the viewer should show the Re-transcribe button: group selected, has a transcript, and not already queued.</summary>
-    public bool CanReTranscribeGroup =>
-        _selectedRecordingGroup is { HasTranscript: true } &&
-        !_queuedGroupBaseNames.Contains(_selectedRecordingGroup.BaseName);
-
-    /// <summary>Path of the audio file currently playing (null when idle). Bound by attachment chips.</summary>
-    public string? CurrentlyPlayingAudioPath => _audioPlayerService.CurrentlyPlayingPath;
 
     public int PreferencesWorkspaceRefreshIntervalSeconds
     {
@@ -828,7 +825,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         _isInitialized = true;
-        _ = _audioCaptureService.RequestMicrophonePermissionAsync();
+        _ = Recording.RequestMicrophonePermissionAsync();
         await RestoreSessionAsync();
     }
 
@@ -1793,451 +1790,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public async Task StopRecordingAsync()
-    {
-        if (!_isRecording) return;
-        var result = await _audioCaptureService.StopAsync();
-        if (!result.Success)
-        {
-            _logger.LogWarning("StopRecordingAsync failed: {Error}", result.ErrorMessage);
-        }
-    }
-
-    private async Task ToggleRecordingAsync()
-    {
-        if (_isRecordingTransitioning) return;
-
-        if (_isRecording)
-        {
-            _isRecordingTransitioning = true;
-            (ToggleRecordingCommand as Command)?.ChangeCanExecute();
-            try
-            {
-                var stoppedBaseName = _activeRecordingBaseName;
-                var result = await _audioCaptureService.StopAsync();
-                SetActiveRecordingBaseName(null);
-                if (!result.Success)
-                {
-                    _logger.LogWarning("Recording stop failed: {Error}", result.ErrorMessage);
-                    await ReportErrorAsync("Recording stop failed.", null, result.ErrorMessage ?? "The recording could not be stopped.");
-                }
-                else
-                {
-                    _logger.LogInformation("Recording saved: {Path}, Duration: {Duration:g}", result.FilePath, result.Duration);
-                    if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
-                    {
-                        await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath);
-                    }
-
-                    if (!string.IsNullOrEmpty(stoppedBaseName))
-                    {
-                        var newGroup = Workspace.WorkspaceItems
-                            .FirstOrDefault(i => i.IsRecordingGroup &&
-                                string.Equals(i.RecordingGroup!.BaseName, stoppedBaseName, StringComparison.Ordinal))
-                            ?.RecordingGroup;
-
-                        if (newGroup is not null)
-                            EnqueueGroupTranscription(newGroup);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                await ReportErrorAsync("Recording stop failed.", ex, "The recording could not be stopped.");
-            }
-            finally
-            {
-                _isRecordingTransitioning = false;
-                (ToggleRecordingCommand as Command)?.ChangeCanExecute();
-            }
-        }
-        else
-        {
-            _isRecordingTransitioning = true;
-            (ToggleRecordingCommand as Command)?.ChangeCanExecute();
-            try
-            {
-                var permission = await _audioCaptureService.CheckMicrophonePermissionAsync();
-                if (permission == AudioPermissionStatus.Denied)
-                {
-                    await ReportErrorAsync("Microphone permission denied.", null, "Microphone access is required for recording. Please grant permission in System Settings.");
-                    return;
-                }
-
-                if (permission == AudioPermissionStatus.NotDetermined)
-                {
-                    var granted = await _audioCaptureService.RequestMicrophonePermissionAsync();
-                    if (granted == AudioPermissionStatus.Denied)
-                    {
-                        await ReportErrorAsync("Microphone permission denied.", null, "Microphone access is required for recording.");
-                        return;
-                    }
-                }
-
-                var baseFolder = !string.IsNullOrWhiteSpace(WorkspaceRootPath)
-                    ? WorkspaceRootPath
-                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MauiMds");
-
-                var now = _clock.UtcNow.ToLocalTime();
-                var ext = _preferencesRecordingFormat switch
-                {
-                    RecordingFormat.MP3  => ".mp3",
-                    RecordingFormat.FLAC => ".flac",
-                    _                   => ".m4a"
-                };
-                var micPath = RecordingPathBuilder.BuildMic(baseFolder, now, ext);
-                var sysPath = RecordingPathBuilder.BuildSys(baseFolder, now); // always M4A
-                var options = new AudioCaptureOptions { OutputPath = micPath, SysOutputPath = sysPath };
-
-                await _audioCaptureService.StartAsync(options);
-                RecordingPathBuilder.TryParseGroupFile(Path.GetFileName(micPath), out var activeBaseName, out _);
-                SetActiveRecordingBaseName(activeBaseName);
-                _logger.LogInformation("Recording started: mic={Mic}, sys={Sys}", micPath, sysPath);
-
-                if (_audioCaptureService.LastStartWarning == "screen_recording_denied")
-                {
-                    await ReportErrorAsync(
-                        "Recording started without system audio: Screen Recording permission denied.",
-                        null,
-                        "System audio unavailable — grant Screen Recording permission in System Settings → Privacy & Security → Screen Recording, then restart.");
-                }
-            }
-            catch (Exception ex)
-            {
-                await ReportErrorAsync("Recording could not start.", ex, "The recording could not be started. Check permissions and try again.");
-            }
-            finally
-            {
-                _isRecordingTransitioning = false;
-                (ToggleRecordingCommand as Command)?.ChangeCanExecute();
-            }
-        }
-    }
-
-    private async Task TranscribeAudioAsync(WorkspaceTreeItem? item)
-    {
-        if (item is null) return;
-
-        var audioPath = item.FullPath;
-        var transcriptPath = Path.Combine(
-            Path.GetDirectoryName(audioPath)!,
-            Path.GetFileNameWithoutExtension(audioPath) + "_transcript.md");
-
-        InlineErrorMessage = "Transcribing…";
-
-        try
-        {
-            var pipeline = _transcriptionPipelineFactory.Create(
-                _preferencesTranscriptionEngine,
-                _preferencesDiarizationEngine,
-                _preferencesWhisperBinaryPath,
-                _preferencesWhisperModelPath,
-                _preferencesPyannotePythonPath,
-                _preferencesPyannoteHfToken);
-
-            var progress = new Progress<double>(v => MainThread.BeginInvokeOnMainThread(() =>
-                InlineErrorMessage = $"Transcribing… {v:P0}"));
-
-            var doc = await pipeline.RunAsync(audioPath, progress);
-
-            var markdown = BuildTranscriptMarkdown(doc, audioPath);
-            await File.WriteAllTextAsync(transcriptPath, markdown);
-
-            InlineErrorMessage = string.Empty;
-
-            await MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                var page = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
-                if (page is not null)
-                    await page.DisplayAlertAsync(
-                        "Transcription Complete",
-                        $"Transcript saved to:\n{Path.GetFileName(transcriptPath)}",
-                        "OK");
-            });
-        }
-        catch (Exception ex)
-        {
-            await ReportErrorAsync("Transcription failed.", ex, ex.Message);
-        }
-    }
-
-    private void EnqueueGroupTranscription(RecordingGroup group)
-    {
-        if (!_queuedGroupBaseNames.Add(group.BaseName))
-        {
-            _logger.LogInformation(
-                "Group {Name} is already queued or being transcribed — skipping duplicate.", group.BaseName);
-            return;
-        }
-
-        _transcriptionQueue.Enqueue(group);
-        _logger.LogInformation(
-            "Group {Name} added to transcription queue (queue depth: {Depth}).",
-            group.BaseName, _transcriptionQueue.Count);
-        OnPropertyChanged(nameof(CanReTranscribeGroup));
-        ApplyTranscriptionHighlights();
-
-        if (!_isProcessingQueue)
-            _ = ProcessTranscriptionQueueAsync();
-    }
-
-    private async Task ProcessTranscriptionQueueAsync()
-    {
-        if (_isProcessingQueue) return;
-        _isProcessingQueue = true;
-        try
-        {
-            while (_transcriptionQueue.TryDequeue(out var group))
-            {
-                try
-                {
-                    _activelyTranscribingBaseName = group.BaseName;
-                    ApplyTranscriptionHighlights();
-                    await TranscribeGroupAsync(group);
-                }
-                finally
-                {
-                    _activelyTranscribingBaseName = null;
-                    _queuedGroupBaseNames.Remove(group.BaseName);
-                    OnPropertyChanged(nameof(CanReTranscribeGroup));
-                    ApplyTranscriptionHighlights();
-                    _logger.LogInformation(
-                        "Group {Name} removed from transcription queue (remaining: {Remaining}).",
-                        group.BaseName, _transcriptionQueue.Count);
-                }
-            }
-        }
-        finally
-        {
-            _isProcessingQueue = false;
-        }
-    }
-
-    private async Task TranscribeGroupAsync(RecordingGroup group)
-    {
-        if (group.AudioFilePaths.Count == 0) return;
-
-        var startedAt = DateTime.Now;
-        var progressRows = new List<string>();
-        double lastReportedPercent = -0.06;
-
-        void PushProgressRow(string row)
-        {
-            progressRows.Add(row);
-            if (!ReferenceEquals(_selectedRecordingGroup, group)) return;
-            var content = BuildTranscriptionProgressMarkdown(startedAt, progressRows);
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                if (ReferenceEquals(_selectedRecordingGroup, group) && _document.IsUntitled)
-                    EditorText = content;
-            });
-        }
-
-        var progress = new Progress<double>(pct =>
-        {
-            if (progressRows.Count >= 20) return;
-            if (pct - lastReportedPercent < 0.05) return;
-            lastReportedPercent = pct;
-            PushProgressRow($"* {DateTime.Now:yyyy-MM-dd HH:mm:ss} ... {pct:P0}");
-        });
-
-        try
-        {
-            var pipeline = _transcriptionPipelineFactory.Create(
-                _preferencesTranscriptionEngine,
-                _preferencesDiarizationEngine,
-                _preferencesWhisperBinaryPath,
-                _preferencesWhisperModelPath,
-                _preferencesPyannotePythonPath,
-                _preferencesPyannoteHfToken);
-
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"# Transcript: {group.DisplayName}");
-            sb.AppendLine($"Generated: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine();
-            sb.AppendLine("---");
-            sb.AppendLine();
-
-            RecordingPathBuilder.TryParseRecordingStart(group.BaseName, out var groupRecordingStart);
-
-            var allSegments = new List<(TimeSpan Start, TimeSpan End, string Speaker, string Text)>();
-
-            if (group.MicFilePath is { } micPath)
-            {
-                var micDoc = await pipeline.RunAsync(micPath, progress, _transcriptionCts.Token);
-                foreach (var seg in micDoc.Segments)
-                    allSegments.Add((seg.Start, seg.End, "You", seg.Text));
-            }
-
-            if (group.SysFilePath is { } sysPath)
-            {
-                var sysDoc = await pipeline.RunAsync(sysPath, progress, _transcriptionCts.Token);
-                foreach (var seg in sysDoc.Segments)
-                    allSegments.Add((seg.Start, seg.End, "System Audio", seg.Text));
-            }
-
-            AppendSpeakerGroupedSegments(sb, allSegments.OrderBy(s => s.Start),
-                groupRecordingStart == default ? null : groupRecordingStart);
-
-            var transcriptPath = Path.Combine(group.DirectoryPath, group.BaseName + "_transcript.md");
-            await File.WriteAllTextAsync(transcriptPath, sb.ToString());
-
-            if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
-                await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath);
-
-            // Open the finished transcript; keep SelectedRecordingGroup so chips remain visible.
-            if (ReferenceEquals(_selectedRecordingGroup, group))
-            {
-                await OpenDocumentAsync(
-                    () => Task.FromResult<string?>(transcriptPath),
-                    "Failed to open transcript.",
-                    "The transcript could not be opened.");
-            }
-
-            _logger.LogInformation("Group transcription complete: {Path}", transcriptPath);
-        }
-        catch (Exception ex)
-        {
-            await ReportErrorAsync("Transcription failed.", ex, ex.Message);
-        }
-    }
-
-    private static string BuildTranscriptionProgressMarkdown(DateTime startedAt, IList<string> progressRows)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("# Audio File Found. Beginning Transcription.");
-        sb.AppendLine();
-        sb.AppendLine($"* {startedAt:yyyy-MM-dd HH:mm:ss} Transcription Started");
-        foreach (var row in progressRows)
-            sb.AppendLine(row);
-        return sb.ToString();
-    }
-
-    private async Task ReTranscribeGroupAsync()
-    {
-        if (_selectedRecordingGroup is not { } group) return;
-        if (!group.HasTranscript || group.TranscriptPath is not { } transcriptPath) return;
-
-        // Rotate the existing transcript: _transcript.md → _transcript.old.md → _transcript.old1.md …
-        var rotated = GetRotatedTranscriptPath(transcriptPath);
-        File.Move(transcriptPath, rotated);
-        _logger.LogInformation(
-            "Re-transcribe requested for {Name}. Existing transcript rotated to {Rotated}.",
-            group.DisplayName, rotated);
-
-        // Reload workspace so the group loses its TranscriptPath.
-        if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
-            await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath);
-
-        // Build a fresh group without the (now-rotated) transcript.
-        var freshGroup = new RecordingGroup
-        {
-            BaseName = group.BaseName,
-            DirectoryPath = group.DirectoryPath,
-            MicFilePath = group.MicFilePath,
-            SysFilePath = group.SysFilePath,
-            TranscriptPath = null
-        };
-
-        SelectedRecordingGroup = freshGroup;
-
-        // Show progress markdown and queue transcription.
-        var progressDoc = new MarkdownDocument
-        {
-            FilePath = string.Empty,
-            Content = BuildTranscriptionProgressMarkdown(DateTime.Now, []),
-            IsUntitled = true,
-            FileName = freshGroup.DisplayName
-        };
-        await LoadDocumentIntoStateAsync(progressDoc, persistSessionState: false);
-        EnqueueGroupTranscription(freshGroup);
-    }
-
-    private static string GetRotatedTranscriptPath(string transcriptPath)
-    {
-        var dir = Path.GetDirectoryName(transcriptPath) ?? string.Empty;
-        var stem = Path.GetFileNameWithoutExtension(transcriptPath); // e.g. audio_capture_..._transcript
-        var ext  = Path.GetExtension(transcriptPath);                // .mds
-
-        var candidate = Path.Combine(dir, $"{stem}.old{ext}");
-        if (!File.Exists(candidate)) return candidate;
-
-        for (var i = 1; ; i++)
-        {
-            candidate = Path.Combine(dir, $"{stem}.old.{i}{ext}");
-            if (!File.Exists(candidate)) return candidate;
-        }
-    }
-
-    private static string BuildTranscriptMarkdown(TranscriptDocument doc, string audioPath)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"# Transcript: {Path.GetFileName(audioPath)}");
-        sb.AppendLine($"Generated: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
-        sb.AppendLine($"Engine: {doc.TranscriptionEngineName} | {doc.DiarizationEngineName}");
-        sb.AppendLine($"Duration: {doc.Duration:hh\\:mm\\:ss}");
-        sb.AppendLine();
-        sb.AppendLine("---");
-        sb.AppendLine();
-
-        var baseName = Path.GetFileNameWithoutExtension(audioPath);
-        RecordingPathBuilder.TryParseGroupFile(baseName, out var fileBaseName, out _);
-        DateTime? startTime = RecordingPathBuilder.TryParseRecordingStart(
-            string.IsNullOrEmpty(fileBaseName) ? baseName : fileBaseName, out var t) ? t : null;
-
-        AppendSpeakerGroupedSegments(sb,
-            doc.Segments.Select(s => (s.Start, s.End, s.SpeakerLabel, s.Text)),
-            startTime);
-
-        return sb.ToString();
-    }
-
-    private static void AppendSpeakerGroupedSegments(
-        System.Text.StringBuilder sb,
-        IEnumerable<(TimeSpan Start, TimeSpan End, string Speaker, string Text)> segments,
-        DateTime? recordingStart = null)
-    {
-        if (recordingStart is null)
-            sb.AppendLine("> *All timestamps relative to recording start time.*");
-
-        string? currentSpeaker = null;
-
-        foreach (var seg in segments)
-        {
-            if (!string.Equals(seg.Speaker, currentSpeaker, StringComparison.Ordinal))
-            {
-                if (currentSpeaker is not null)
-                    sb.AppendLine();
-                sb.AppendLine($"### {seg.Speaker}");
-                currentSpeaker = seg.Speaker;
-            }
-
-            string startTs, endTs;
-            if (recordingStart is { } rs)
-            {
-                startTs = (rs + seg.Start).ToString("HH:mm:ss");
-                endTs   = (rs + seg.End).ToString("HH:mm:ss");
-            }
-            else
-            {
-                startTs = seg.Start.ToString(@"hh\:mm\:ss");
-                endTs   = seg.End.ToString(@"hh\:mm\:ss");
-            }
-
-            sb.AppendLine($"> *[{startTs} – {endTs}]* {seg.Text}");
-        }
-
-        if (currentSpeaker is not null)
-            sb.AppendLine();
-    }
-
-    private void OnAudioCaptureStateChanged(object? sender, AudioCaptureState state)
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            IsRecording = state == AudioCaptureState.Recording;
-        });
-    }
+    public Task StopRecordingAsync() => Recording.StopRecordingAsync();
 
     private void RefreshCommandStates()
     {
@@ -2305,56 +1858,14 @@ public class MainViewModel : INotifyPropertyChanged
         catch (Exception ex) { _logger.LogWarning(ex, "Workspace refresh failed."); }
     }
 
-    private void SetActiveRecordingBaseName(string? baseName)
-    {
-        _activeRecordingBaseName = baseName;
-        ApplyRecordingHighlight();
-    }
-
-    private void ApplyRecordingHighlight()
-    {
-        foreach (var item in Workspace.WorkspaceItems)
-        {
-            item.IsActivelyRecording =
-                !string.IsNullOrEmpty(_activeRecordingBaseName) &&
-                item.IsRecordingGroup &&
-                string.Equals(item.RecordingGroup!.BaseName, _activeRecordingBaseName, StringComparison.Ordinal);
-        }
-    }
-
-    private void ApplyTranscriptionHighlights()
-    {
-        foreach (var item in Workspace.WorkspaceItems)
-        {
-            if (!item.IsRecordingGroup) continue;
-            var baseName = item.RecordingGroup!.BaseName;
-            item.IsActivelyTranscribing = string.Equals(baseName, _activelyTranscribingBaseName, StringComparison.Ordinal);
-            item.IsInTranscriptionQueue = !item.IsActivelyTranscribing && _queuedGroupBaseNames.Contains(baseName);
-        }
-    }
-
     private void OnWorkspaceItemsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
-        var newItems = e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add
-            ? e.NewItems
-            : null;
+        var items = e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add && e.NewItems is not null
+            ? e.NewItems.Cast<WorkspaceTreeItem>()
+            : (IEnumerable<WorkspaceTreeItem>)Workspace.WorkspaceItems;
 
-        if (newItems is not null)
-        {
-            foreach (WorkspaceTreeItem item in newItems)
-            {
-                if (!item.IsRecordingGroup) continue;
-                var baseName = item.RecordingGroup!.BaseName;
-                item.IsActivelyRecording = string.Equals(baseName, _activeRecordingBaseName, StringComparison.Ordinal);
-                item.IsActivelyTranscribing = string.Equals(baseName, _activelyTranscribingBaseName, StringComparison.Ordinal);
-                item.IsInTranscriptionQueue = !item.IsActivelyTranscribing && _queuedGroupBaseNames.Contains(baseName);
-            }
-        }
-        else
-        {
-            ApplyRecordingHighlight();
-            ApplyTranscriptionHighlights();
-        }
+        Recording.ApplyHighlights(items);
+        TranscriptionQueue.ApplyHighlights(items);
     }
 
     private async Task StartDeleteAsync(WorkspaceTreeItem? item)
@@ -2502,8 +2013,8 @@ public class MainViewModel : INotifyPropertyChanged
 
         if (item.IsRecordingGroup && item.RecordingGroup is { } group)
         {
-            SelectedRecordingGroup = group;
-            _audioPlayerService.Stop();
+            Recording.SelectedRecordingGroup = group;
+            Recording.StopPlayback();
             SetViewMode(EditorViewMode.Viewer);
 
             if (group.HasTranscript && group.TranscriptPath is { } transcriptPath)
@@ -2521,27 +2032,18 @@ public class MainViewModel : INotifyPropertyChanged
                 _logger.LogInformation(
                     "Recording group selected: {Name}. No transcript found — queuing for transcription.",
                     group.DisplayName);
-                var startedAt = DateTime.Now;
-                var progressDoc = new MarkdownDocument
-                {
-                    FilePath = string.Empty,
-                    Content = BuildTranscriptionProgressMarkdown(startedAt, []),
-                    IsUntitled = true,
-                    FileName = group.DisplayName
-                };
-                await LoadDocumentIntoStateAsync(progressDoc, persistSessionState: false);
-                EnqueueGroupTranscription(group);
+                TranscriptionQueue.EnqueueWithProgressDocument(group);
             }
 
             return;
         }
 
-        SelectedRecordingGroup = null;
-        _audioPlayerService.Stop();
+        Recording.SelectedRecordingGroup = null;
+        Recording.StopPlayback();
 
         if (item.IsAudioFile)
         {
-            await _audioPlayerService.PlayAsync(item.FullPath);
+            await Recording.PlayAudioAsync(item.FullPath);
             return;
         }
 

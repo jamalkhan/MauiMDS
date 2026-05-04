@@ -12,8 +12,8 @@
             StrokeShape="RoundRectangle 0,0,18,18">
         <Grid>
             <Button Text="⟳ Re-transcribe"
-                    Command="{Binding ReTranscribeGroupCommand}"
-                    IsVisible="{Binding CanReTranscribeGroup}"
+                    Command="{Binding TranscriptionQueue.ReTranscribeGroupCommand}"
+                    IsVisible="{Binding TranscriptionQueue.CanReTranscribeGroup}"
                     VerticalOptions="Start"
                     HorizontalOptions="End"
                     ZIndex="10"

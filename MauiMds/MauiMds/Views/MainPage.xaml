@@ -570,7 +570,7 @@
                 <views:RecordingGroupView x:Name="RecordingGroupView"
                                            Grid.Row="3"
                                            VerticalOptions="End"
-                                           IsVisible="{Binding IsRecordingGroupSelected}"
+                                           IsVisible="{Binding Recording.IsRecordingGroupSelected}"
                                            BindingContext="{Binding}" />
 
                 <views:LogsDockView x:Name="LogsDock"

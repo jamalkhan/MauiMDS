@@ -26,7 +26,7 @@ public partial class RecordingGroupView : ContentView
             BindingContextChanged -= OnBindingContextChanged;
             if (_vm is not null)
             {
-                _vm.PropertyChanged -= OnVmPropertyChanged;
+                _vm.Recording.PropertyChanged -= OnVmPropertyChanged;
                 _vm = null;
             }
         }
@@ -37,12 +37,12 @@ public partial class RecordingGroupView : ContentView
         if (App.IsTerminating) return;
 
         if (_vm is not null)
-            _vm.PropertyChanged -= OnVmPropertyChanged;
+            _vm.Recording.PropertyChanged -= OnVmPropertyChanged;
 
         _vm = BindingContext as MainViewModel;
 
         if (_vm is not null)
-            _vm.PropertyChanged += OnVmPropertyChanged;
+            _vm.Recording.PropertyChanged += OnVmPropertyChanged;
 
         Rebuild();
     }
@@ -51,8 +51,8 @@ public partial class RecordingGroupView : ContentView
     {
         if (App.IsTerminating) return;
 
-        if (e.PropertyName is nameof(MainViewModel.SelectedRecordingGroup)
-                           or nameof(MainViewModel.CurrentlyPlayingAudioPath))
+        if (e.PropertyName is nameof(RecordingSessionViewModel.SelectedRecordingGroup)
+                           or nameof(RecordingSessionViewModel.CurrentlyPlayingAudioPath))
         {
             MainThread.BeginInvokeOnMainThread(Rebuild);
         }
@@ -66,7 +66,7 @@ public partial class RecordingGroupView : ContentView
         {
             ChipsContainer.Children.Clear();
 
-            var group = _vm?.SelectedRecordingGroup;
+            var group = _vm?.Recording.SelectedRecordingGroup;
             if (group is null) return;
 
             foreach (var filePath in group.AudioFilePaths)
@@ -96,14 +96,14 @@ public partial class RecordingGroupView : ContentView
             BackgroundColor = isDark ? Color.FromArgb("#3A3835") : Color.FromArgb("#DDD3BF"),
             TextColor = isDark ? Color.FromArgb("#C8B89A") : Color.FromArgb("#5A4E42")
         };
-        btn.Clicked += (_, _) => _vm?.ReTranscribeGroupCommand.Execute(null);
+        btn.Clicked += (_, _) => _vm?.TranscriptionQueue.ReTranscribeGroupCommand.Execute(null);
         return btn;
     }
 
     private View BuildChip(string filePath)
     {
         var fileName = Path.GetFileName(filePath);
-        var isPlaying = string.Equals(filePath, _vm?.CurrentlyPlayingAudioPath, StringComparison.Ordinal);
+        var isPlaying = string.Equals(filePath, _vm?.Recording.CurrentlyPlayingAudioPath, StringComparison.Ordinal);
 
         var chipBg = Application.Current?.RequestedTheme == AppTheme.Dark
             ? Color.FromArgb("#3A3835")
@@ -146,9 +146,9 @@ public partial class RecordingGroupView : ContentView
 
         var capturedPath = filePath;
         if (isPlaying)
-            playPauseButton.Clicked += (_, _) => _vm?.PauseAudioCommand.Execute(null);
+            playPauseButton.Clicked += (_, _) => _vm?.Recording.PauseAudioCommand.Execute(null);
         else
-            playPauseButton.Clicked += (_, _) => _vm?.PlayAudioCommand.Execute(capturedPath);
+            playPauseButton.Clicked += (_, _) => _vm?.Recording.PlayAudioCommand.Execute(capturedPath);
 
         var row = new Grid
         {
