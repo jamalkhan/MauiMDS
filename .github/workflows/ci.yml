@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  security-events: write
 
 jobs:
   # ── Tests ────────────────────────────────────────────────────────────────
@@ -31,13 +32,69 @@ jobs:
             dotnet test "$proj" -c Release --logger "console;verbosity=normal"
           done
 
+  # ── Trivy Security Scan ──────────────────────────────────────────────────
+  # Scans NuGet dependencies for known CVEs. Results go to two places:
+  #   1. GitHub Security tab (via SARIF) — persistent alert tracking
+  #   2. Workflow job summary — human-readable table on every run
+  # Report-only for now (exit-code: 0). Add exit-code: 1 + severity gate
+  # once the initial findings have been triaged.
+  trivy:
+    name: Trivy CVE Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Scan dependencies (SARIF → Security tab)
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          exit-code: '0'
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-nuget
+
+      - name: Scan dependencies (table → job summary)
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: table
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          exit-code: '0'
+          output: trivy-summary.txt
+
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## Trivy CVE Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if grep -q "Total: 0" trivy-summary.txt 2>/dev/null || ! grep -qE "^(Library|┌)" trivy-summary.txt 2>/dev/null; then
+            echo "✅ No vulnerabilities found." >> $GITHUB_STEP_SUMMARY
+          else
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat trivy-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
   # ── Build & Package ──────────────────────────────────────────────────────
   # Requires macOS + Xcode to build Mac Catalyst. Uses ad-hoc signing (no
   # Apple Developer account needed). Users must right-click → Open on first
   # launch to bypass Gatekeeper.
   build:
     name: Build macOS DMG
-    needs: test
+    needs: trivy
     runs-on: macos-26
 
     steps:
