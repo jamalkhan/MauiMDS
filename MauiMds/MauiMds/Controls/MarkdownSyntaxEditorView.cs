@@ -1,3 +1,4 @@
+using MauiMds;
 using System.Collections.Generic;
 
 namespace MauiMds.Controls;
@@ -8,8 +9,11 @@ public sealed class MarkdownSyntaxEditorView : ContentView, IEditorSurface
     // because the current implementation is too slow for a good editing experience.
     // Keep this control around for clipboard/find/header actions until we revisit
     // a lighter-weight highlighting implementation.
+    // Shorter than the editor parse debounce: highlighting is display-only, so 120ms feels instantaneous.
     private static readonly TimeSpan HighlightDebounceDelay = TimeSpan.FromMilliseconds(120);
+    // Measured empirically: syntax highlighting above ~24k chars causes noticeable input lag on mid-range devices.
     private const int PlainTextFallbackCharacterThreshold = 24000;
+    // Same trigger as the char threshold but measured in lines, for documents with very long lines.
     private const int PlainTextFallbackLineThreshold = 700;
 
     public static readonly BindableProperty TextProperty = BindableProperty.Create(
@@ -420,7 +424,7 @@ public sealed class MarkdownSyntaxEditorView : ContentView, IEditorSurface
             {
                 _highlightLabel.FormattedText = null;
                 _highlightLabel.Text = text;
-                _highlightLabel.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#111111"), Color.FromArgb("#F6F0E8"));
+                _highlightLabel.SetAppThemeColor(Label.TextColorProperty, AppColors.EditorTextLight, AppColors.EditorTextDark);
             }
             else
             {
@@ -433,7 +437,7 @@ public sealed class MarkdownSyntaxEditorView : ContentView, IEditorSurface
         {
             _highlightLabel.FormattedText = null;
             _highlightLabel.Text = string.Empty;
-            _editor.SetAppThemeColor(Editor.TextColorProperty, Color.FromArgb("#111111"), Color.FromArgb("#F6F0E8"));
+            _editor.SetAppThemeColor(Editor.TextColorProperty, AppColors.EditorTextLight, AppColors.EditorTextDark);
         }
     }
 

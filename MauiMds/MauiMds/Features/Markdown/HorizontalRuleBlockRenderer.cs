@@ -1,3 +1,4 @@
+using MauiMds;
 using MauiMds.Models;
 
 namespace MauiMds.Features.Markdown;
@@ -13,7 +14,7 @@ public sealed class HorizontalRuleBlockRenderer : IMarkdownBlockRenderer
             HeightRequest = 1,
             Margin = new Thickness(0, 10, 0, 14)
         };
-        rule.SetAppThemeColor(BoxView.ColorProperty, Color.FromArgb("#CDBFA7"), Color.FromArgb("#4A4B50"));
+        rule.SetAppThemeColor(BoxView.ColorProperty, AppColors.HRuleLight, AppColors.HRuleDark);
         return rule;
     }
 }

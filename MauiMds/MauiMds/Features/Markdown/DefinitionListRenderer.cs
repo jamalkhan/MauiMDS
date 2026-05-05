@@ -1,3 +1,4 @@
+using MauiMds;
 using MauiMds.Models;
 
 namespace MauiMds.Features.Markdown;
@@ -42,7 +43,7 @@ public sealed class DefinitionListRenderer : IMarkdownBlockRenderer
         var marker = MarkdownViewFactory.CreateBaseLabel();
         marker.FontSize = 17;
         marker.Text = ":";
-        marker.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#7B735F"), Color.FromArgb("#CDBEA3"));
+        marker.SetAppThemeColor(Label.TextColorProperty, AppColors.CodeLangLight, AppColors.CodeLangDark);
         marker.Margin = new Thickness(4, 0, 0, 0);
 
         var content = MarkdownViewFactory.CreateRichTextLabel(

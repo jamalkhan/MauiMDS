@@ -1,3 +1,4 @@
+using MauiMds;
 using System.Windows.Input;
 using MauiMds.Models;
 using Microsoft.Maui.Controls.Shapes;
@@ -48,8 +49,8 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
 
         var toolbarBorder = new Border
         {
-            BackgroundColor = Color.FromArgb("#F4F0E6"),
-            Stroke = Color.FromArgb("#D8D0C2"),
+            BackgroundColor = AppColors.ToolbarBg,
+            Stroke = AppColors.ToolbarBorder,
             StrokeThickness = 1,
             Padding = new Thickness(12, 10),
             Margin = new Thickness(0, 0, 0, 12),
@@ -64,7 +65,7 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
                         Text = "Format the current block or selection",
                         FontSize = 12,
                         FontAttributes = FontAttributes.Bold,
-                        TextColor = Color.FromArgb("#6F6250")
+                        TextColor = AppColors.ToolbarLabel
                     },
                     toolbar
                 }
@@ -76,7 +77,7 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
             AutoSize = EditorAutoSizeOption.Disabled,
             FontSize = 18,
             BackgroundColor = Colors.Transparent,
-            TextColor = Color.FromArgb("#161616"),
+            TextColor = AppColors.EditorPrimaryText,
             Placeholder = "Write Markdown here...",
             Margin = new Thickness(0),
             VerticalOptions = LayoutOptions.Fill,
@@ -332,8 +333,8 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
             Padding = new Thickness(12, 7),
             CornerRadius = 12,
             FontSize = 12,
-            BackgroundColor = Color.FromArgb("#E8E0CF"),
-            TextColor = Color.FromArgb("#1A1A1A")
+            BackgroundColor = AppColors.ToolbarBtnBg,
+            TextColor = AppColors.ToolbarBtnText
         };
         button.Clicked += (_, _) => action();
         _toolbarButtons[kind] = button;
@@ -411,8 +412,8 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
         foreach (var (buttonKind, button) in _toolbarButtons)
         {
             var isActive = buttonKind == kind;
-            button.BackgroundColor = isActive ? Color.FromArgb("#1D1D1B") : Color.FromArgb("#E8E0CF");
-            button.TextColor = isActive ? Color.FromArgb("#F7F2E8") : Color.FromArgb("#1A1A1A");
+            button.BackgroundColor = isActive ? AppColors.ToolbarBtnActiveBg : AppColors.ToolbarBtnBg;
+            button.TextColor = isActive ? AppColors.ToolbarBtnActiveText : AppColors.ToolbarBtnText;
         }
     }
 

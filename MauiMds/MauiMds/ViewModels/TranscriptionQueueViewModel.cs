@@ -50,6 +50,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
     private readonly Func<string, Exception?, string, Task> _reportError;
     private readonly Action<string> _setStatus;
 
+    // Enough rows to show meaningful progress history without unbounded document growth.
+    private const int MaxProgressRows = 20;
+
     private readonly List<TranscriptionJob> _jobs = [];
     private readonly CancellationTokenSource _cts = new();
     private bool _isProcessing;
@@ -190,7 +193,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
         var progress = new Progress<double>(pct =>
         {
-            if (progressRows.Count >= 20) return;
+            if (progressRows.Count >= MaxProgressRows) return;
             if (pct - lastReportedPercent < 0.05) return;
             lastReportedPercent = pct;
             PushProgressRow($"* {DateTime.Now:yyyy-MM-dd HH:mm:ss} ... {pct:P0}");

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using MauiMds;
 using MauiMds.Models;
 using Microsoft.Extensions.Logging;
 
@@ -6,14 +7,38 @@ namespace MauiMds.Features.Markdown;
 
 public sealed class MarkdownView : ContentView
 {
+    // Lines of text rendered per incremental batch; keeps each UI tick under ~16ms (60 fps budget) for body text.
     private const int IncrementalRenderBatchLineBudget = 10;
+    // Block count cap per batch — a single code block can consume the entire line budget; this prevents monopolisation.
     private const int IncrementalRenderBatchMaxBlocks = 5;
+    // Weighted-cost cap; tables and code blocks carry higher weight than paragraphs for more even frame times.
     private const int IncrementalRenderBatchWeightBudget = 14;
+    // Floors for the initial render pass — guarantees at least a full screenful on first paint.
     private const int MinimumInitialRenderLineCount = 12;
     private const int MinimumInitialRenderBlockCount = 6;
     private const int MinimumInitialRenderWeightBudget = 18;
+    // Fallback estimated viewport when the view hasn't been measured yet (~400 px at standard line height).
     private const int MinimumEstimatedViewportLines = 16;
+    // One frame at 60 fps; yields the UI thread between batches so input stays responsive.
     private static readonly TimeSpan IncrementalRenderBatchDelay = TimeSpan.FromMilliseconds(12);
+    // Renders that take longer than this are abnormal and logged at Info rather than Debug.
+    private const long SlowRenderLogThresholdMs = 1500;
+    // Empirical average line height for body text at the default font size; used only as pre-measurement estimate.
+    private const double EstimatedLineHeightPx = 26;
+    // Empirical average block height (paragraph + spacing); used only as pre-measurement estimate.
+    private const double EstimatedBlockHeightPx = 72;
+    // Used when the scroll view hasn't been laid out yet; matches a typical laptop viewport.
+    private const double FallbackViewportHeightPx = 800;
+    // Overlap above the visible area; rendered blocks here absorb upward scrolls without a new pass.
+    private const double ViewportOverlapAbovePx = 240;
+    private const double ViewportOverlapAboveFraction = 0.35;
+    // Below gets more overlap than above because reading typically scrolls downward.
+    private const double ViewportOverlapBelowPx = 360;
+    private const double ViewportOverlapBelowFraction = 0.75;
+    // Conservative weight budget for upgrade passes; limits jank during active scrolling.
+    private const int ViewportUpgradeWeightBudget = 12;
+    // One-frame grace period after scroll events stop before upgrading simplified blocks near the viewport.
+    private const int ViewportUpgradeDelayMs = 24;
 
     public static readonly BindableProperty BlocksProperty = BindableProperty.Create(
         nameof(Blocks),
@@ -208,7 +233,7 @@ public sealed class MarkdownView : ContentView
         {
             try
             {
-                await Task.Delay(1, token);
+                await Task.Delay(1, token); // cancellable checkpoint before the UI-thread hop
                 token.ThrowIfCancellationRequested();
                 await MainThread.InvokeOnMainThreadAsync(async () => await RenderMarkdownCoreAsync(token, requestVersion));
             }
@@ -485,7 +510,7 @@ public sealed class MarkdownView : ContentView
     {
         var preferenceTarget = Math.Max(MinimumInitialRenderLineCount, InitialRenderLineCount);
         var viewportTarget = Height > 0
-            ? Math.Max(MinimumEstimatedViewportLines, (int)Math.Ceiling(Height / 26d))
+            ? Math.Max(MinimumEstimatedViewportLines, (int)Math.Ceiling(Height / EstimatedLineHeightPx))
             : MinimumEstimatedViewportLines;
 
         return Math.Max(preferenceTarget, viewportTarget);
@@ -494,7 +519,7 @@ public sealed class MarkdownView : ContentView
     private int CalculateInitialRenderTargetBlockCount()
     {
         var viewportTarget = Height > 0
-            ? Math.Max(MinimumInitialRenderBlockCount, (int)Math.Ceiling(Height / 72d))
+            ? Math.Max(MinimumInitialRenderBlockCount, (int)Math.Ceiling(Height / EstimatedBlockHeightPx))
             : MinimumInitialRenderBlockCount;
 
         return viewportTarget;
@@ -616,7 +641,7 @@ public sealed class MarkdownView : ContentView
     private void CompleteRender(Stopwatch stopwatch)
     {
         var elapsedMs = stopwatch.ElapsedMilliseconds;
-        if (elapsedMs >= 1500)
+        if (elapsedMs >= SlowRenderLogThresholdMs)
         {
             _logger?.LogInformation(
                 "MarkdownView rendering completed. RenderedChildCount: {RenderedChildCount}, SourceFilePath: {SourceFilePath}, ElapsedMs: {ElapsedMs}",
@@ -658,7 +683,7 @@ public sealed class MarkdownView : ContentView
         {
             try
             {
-                await Task.Delay(24, token);
+                await Task.Delay(ViewportUpgradeDelayMs, token);
                 token.ThrowIfCancellationRequested();
                 await MainThread.InvokeOnMainThreadAsync(() => UpgradeBlocksNearViewport(token));
             }
@@ -678,14 +703,14 @@ public sealed class MarkdownView : ContentView
         var viewportHeight = _scrollView.Height > 0 ? _scrollView.Height : Height;
         if (viewportHeight <= 0)
         {
-            viewportHeight = 800;
+            viewportHeight = FallbackViewportHeightPx;
         }
 
         var scrollY = _scrollView.ScrollY;
-        var viewportTop = Math.Max(0, scrollY - Math.Max(240, viewportHeight * 0.35));
-        var viewportBottom = scrollY + viewportHeight + Math.Max(360, viewportHeight * 0.75);
+        var viewportTop = Math.Max(0, scrollY - Math.Max(ViewportOverlapAbovePx, viewportHeight * ViewportOverlapAboveFraction));
+        var viewportBottom = scrollY + viewportHeight + Math.Max(ViewportOverlapBelowPx, viewportHeight * ViewportOverlapBelowFraction);
 
-        var upgradeWeightBudget = 12;
+        var upgradeWeightBudget = ViewportUpgradeWeightBudget;
         var upgradedCount = 0;
         var upgradedWeight = 0;
         var currentTop = 0d;
@@ -778,8 +803,8 @@ public sealed class MarkdownView : ContentView
         };
 
         var border = MarkdownViewFactory.CreateThemedBorder(stack, new Thickness(14, 12), new Thickness(0, 4, 0, 10));
-        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#FBE0DD"), Color.FromArgb("#432524"));
-        border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#D27A72"), Color.FromArgb("#B65A54"));
+        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, AppColors.ErrorBgLight, AppColors.ErrorBgDark);
+        border.SetAppThemeColor(Border.StrokeProperty, AppColors.ErrorBorderLight, AppColors.ErrorBorderDark);
         return border;
     }
 

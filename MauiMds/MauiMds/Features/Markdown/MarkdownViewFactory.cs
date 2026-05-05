@@ -1,3 +1,4 @@
+using MauiMds;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace MauiMds.Features.Markdown;
@@ -13,7 +14,7 @@ internal static class MarkdownViewFactory
             LineBreakMode = LineBreakMode.WordWrap
         };
 
-        label.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#161616"), Color.FromArgb("#F3EDE2"));
+        label.SetAppThemeColor(Label.TextColorProperty, AppColors.TextLight, AppColors.TextDark);
         return label;
     }
 
@@ -50,8 +51,8 @@ internal static class MarkdownViewFactory
             }
         };
 
-        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#F8F3E8"), Color.FromArgb("#2A2B2D"));
-        border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#D8CEBB"), Color.FromArgb("#4A4B50"));
+        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, AppColors.BorderBgLight, AppColors.BorderBgDark);
+        border.SetAppThemeColor(Border.StrokeProperty, AppColors.BorderStrokeLight, AppColors.BorderStrokeDark);
         return border;
     }
 
@@ -87,9 +88,9 @@ internal static class MarkdownViewFactory
     {
         var label = CreateSimpleLabel(block.Content, 17, FontAttributes.None, new Thickness(0), monospace: false);
         var border = CreateThemedBorder(label, new Thickness(18, 14, 14, 14), new Thickness(0, 4, 0, 10), stroked: false);
-        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#EFE7D8"), Color.FromArgb("#343432"));
+        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, AppColors.BlockQuoteBgLight, AppColors.BlockQuoteBgDark);
         border.StrokeThickness = Math.Max(3, block.QuoteLevel * 2);
-        border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#A08E71"), Color.FromArgb("#C8B79D"));
+        border.SetAppThemeColor(Border.StrokeProperty, AppColors.BlockQuoteAccentLight, AppColors.BlockQuoteAccentDark);
         return border;
     }
 
@@ -98,8 +99,8 @@ internal static class MarkdownViewFactory
         var label = CreateSimpleLabel(content, 13, FontAttributes.None, new Thickness(0), monospace: true);
         label.LineBreakMode = LineBreakMode.NoWrap;
         var border = CreateThemedBorder(label, new Thickness(14, 12), new Thickness(0, 4, 0, 12));
-        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#EAE3D6"), Color.FromArgb("#1E1F21"));
-        border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#CFC3AE"), Color.FromArgb("#4A4C52"));
+        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, AppColors.CodeBgLight, AppColors.CodeBgDark);
+        border.SetAppThemeColor(Border.StrokeProperty, AppColors.CodeBorderLight, AppColors.CodeBorderDark);
         return new ScrollView
         {
             Orientation = ScrollOrientation.Horizontal,
@@ -124,7 +125,7 @@ internal static class MarkdownViewFactory
             HeightRequest = 1,
             Margin = new Thickness(0, 8, 0, 12)
         };
-        rule.SetAppThemeColor(BoxView.ColorProperty, Color.FromArgb("#CFC3AE"), Color.FromArgb("#4A4C52"));
+        rule.SetAppThemeColor(BoxView.ColorProperty, AppColors.CodeBorderLight, AppColors.CodeBorderDark);
         return rule;
     }
 

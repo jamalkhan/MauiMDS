@@ -1,3 +1,4 @@
+using MauiMds;
 using MauiMds.Models;
 using Microsoft.Maui.Controls.Shapes;
 
@@ -28,7 +29,7 @@ public sealed class TableBlockRenderer : IMarkdownBlockRenderer
             Margin = new Thickness(0),
             Padding = new Thickness(0)
         };
-        label.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#1E1E1E"), Color.FromArgb("#F5F1E8"));
+        label.SetAppThemeColor(Label.TextColorProperty, AppColors.MonoTextLight, AppColors.MonoTextDark);
 
         var tableBorder = new Border
         {
@@ -40,8 +41,8 @@ public sealed class TableBlockRenderer : IMarkdownBlockRenderer
                 CornerRadius = new CornerRadius(14)
             }
         };
-        tableBorder.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#F8F3E8"), Color.FromArgb("#2A2B2D"));
-        tableBorder.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#D8CEBB"), Color.FromArgb("#4A4B50"));
+        tableBorder.SetAppThemeColor(VisualElement.BackgroundColorProperty, AppColors.BorderBgLight, AppColors.BorderBgDark);
+        tableBorder.SetAppThemeColor(Border.StrokeProperty, AppColors.BorderStrokeLight, AppColors.BorderStrokeDark);
 
         return new ScrollView
         {

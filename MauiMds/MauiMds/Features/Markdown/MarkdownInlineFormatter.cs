@@ -1,3 +1,4 @@
+using MauiMds;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
@@ -247,20 +248,20 @@ public sealed class MarkdownInlineFormatter
                 span.TextDecorations = TextDecorations.Underline;
                 break;
             case InlineTokenStyle.Highlight:
-                span.SetAppThemeColor(Span.BackgroundColorProperty, Color.FromArgb("#FFF176"), Color.FromArgb("#665B00"));
+                span.SetAppThemeColor(Span.BackgroundColorProperty, AppColors.HighlightBgLight, AppColors.HighlightBgDark);
                 break;
             case InlineTokenStyle.Superscript:
                 span.FontSize = Math.Max(10, fontSize - 4);
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#5C6BC0"), Color.FromArgb("#9FA8DA"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SuperscriptLight, AppColors.SuperscriptDark);
                 break;
             case InlineTokenStyle.Subscript:
                 span.FontSize = Math.Max(10, fontSize - 4);
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#5C6BC0"), Color.FromArgb("#9FA8DA"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SuperscriptLight, AppColors.SuperscriptDark);
                 break;
             case InlineTokenStyle.FootnoteReference:
                 span.FontSize = Math.Max(10, fontSize - 4);
                 span.FontAttributes = FontAttributes.Bold;
-                span.TextColor = Color.FromArgb("#8D5A2B");
+                span.TextColor = AppColors.FootnoteRefColor;
                 break;
         }
 
@@ -274,7 +275,7 @@ public sealed class MarkdownInlineFormatter
             Text = text,
             FontSize = fontSize
         };
-        span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#161616"), Color.FromArgb("#F3EDE2"));
+        span.SetAppThemeColor(Span.TextColorProperty, AppColors.TextLight, AppColors.TextDark);
         return span;
     }
 
@@ -282,14 +283,14 @@ public sealed class MarkdownInlineFormatter
     {
         var span = CreateSpan(text, fontSize - 1);
         span.FontFamily = "Courier New";
-        span.BackgroundColor = Color.FromArgb("#E8E1D3");
+        span.BackgroundColor = AppColors.InlineCodeBg;
         return span;
     }
 
     private Span CreateLinkSpan(string label, string url, double fontSize)
     {
         var span = CreateSpan(label, fontSize);
-        span.TextColor = Color.FromArgb("#2B6CB0");
+        span.TextColor = AppColors.LinkLight;
         span.TextDecorations = TextDecorations.Underline;
 
         // Anchor links (#heading) are handled via AnchorNavigationCallback
@@ -348,24 +349,24 @@ public sealed class MarkdownInlineFormatter
         switch (tokenType)
         {
             case "keyword":
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#8B3F96"), Color.FromArgb("#C792EA"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.CodeKeywordLight, AppColors.CodeKeywordDark);
                 span.FontAttributes = FontAttributes.Bold;
                 break;
             case "string":
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#2F855A"), Color.FromArgb("#9ECE6A"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.CodeStringLight, AppColors.CodeStringDark);
                 break;
             case "comment":
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#718096"), Color.FromArgb("#637777"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.CodeCommentLight, AppColors.CodeCommentDark);
                 span.FontAttributes = FontAttributes.Italic;
                 break;
             case "number":
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#B7791F"), Color.FromArgb("#FF9E3B"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.CodeNumberLight, AppColors.CodeNumberDark);
                 break;
             case "type":
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#2B6CB0"), Color.FromArgb("#7DB6FF"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.CodeTypeLight, AppColors.CodeTypeDark);
                 break;
             default:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#1E1E1E"), Color.FromArgb("#A9B1D6"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.CodeDefaultLight, AppColors.CodeDefaultDark);
                 break;
         }
 

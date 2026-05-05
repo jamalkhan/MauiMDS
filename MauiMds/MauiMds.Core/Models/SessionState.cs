@@ -9,5 +9,5 @@ public sealed class SessionState
     public string? CurrentFolderPath { get; set; }
     public EditorViewMode LastViewMode { get; set; } = EditorViewMode.Viewer;
     public bool IsWorkspacePanelVisible { get; set; }
-    public double WorkspacePanelWidth { get; set; } = 260;
+    public double WorkspacePanelWidth { get; set; } = 260; // matches DefaultWorkspacePanelWidth in MainViewModel
 }

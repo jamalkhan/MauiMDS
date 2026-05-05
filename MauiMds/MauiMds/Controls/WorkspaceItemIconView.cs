@@ -1,3 +1,4 @@
+using MauiMds;
 using MauiMds.Models;
 
 namespace MauiMds.Controls;
@@ -38,8 +39,8 @@ public sealed class WorkspaceItemIconView : ContentView
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(8) },
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.Center,
-            BackgroundColor = Color.FromArgb("#FFFDFC"),
-            Stroke = Color.FromArgb("#8D867C")
+            BackgroundColor = AppColors.IconDocBg,
+            Stroke = AppColors.IconDocStroke
         };
 
         _foldCorner = new Border
@@ -50,8 +51,8 @@ public sealed class WorkspaceItemIconView : ContentView
             HorizontalOptions = LayoutOptions.End,
             VerticalOptions = LayoutOptions.Start,
             Margin = new Thickness(0, 2, 2, 0),
-            BackgroundColor = Color.FromArgb("#F3ECE2"),
-            Stroke = Color.FromArgb("#8D867C"),
+            BackgroundColor = AppColors.IconFoldCornerBg,
+            Stroke = AppColors.IconDocStroke,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(0, 6, 0, 6) }
         };
 
@@ -63,8 +64,8 @@ public sealed class WorkspaceItemIconView : ContentView
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.End,
             Margin = new Thickness(0, 0, 0, 2),
-            BackgroundColor = Color.FromArgb("#D8C08C"),
-            Stroke = Color.FromArgb("#8B7347"),
+            BackgroundColor = AppColors.IconFolderBg,
+            Stroke = AppColors.IconFolderStroke,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(8) }
         };
 
@@ -76,8 +77,8 @@ public sealed class WorkspaceItemIconView : ContentView
             HorizontalOptions = LayoutOptions.Start,
             VerticalOptions = LayoutOptions.Start,
             Margin = new Thickness(4, 4, 0, 0),
-            BackgroundColor = Color.FromArgb("#E4CD9D"),
-            Stroke = Color.FromArgb("#8B7347"),
+            BackgroundColor = AppColors.IconFolderTabBg,
+            Stroke = AppColors.IconFolderStroke,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(6, 6, 2, 2) }
         };
 
@@ -89,8 +90,8 @@ public sealed class WorkspaceItemIconView : ContentView
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.End,
             Margin = new Thickness(0, 0, 0, 2),
-            BackgroundColor = Color.FromArgb("#D44040"),
-            Stroke = Color.FromArgb("#952222"),
+            BackgroundColor = AppColors.IconRedFolderBg,
+            Stroke = AppColors.IconRedFolderStroke,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(8) }
         };
 
@@ -102,8 +103,8 @@ public sealed class WorkspaceItemIconView : ContentView
             HorizontalOptions = LayoutOptions.Start,
             VerticalOptions = LayoutOptions.Start,
             Margin = new Thickness(4, 4, 0, 0),
-            BackgroundColor = Color.FromArgb("#E86060"),
-            Stroke = Color.FromArgb("#952222"),
+            BackgroundColor = AppColors.IconRedFolderTabBg,
+            Stroke = AppColors.IconRedFolderStroke,
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(6, 6, 2, 2) }
         };
 
@@ -115,8 +116,8 @@ public sealed class WorkspaceItemIconView : ContentView
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(14) },
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.Center,
-            BackgroundColor = Color.FromArgb("#3A7DD4"),
-            Stroke = Color.FromArgb("#1A5CA0")
+            BackgroundColor = AppColors.IconAudioBg,
+            Stroke = AppColors.IconAudioStroke
         };
 
         _audioTranscribedBody = new Border
@@ -127,8 +128,8 @@ public sealed class WorkspaceItemIconView : ContentView
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(14) },
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.Center,
-            BackgroundColor = Color.FromArgb("#3A9B62"),
-            Stroke = Color.FromArgb("#1E7340")
+            BackgroundColor = AppColors.IconTranscribedBg,
+            Stroke = AppColors.IconTranscribedStroke
         };
 
         _audioQueuedBody = new Border
@@ -139,8 +140,8 @@ public sealed class WorkspaceItemIconView : ContentView
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = new CornerRadius(14) },
             HorizontalOptions = LayoutOptions.Center,
             VerticalOptions = LayoutOptions.Center,
-            BackgroundColor = Color.FromArgb("#7BBFEA"),
-            Stroke = Color.FromArgb("#4A8FBF")
+            BackgroundColor = AppColors.IconQueuedBg,
+            Stroke = AppColors.IconQueuedStroke
         };
 
         _hashOverlay = new Label
@@ -151,7 +152,7 @@ public sealed class WorkspaceItemIconView : ContentView
             HorizontalTextAlignment = TextAlignment.Center,
             VerticalTextAlignment = TextAlignment.Center,
             Margin = new Thickness(0, 12, 0, 0),
-            TextColor = Color.FromArgb("#C9651A"),
+            TextColor = AppColors.IconHashOverlay,
             IsVisible = false
         };
 

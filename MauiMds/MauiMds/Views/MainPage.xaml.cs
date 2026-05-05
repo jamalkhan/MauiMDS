@@ -1,3 +1,4 @@
+using MauiMds;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using MauiMds.Controls;
@@ -15,6 +16,9 @@ namespace MauiMds.Views;
 
 public partial class MainPage : ContentPage
 {
+    // Sanity limit on search queries; longer strings are almost certainly a user error.
+    private const int FindMaxQueryLength = 200;
+
     private readonly ILogger<MainPage> _logger;
     private readonly SnackbarService _snackbarService;
     private readonly WorkspacePaneController _workspacePaneController;
@@ -47,6 +51,7 @@ public partial class MainPage : ContentPage
 
             vm.PropertyChanged += OnViewModelPropertyChanged;
             vm.EditorActionRequested += OnEditorActionRequested;
+            vm.FindRequested += OnFindRequested;
             _snackbarService.PropertyChanged += OnSnackbarPropertyChanged;
             _snackbarService.History.CollectionChanged += OnSnackbarHistoryChanged;
 
@@ -84,6 +89,7 @@ public partial class MainPage : ContentPage
         {
             vm.PropertyChanged -= OnViewModelPropertyChanged;
             vm.EditorActionRequested -= OnEditorActionRequested;
+            vm.FindRequested -= OnFindRequested;
             _snackbarService.PropertyChanged -= OnSnackbarPropertyChanged;
             _snackbarService.History.CollectionChanged -= OnSnackbarHistoryChanged;
         }
@@ -121,62 +127,17 @@ public partial class MainPage : ContentPage
         var editor = GetActiveEditor();
         if (editor is null)
         {
-            _logger.LogInformation("Editor action ignored — no active editor surface. Action: {ActionType}, ViewMode: {ViewMode}", e.ActionType, (BindingContext as MainViewModel)?.SelectedViewMode);
+            _logger.LogInformation("Editor action ignored — no active editor surface. ViewMode: {ViewMode}", (BindingContext as MainViewModel)?.SelectedViewMode);
             return;
         }
-        _logger.LogInformation("Dispatching editor action: {ActionType}, Editor: {EditorType}", e.ActionType, editor.GetType().Name);
+        await e.Action(editor);
+    }
 
-        switch (e.ActionType)
-        {
-            case EditorActionType.Undo:
-                editor.Undo();
-                break;
-            case EditorActionType.Redo:
-                editor.Redo();
-                break;
-            case EditorActionType.Cut:
-                await editor.CutSelectionAsync();
-                break;
-            case EditorActionType.Copy:
-                await editor.CopySelectionAsync();
-                break;
-            case EditorActionType.Paste:
-                await editor.PasteAsync();
-                break;
-            case EditorActionType.Find:
-                await HandleFindAsync(editor);
-                break;
-            case EditorActionType.Paragraph:
-                editor.ApplyParagraphStyle();
-                break;
-            case EditorActionType.Header1:
-                editor.ApplyHeaderPrefix(1);
-                break;
-            case EditorActionType.Header2:
-                editor.ApplyHeaderPrefix(2);
-                break;
-            case EditorActionType.Header3:
-                editor.ApplyHeaderPrefix(3);
-                break;
-            case EditorActionType.Bullet:
-                editor.ApplyBulletStyle();
-                break;
-            case EditorActionType.Checklist:
-                editor.ApplyChecklistStyle();
-                break;
-            case EditorActionType.Quote:
-                editor.ApplyQuoteStyle();
-                break;
-            case EditorActionType.Code:
-                editor.ApplyCodeStyle();
-                break;
-            case EditorActionType.Bold:
-                editor.ApplyBoldStyle();
-                break;
-            case EditorActionType.Italic:
-                editor.ApplyItalicStyle();
-                break;
-        }
+    private async void OnFindRequested(object? sender, EventArgs e)
+    {
+        var editor = GetActiveEditor();
+        if (editor is null) return;
+        await HandleFindAsync(editor);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -345,7 +306,7 @@ public partial class MainPage : ContentPage
 
     private async Task HandleFindAsync(IEditorSurface editor)
     {
-        var query = await DisplayPromptAsync("Find", "Find text in the current document:", "Find", "Cancel", maxLength: 200);
+        var query = await DisplayPromptAsync("Find", "Find text in the current document:", "Find", "Cancel", maxLength: FindMaxQueryLength);
         if (string.IsNullOrWhiteSpace(query))
         {
             return;
@@ -628,41 +589,41 @@ public partial class MainPage : ContentPage
         return level switch
         {
             SnackbarMessageLevel.Debug => new SnackbarPalette(
-                Color.FromArgb("#EEE8DD"),
-                Color.FromArgb("#313234"),
-                Color.FromArgb("#756B5B"),
-                Color.FromArgb("#9B9388"),
-                Color.FromArgb("#1C1A17"),
-                Color.FromArgb("#EEE5D9"),
-                Color.FromArgb("#645C53"),
-                Color.FromArgb("#B8B1A6")),
+                AppColors.SnackDebugBgLight,
+                AppColors.SnackDebugBgDark,
+                AppColors.SnackDebugAccentLight,
+                AppColors.SnackDebugAccentDark,
+                AppColors.SnackDebugTextLight,
+                AppColors.SnackDebugTextDark,
+                AppColors.SnackDebugSubLight,
+                AppColors.SnackDebugSubDark),
             SnackbarMessageLevel.Info => new SnackbarPalette(
-                Color.FromArgb("#F7F2E8"),
-                Color.FromArgb("#2D2E30"),
-                Color.FromArgb("#8D7F67"),
-                Color.FromArgb("#CBBEA6"),
-                Color.FromArgb("#161616"),
-                Color.FromArgb("#F3EDE2"),
-                Color.FromArgb("#5F584F"),
-                Color.FromArgb("#BEB7AC")),
+                AppColors.SnackInfoBgLight,
+                AppColors.SnackInfoBgDark,
+                AppColors.SnackInfoAccentLight,
+                AppColors.SnackInfoAccentDark,
+                AppColors.SnackInfoTextLight,
+                AppColors.SnackInfoTextDark,
+                AppColors.SnackInfoSubLight,
+                AppColors.SnackInfoSubDark),
             SnackbarMessageLevel.Warning => new SnackbarPalette(
-                Color.FromArgb("#FFF3C9"),
-                Color.FromArgb("#43381B"),
-                Color.FromArgb("#C79000"),
-                Color.FromArgb("#FFD45C"),
-                Color.FromArgb("#342600"),
-                Color.FromArgb("#FFF4D2"),
-                Color.FromArgb("#705B1F"),
-                Color.FromArgb("#E8D39D")),
+                AppColors.SnackWarnBgLight,
+                AppColors.SnackWarnBgDark,
+                AppColors.SnackWarnAccentLight,
+                AppColors.SnackWarnAccentDark,
+                AppColors.SnackWarnTextLight,
+                AppColors.SnackWarnTextDark,
+                AppColors.SnackWarnSubLight,
+                AppColors.SnackWarnSubDark),
             _ => new SnackbarPalette(
-                Color.FromArgb("#FBE0DD"),
-                Color.FromArgb("#432524"),
-                Color.FromArgb("#B42318"),
-                Color.FromArgb("#FF8A7A"),
-                Color.FromArgb("#3F0D07"),
-                Color.FromArgb("#FFE7E4"),
-                Color.FromArgb("#7D2E28"),
-                Color.FromArgb("#F1B5AE"))
+                AppColors.SnackErrorBgLight,
+                AppColors.SnackErrorBgDark,
+                AppColors.SnackErrorAccentLight,
+                AppColors.SnackErrorAccentDark,
+                AppColors.SnackErrorTextLight,
+                AppColors.SnackErrorTextDark,
+                AppColors.SnackErrorSubLight,
+                AppColors.SnackErrorSubDark)
         };
     }
 

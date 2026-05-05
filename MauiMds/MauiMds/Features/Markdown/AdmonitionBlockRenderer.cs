@@ -9,7 +9,7 @@ public sealed class AdmonitionBlockRenderer : IMarkdownBlockRenderer
 
     public View Render(MarkdownBlock block, MarkdownRenderContext context)
     {
-        var (lightBg, darkBg, lightBorder, darkBorder, lightHeader, darkHeader) = GetThemeColors(block.AdmonitionType);
+        var (bgLight, bgDark, borderLight, borderDark, headerLight, headerDark) = GetThemeColors(block.AdmonitionType);
 
         var headerText = string.IsNullOrEmpty(block.AdmonitionTitle)
             ? FormatTypeLabel(block.AdmonitionType)
@@ -21,7 +21,7 @@ public sealed class AdmonitionBlockRenderer : IMarkdownBlockRenderer
             FontAttributes = FontAttributes.Bold,
             Margin = new Thickness(0, 0, 0, 6)
         };
-        typeLabel.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb(lightHeader), Color.FromArgb(darkHeader));
+        typeLabel.SetAppThemeColor(Label.TextColorProperty, headerLight, headerDark);
 
         var contentLabel = MarkdownViewFactory.CreateRichTextLabel(
             block.Content, 17, FontAttributes.None, new Thickness(0), context.InlineFormatter);
@@ -41,8 +41,8 @@ public sealed class AdmonitionBlockRenderer : IMarkdownBlockRenderer
             StrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(12) }
         };
 
-        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb(lightBg), Color.FromArgb(darkBg));
-        border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb(lightBorder), Color.FromArgb(darkBorder));
+        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, bgLight, bgDark);
+        border.SetAppThemeColor(Border.StrokeProperty, borderLight, borderDark);
 
         // Left accent bar
         var accent = new BoxView
@@ -52,7 +52,7 @@ public sealed class AdmonitionBlockRenderer : IMarkdownBlockRenderer
             VerticalOptions = LayoutOptions.Fill,
             Margin = new Thickness(0)
         };
-        accent.SetAppThemeColor(BoxView.ColorProperty, Color.FromArgb(lightBorder), Color.FromArgb(darkBorder));
+        accent.SetAppThemeColor(BoxView.ColorProperty, borderLight, borderDark);
 
         var outerGrid = new Grid
         {
@@ -65,7 +65,7 @@ public sealed class AdmonitionBlockRenderer : IMarkdownBlockRenderer
             Margin = new Thickness(0, 4, 0, 10)
         };
 
-        outerGrid.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb(lightBg), Color.FromArgb(darkBg));
+        outerGrid.SetAppThemeColor(VisualElement.BackgroundColorProperty, bgLight, bgDark);
 
         // Use a simpler single-border approach with left emphasis via padding offset
         var innerBorder = new Border
@@ -75,7 +75,7 @@ public sealed class AdmonitionBlockRenderer : IMarkdownBlockRenderer
             StrokeThickness = 0,
             StrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(0, 10, 10, 0) }
         };
-        innerBorder.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb(lightBg), Color.FromArgb(darkBg));
+        innerBorder.SetAppThemeColor(VisualElement.BackgroundColorProperty, bgLight, bgDark);
 
         outerGrid.Add(accent);
         outerGrid.Add(innerBorder);
@@ -105,28 +105,19 @@ public sealed class AdmonitionBlockRenderer : IMarkdownBlockRenderer
         };
     }
 
-    private static (string lightBg, string darkBg, string lightBorder, string darkBorder, string lightHeader, string darkHeader) GetThemeColors(string admonitionType)
+    private static (Color BgLight, Color BgDark, Color BorderLight, Color BorderDark, Color HeaderLight, Color HeaderDark)
+        GetThemeColors(string admonitionType)
     {
         return admonitionType.ToUpperInvariant() switch
         {
-            "NOTE" or "INFO" =>
-                ("#EFF6FF", "#1A2A3F", "#3B82F6", "#60A5FA", "#1D4ED8", "#93C5FD"),
-            "TIP" or "SUCCESS" =>
-                ("#F0FDF4", "#1A2E22", "#22C55E", "#4ADE80", "#15803D", "#86EFAC"),
-            "WARNING" =>
-                ("#FFFBEB", "#2E2410", "#F59E0B", "#FCD34D", "#B45309", "#FDE68A"),
-            "IMPORTANT" =>
-                ("#F5F3FF", "#1E1533", "#8B5CF6", "#A78BFA", "#6D28D9", "#C4B5FD"),
-            "CAUTION" or "DANGER" =>
-                ("#FEF2F2", "#2A1010", "#EF4444", "#F87171", "#B91C1C", "#FCA5A5"),
-            "QUESTION" =>
-                ("#ECFDF5", "#102A22", "#10B981", "#34D399", "#047857", "#6EE7B7"),
-            "BUG" =>
-                ("#FFF7ED", "#2A1800", "#F97316", "#FB923C", "#C2410C", "#FED7AA"),
-            "EXAMPLE" or "ABSTRACT" or "TLDR" =>
-                ("#F8FAFC", "#1C1C24", "#64748B", "#94A3B8", "#334155", "#CBD5E1"),
-            _ =>
-                ("#F8FAFC", "#1C1C24", "#64748B", "#94A3B8", "#334155", "#CBD5E1")
+            "NOTE" or "INFO"             => AppColors.AdmonitionNote,
+            "TIP" or "SUCCESS"           => AppColors.AdmonitionTip,
+            "WARNING"                    => AppColors.AdmonitionWarning,
+            "IMPORTANT"                  => AppColors.AdmonitionImportant,
+            "CAUTION" or "DANGER"        => AppColors.AdmonitionCaution,
+            "QUESTION"                   => AppColors.AdmonitionQuestion,
+            "BUG"                        => AppColors.AdmonitionBug,
+            _                            => AppColors.AdmonitionDefault
         };
     }
 }

@@ -1,3 +1,4 @@
+using MauiMds;
 using MauiMds.Models;
 
 namespace MauiMds.Features.Markdown;
@@ -40,9 +41,9 @@ public sealed class BlockQuoteBlockRenderer : IMarkdownBlockRenderer
         }
 
         var border = MarkdownViewFactory.CreateThemedBorder(innerContent, new Thickness(18, 14, 14, 14), new Thickness(0, 4, 0, 10), stroked: false);
-        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#EFE7D8"), Color.FromArgb("#343432"));
+        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, AppColors.BlockQuoteBgLight, AppColors.BlockQuoteBgDark);
         border.StrokeThickness = Math.Max(3, block.QuoteLevel * 2);
-        border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#A08E71"), Color.FromArgb("#C8B79D"));
+        border.SetAppThemeColor(Border.StrokeProperty, AppColors.BlockQuoteAccentLight, AppColors.BlockQuoteAccentDark);
         return border;
     }
 }

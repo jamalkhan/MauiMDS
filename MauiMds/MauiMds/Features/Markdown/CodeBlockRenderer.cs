@@ -1,3 +1,4 @@
+using MauiMds;
 using MauiMds.Models;
 
 namespace MauiMds.Features.Markdown;
@@ -23,7 +24,7 @@ public sealed class CodeBlockRenderer : IMarkdownBlockRenderer
         }
         else
         {
-            codeLabel.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#1E1E1E"), Color.FromArgb("#F5F1E8"));
+            codeLabel.SetAppThemeColor(Label.TextColorProperty, AppColors.MonoTextLight, AppColors.MonoTextDark);
             codeLabel.Text = block.Content;
         }
 
@@ -41,7 +42,7 @@ public sealed class CodeBlockRenderer : IMarkdownBlockRenderer
                 FontAttributes = FontAttributes.Bold,
                 Margin = new Thickness(0)
             };
-            languageLabel.SetAppThemeColor(Label.TextColorProperty, Color.FromArgb("#7B735F"), Color.FromArgb("#CDBEA3"));
+            languageLabel.SetAppThemeColor(Label.TextColorProperty, AppColors.CodeLangLight, AppColors.CodeLangDark);
             stack.Children.Add(languageLabel);
         }
 
@@ -52,8 +53,8 @@ public sealed class CodeBlockRenderer : IMarkdownBlockRenderer
         });
 
         var border = MarkdownViewFactory.CreateThemedBorder(stack, new Thickness(16, 14), new Thickness(0, 4, 0, 12));
-        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, Color.FromArgb("#EAE3D6"), Color.FromArgb("#1E1F21"));
-        border.SetAppThemeColor(Border.StrokeProperty, Color.FromArgb("#CFC3AE"), Color.FromArgb("#4A4C52"));
+        border.SetAppThemeColor(VisualElement.BackgroundColorProperty, AppColors.CodeBgLight, AppColors.CodeBgDark);
+        border.SetAppThemeColor(Border.StrokeProperty, AppColors.CodeBorderLight, AppColors.CodeBorderDark);
         return border;
     }
 }

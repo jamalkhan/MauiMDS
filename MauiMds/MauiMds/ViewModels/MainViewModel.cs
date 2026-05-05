@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using MauiMds.AudioCapture;
+using MauiMds.Controls;
 using MauiMds.Features.Editor;
 using MauiMds.Features.Export;
 using MauiMds.Features.Session;
@@ -19,16 +20,27 @@ namespace MauiMds.ViewModels;
 
 public class MainViewModel : INotifyPropertyChanged
 {
+    // Fast enough to feel live in viewer mode; the markdown parser is cheap for display-only rendering.
     private static readonly TimeSpan ViewerParseDebounceDelay = TimeSpan.FromMilliseconds(250);
+    // Longer than typical inter-keystroke interval during burst typing so we don't re-parse mid-word.
     private static readonly TimeSpan EditorParseDebounceDelay = TimeSpan.FromMilliseconds(900);
+    // Covers most file-save latencies; avoids reloading a partially-written file from a sync client.
     private static readonly TimeSpan ExternalChangeDebounceDelay = TimeSpan.FromMilliseconds(400);
+    // Sync clients (Resilio, iCloud) fire directory events in rapid bursts; debounce lets the storm settle.
+    private const int WorkspaceWatcherDebounceMs = 600;
+    // Five seconds gives the user time to notice and cancel an accidental delete.
+    private const int PendingDeleteCountdownMs = 5000;
+    // Rename triggers on a slow double-tap: ≥500ms prevents accidental triggers; ≤2500ms catches slow intentional ones.
+    private const double RenameTriggerMinElapsedMs = 500;
+    private const double RenameTriggerMaxElapsedMs = 2500;
+    // Tuned to display typical file/folder names without truncation on common laptop-width panels.
     private const double DefaultWorkspacePanelWidth = 260;
     private const double MinWorkspacePanelWidth = 180;
     private const double MaxWorkspacePanelWidth = 520;
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    public event EventHandler<MarkdownDocument>? DocumentApplied;
     public event EventHandler<EditorActionRequestedEventArgs>? EditorActionRequested;
+    public event EventHandler? FindRequested;
 
     private readonly IMarkdownDocumentService _documentService;
     private readonly IWorkspaceBrowserService _workspaceBrowserService;
@@ -74,7 +86,6 @@ public class MainViewModel : INotifyPropertyChanged
     // Workspace auto-refresh
     private FileSystemWatcher? _workspaceWatcher;
     private Timer? _workspaceRefreshTimer;
-    private int _watcherDebounceMs = 600;
     private Timer? _watcherDebounceTimer;
 
     // Pending-delete: item → cancellation source for the 5-second countdown
@@ -149,7 +160,7 @@ public class MainViewModel : INotifyPropertyChanged
             if (item == _lastSingleTappedItem
                 && item.IsSelected
                 && item.CanRename
-                && elapsed is >= 500 and <= 2500)
+                && elapsed is >= RenameTriggerMinElapsedMs and <= RenameTriggerMaxElapsedMs)
             {
                 _lastSingleTappedItem = null;
                 BeginRenameWorkspaceItem(item);
@@ -173,22 +184,22 @@ public class MainViewModel : INotifyPropertyChanged
         CreateMdsCommand = new Command(async () => await CreateMdsAsync(), () => HasWorkspaceRoot);
         NavigateUpWorkspaceCommand = new Command(async () => await NavigateUpWorkspaceAsync(), () => CanNavigateUpWorkspace);
         SetWorkspaceFolderToCurrentCommand = new Command(async () => await SetWorkspaceFolderToCurrentAsync(), () => CanSetCurrentFolderAsWorkspace);
-        UndoCommand = new Command(() => RequestEditorAction(EditorActionType.Undo));
-        RedoCommand = new Command(() => RequestEditorAction(EditorActionType.Redo));
-        CutCommand = new Command(() => RequestEditorAction(EditorActionType.Cut));
-        CopyCommand = new Command(() => RequestEditorAction(EditorActionType.Copy));
-        PasteCommand = new Command(() => RequestEditorAction(EditorActionType.Paste));
-        FindCommand = new Command(() => RequestEditorAction(EditorActionType.Find));
-        FormatParagraphCommand = new Command(() => RequestEditorAction(EditorActionType.Paragraph));
-        FormatHeader1Command = new Command(() => RequestEditorAction(EditorActionType.Header1));
-        FormatHeader2Command = new Command(() => RequestEditorAction(EditorActionType.Header2));
-        FormatHeader3Command = new Command(() => RequestEditorAction(EditorActionType.Header3));
-        FormatBulletCommand = new Command(() => RequestEditorAction(EditorActionType.Bullet));
-        FormatChecklistCommand = new Command(() => RequestEditorAction(EditorActionType.Checklist));
-        FormatQuoteCommand = new Command(() => RequestEditorAction(EditorActionType.Quote));
-        FormatCodeCommand = new Command(() => RequestEditorAction(EditorActionType.Code));
-        FormatBoldCommand = new Command(() => RequestEditorAction(EditorActionType.Bold));
-        FormatItalicCommand = new Command(() => RequestEditorAction(EditorActionType.Italic));
+        UndoCommand = new Command(() => RequestEditorAction(e => { e.Undo(); return Task.CompletedTask; }));
+        RedoCommand = new Command(() => RequestEditorAction(e => { e.Redo(); return Task.CompletedTask; }));
+        CutCommand = new Command(() => RequestEditorAction(e => e.CutSelectionAsync()));
+        CopyCommand = new Command(() => RequestEditorAction(e => e.CopySelectionAsync()));
+        PasteCommand = new Command(() => RequestEditorAction(e => e.PasteAsync()));
+        FindCommand = new Command(() => FindRequested?.Invoke(this, EventArgs.Empty));
+        FormatParagraphCommand = new Command(() => RequestEditorAction(e => { e.ApplyParagraphStyle(); return Task.CompletedTask; }));
+        FormatHeader1Command = new Command(() => RequestEditorAction(e => { e.ApplyHeaderPrefix(1); return Task.CompletedTask; }));
+        FormatHeader2Command = new Command(() => RequestEditorAction(e => { e.ApplyHeaderPrefix(2); return Task.CompletedTask; }));
+        FormatHeader3Command = new Command(() => RequestEditorAction(e => { e.ApplyHeaderPrefix(3); return Task.CompletedTask; }));
+        FormatBulletCommand = new Command(() => RequestEditorAction(e => { e.ApplyBulletStyle(); return Task.CompletedTask; }));
+        FormatChecklistCommand = new Command(() => RequestEditorAction(e => { e.ApplyChecklistStyle(); return Task.CompletedTask; }));
+        FormatQuoteCommand = new Command(() => RequestEditorAction(e => { e.ApplyQuoteStyle(); return Task.CompletedTask; }));
+        FormatCodeCommand = new Command(() => RequestEditorAction(e => { e.ApplyCodeStyle(); return Task.CompletedTask; }));
+        FormatBoldCommand = new Command(() => RequestEditorAction(e => { e.ApplyBoldStyle(); return Task.CompletedTask; }));
+        FormatItalicCommand = new Command(() => RequestEditorAction(e => { e.ApplyItalicStyle(); return Task.CompletedTask; }));
         RefreshWorkspaceCommand = new Command(async () => await RefreshWorkspaceFromDiskAsync());
 
         Recording = new RecordingSessionViewModel(
@@ -994,10 +1005,6 @@ public class MainViewModel : INotifyPropertyChanged
             }
 
             IsViewerLoading = false;
-            if (!previewDeferred)
-            {
-                DocumentApplied?.Invoke(this, snapshot);
-            }
         });
         applyStopwatch.Stop();
 
@@ -1058,7 +1065,6 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         IsViewerLoading = false;
-        DocumentApplied?.Invoke(this, CreateCurrentDocumentSnapshot(_document.Content));
         ClearDeferredPreview();
 
         _logger.LogDebug(
@@ -1121,6 +1127,12 @@ public class MainViewModel : INotifyPropertyChanged
                     InlineErrorMessage = "The file changed on disk and was automatically reloaded.";
                 });
             });
+        }
+        catch (IOException ioEx)
+        {
+            // Transient IO failure (e.g. file locked briefly by a sync client). The watcher
+            // fires again once the file stabilises, so no user-visible error is needed.
+            _logger.LogDebug(ioEx, "External file change: transient IO error for {Path}.", filePath);
         }
         catch (Exception ex)
         {
@@ -1293,8 +1305,8 @@ public class MainViewModel : INotifyPropertyChanged
             return "Preparing markdown preview...";
         }
 
-        const int maxLines = 28;
-        const int maxCharacters = 2200;
+        const int maxLines = 28;         // enough to fill a typical viewer window during the parse delay
+        const int maxCharacters = 2200;  // ~1.5 screens of text; avoids layout work on huge documents
 
         var normalized = content.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         if (normalized.Length > maxCharacters)
@@ -1394,13 +1406,9 @@ public class MainViewModel : INotifyPropertyChanged
         PersistSessionState();
     }
 
-    private void RequestEditorAction(EditorActionType actionType)
+    private void RequestEditorAction(Func<IEditorSurface, Task> action)
     {
-        _logger.LogInformation("Editor action requested: {ActionType}", actionType);
-        EditorActionRequested?.Invoke(this, new EditorActionRequestedEventArgs
-        {
-            ActionType = actionType
-        });
+        EditorActionRequested?.Invoke(this, new EditorActionRequestedEventArgs { Action = action });
     }
 
     private async Task OpenFolderAsync()
@@ -1460,7 +1468,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            await Task.Delay(5000, cts.Token);
+            await Task.Delay(PendingDeleteCountdownMs, cts.Token);
             await ExecuteDeleteAsync(item);
             if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
                 await Workspace.LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: CurrentWorkspaceFolderPath);
@@ -1558,7 +1566,7 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 await RefreshWorkspaceFromDiskAsync();
             });
-        }, null, _watcherDebounceMs, Timeout.Infinite);
+        }, null, WorkspaceWatcherDebounceMs, Timeout.Infinite);
     }
 
     private void ApplyWorkspaceRefreshSettings()

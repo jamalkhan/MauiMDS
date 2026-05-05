@@ -1,3 +1,4 @@
+using MauiMds;
 using System.ComponentModel;
 using MauiMds.ViewModels;
 
@@ -93,8 +94,8 @@ public partial class RecordingGroupView : ContentView
             FontSize = 12,
             Padding = new Thickness(12, 6),
             HorizontalOptions = LayoutOptions.Start,
-            BackgroundColor = isDark ? Color.FromArgb("#3A3835") : Color.FromArgb("#DDD3BF"),
-            TextColor = isDark ? Color.FromArgb("#C8B89A") : Color.FromArgb("#5A4E42")
+            BackgroundColor = isDark ? AppColors.RecordingBtnBgDark : AppColors.RecordingBtnBgLight,
+            TextColor = isDark ? AppColors.RecordingBtnTextDark : AppColors.RecordingBtnTextLight
         };
         btn.Clicked += (_, _) => _vm?.TranscriptionQueue.ReTranscribeGroupCommand.Execute(null);
         return btn;
@@ -106,11 +107,11 @@ public partial class RecordingGroupView : ContentView
         var isPlaying = string.Equals(filePath, _vm?.Recording.CurrentlyPlayingAudioPath, StringComparison.Ordinal);
 
         var chipBg = Application.Current?.RequestedTheme == AppTheme.Dark
-            ? Color.FromArgb("#3A3835")
-            : Color.FromArgb("#E8E0CF");
+            ? AppColors.AudioChipBgDark
+            : AppColors.AudioChipBgLight;
         var textColor = Application.Current?.RequestedTheme == AppTheme.Dark
-            ? Color.FromArgb("#F3EDE2")
-            : Color.FromArgb("#1A1A1A");
+            ? AppColors.AudioChipTextDark
+            : AppColors.AudioChipTextLight;
 
         var iconLabel = new Label
         {
@@ -136,10 +137,10 @@ public partial class RecordingGroupView : ContentView
             FontSize = 13,
             Padding = new Thickness(10, 6),
             BackgroundColor = isPlaying
-                ? Color.FromArgb("#CC4444")
+                ? AppColors.PlayBtnActive
                 : (Application.Current?.RequestedTheme == AppTheme.Dark
-                    ? Color.FromArgb("#4A4340")
-                    : Color.FromArgb("#5A4E42")),
+                    ? AppColors.PlayBtnBgDark
+                    : AppColors.PlayBtnBgLight),
             TextColor = Colors.White,
             VerticalOptions = LayoutOptions.Center
         };

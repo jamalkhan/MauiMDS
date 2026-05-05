@@ -1,3 +1,4 @@
+using MauiMds;
 using System.Text.RegularExpressions;
 
 namespace MauiMds.Controls;
@@ -268,44 +269,44 @@ internal sealed class MarkdownSyntaxHighlighter
         {
             case SyntaxColor.HeaderMarker:
                 span.FontAttributes = FontAttributes.Bold;
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#7A3E9D"), Color.FromArgb("#C792EA"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynHeaderMarkerLight, AppColors.SynHeaderMarkerDark);
                 break;
             case SyntaxColor.BlockQuoteMarker:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#7C6B58"), Color.FromArgb("#B9A98F"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynBlockQuoteLight, AppColors.SynBlockQuoteDark);
                 break;
             case SyntaxColor.ListMarker:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#B35C1E"), Color.FromArgb("#F0A65E"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynListMarkerLight, AppColors.SynListMarkerDark);
                 break;
             case SyntaxColor.Link:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#2B6CB0"), Color.FromArgb("#7DB6FF"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynLinkLight, AppColors.SynLinkDark);
                 break;
             case SyntaxColor.Image:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#0F766E"), Color.FromArgb("#5EEAD4"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynImageLight, AppColors.SynImageDark);
                 break;
             case SyntaxColor.InlineCode:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#8C4A16"), Color.FromArgb("#FFD08A"));
-                span.BackgroundColor = Color.FromArgb("#2A000000");
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynInlineCodeLight, AppColors.SynInlineCodeDark);
+                span.BackgroundColor = AppColors.InlineCodeOverlay;
                 break;
             case SyntaxColor.Emphasis:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#A61E4D"), Color.FromArgb("#FF8FB1"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynEmphasisLight, AppColors.SynEmphasisDark);
                 break;
             case SyntaxColor.Footnote:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#8D5A2B"), Color.FromArgb("#F2B880"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynFootnoteLight, AppColors.SynFootnoteDark);
                 break;
             case SyntaxColor.CodeFence:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#6B7280"), Color.FromArgb("#9CA3AF"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynCodeFenceLight, AppColors.SynCodeFenceDark);
                 break;
             case SyntaxColor.FrontMatterDelimiter:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#8B6F47"), Color.FromArgb("#E8C68A"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynFmDelimiterLight, AppColors.SynFmDelimiterDark);
                 break;
             case SyntaxColor.FrontMatterKey:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#7C3AED"), Color.FromArgb("#C4B5FD"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynFmKeyLight, AppColors.SynFmKeyDark);
                 break;
             case SyntaxColor.FrontMatterValue:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#0F766E"), Color.FromArgb("#99F6E4"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.SynFmValueLight, AppColors.SynFmValueDark);
                 break;
             default:
-                span.SetAppThemeColor(Span.TextColorProperty, Color.FromArgb("#111111"), Color.FromArgb("#F6F0E8"));
+                span.SetAppThemeColor(Span.TextColorProperty, AppColors.EditorTextLight, AppColors.EditorTextDark);
                 break;
         }
 
