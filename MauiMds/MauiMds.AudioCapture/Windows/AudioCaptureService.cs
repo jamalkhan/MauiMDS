@@ -6,13 +6,8 @@ using NAudio.Wave;
 
 namespace MauiMds.AudioCapture.Windows;
 
-public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
+public sealed class AudioCaptureService : AudioCaptureServiceBase
 {
-    private readonly ILogger<AudioCaptureService> _logger;
-    private readonly SemaphoreSlim _stateLock = new(1, 1);
-
-    private AudioCaptureState _state = AudioCaptureState.Idle;
-
     // Microphone capture
     private WaveInEvent? _waveIn;
     private WaveFileWriter? _micWaveWriter;
@@ -30,165 +25,127 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
     // Raw GUID for MPEG Layer 3 (MP3) — avoids NAudio AudioSubtypes member availability issues.
     private static readonly Guid Mp3SubType = new("00000055-0000-0010-8000-00aa00389b71");
 
-    public AudioCaptureState State => _state;
-    public string? LastStartWarning { get; private set; }
-    public event EventHandler<AudioCaptureState>? StateChanged;
+    public AudioCaptureService(ILogger<AudioCaptureService> logger) : base(logger) { }
 
-    public AudioCaptureService(ILogger<AudioCaptureService> logger)
-    {
-        _logger = logger;
-    }
+    // ── Permissions (Windows Privacy Settings govern mic access at OS level) ──
 
     // Unpackaged Windows apps don't have an app-level microphone permission dialog.
-    // Microphone access is governed by Windows Privacy Settings at the OS level.
-    // If access is blocked there, WaveInEvent.StartRecording() will throw.
-    public Task<AudioPermissionStatus> CheckMicrophonePermissionAsync() =>
+    // If access is blocked, WaveInEvent.StartRecording() will throw.
+    public override Task<AudioPermissionStatus> CheckMicrophonePermissionAsync() =>
         Task.FromResult(AudioPermissionStatus.Granted);
 
-    public Task<AudioPermissionStatus> RequestMicrophonePermissionAsync() =>
+    public override Task<AudioPermissionStatus> RequestMicrophonePermissionAsync() =>
         Task.FromResult(AudioPermissionStatus.Granted);
 
-    public async Task StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default)
+    // ── Platform hooks ────────────────────────────────────────────────────────
+
+    protected override async Task StartCaptureAsync(AudioCaptureOptions options, CancellationToken cancellationToken)
     {
-        if (!options.CaptureMicrophone && !options.CaptureSystemAudio)
-            throw new ArgumentException("At least one audio source must be enabled.", nameof(options));
+        _encoderBitRate = options.EncoderBitRate;
 
-        await _stateLock.WaitAsync(cancellationToken);
-        try
+        var micDir = options.CaptureMicrophone
+            ? Path.GetDirectoryName(options.OutputPath) ?? string.Empty
+            : string.Empty;
+
+        if (!string.IsNullOrEmpty(micDir))
+            Directory.CreateDirectory(micDir);
+
+        if (options.CaptureMicrophone)
         {
-            if (_state != AudioCaptureState.Idle)
-                throw new InvalidOperationException($"Cannot start capture from state {_state}.");
+            _desiredMicOutputPath = options.OutputPath;
+            _tempMicWavPath = Path.Combine(micDir,
+                Path.GetFileNameWithoutExtension(options.OutputPath) + ".tmp.wav");
 
-            SetState(AudioCaptureState.Starting);
-            LastStartWarning = null;
-            _encoderBitRate = options.EncoderBitRate;
-
-            var micDir = options.CaptureMicrophone
-                ? Path.GetDirectoryName(options.OutputPath) ?? string.Empty
-                : string.Empty;
-
-            if (!string.IsNullOrEmpty(micDir))
-                Directory.CreateDirectory(micDir);
-
-            // Start microphone capture if requested.
-            if (options.CaptureMicrophone)
+            _waveIn = new WaveInEvent
             {
-                _desiredMicOutputPath = options.OutputPath;
-                _tempMicWavPath = Path.Combine(micDir,
-                    Path.GetFileNameWithoutExtension(options.OutputPath) + ".tmp.wav");
+                WaveFormat = new WaveFormat(options.SampleRate, 16, options.ChannelCount),
+                BufferMilliseconds = 50,
+            };
+            _micWaveWriter = new WaveFileWriter(_tempMicWavPath, _waveIn.WaveFormat);
+            _waveIn.DataAvailable += OnMicDataAvailable;
+            _waveIn.StartRecording();
+        }
 
-                _waveIn = new WaveInEvent
-                {
-                    WaveFormat = new WaveFormat(options.SampleRate, 16, options.ChannelCount),
-                    BufferMilliseconds = 50,
-                };
-                _micWaveWriter = new WaveFileWriter(_tempMicWavPath, _waveIn.WaveFormat);
-                _waveIn.DataAvailable += OnMicDataAvailable;
-                _waveIn.StartRecording();
-            }
-
-            // Start system audio (WASAPI loopback) capture if requested.
-            if (options.CaptureSystemAudio)
+        if (options.CaptureSystemAudio)
+        {
+            try
             {
-                try
-                {
-                    var sysDir = Path.GetDirectoryName(options.SysOutputPath) ?? string.Empty;
-                    if (!string.IsNullOrEmpty(sysDir))
-                        Directory.CreateDirectory(sysDir);
+                var sysDir = Path.GetDirectoryName(options.SysOutputPath) ?? string.Empty;
+                if (!string.IsNullOrEmpty(sysDir))
+                    Directory.CreateDirectory(sysDir);
 
-                    _desiredSysOutputPath = options.SysOutputPath;
-                    _tempSysWavPath = Path.Combine(sysDir,
-                        Path.GetFileNameWithoutExtension(options.SysOutputPath) + ".tmp.wav");
+                _desiredSysOutputPath = options.SysOutputPath;
+                _tempSysWavPath = Path.Combine(sysDir,
+                    Path.GetFileNameWithoutExtension(options.SysOutputPath) + ".tmp.wav");
 
-                    _sysAudio = new SystemAudioLoopback();
-                    _sysAudio.Start(_tempSysWavPath);
-                    _logger.LogInformation("AudioCaptureService: WASAPI loopback started.");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "AudioCaptureService: WASAPI loopback unavailable; continuing mic-only.");
-                    _sysAudio?.Dispose();
-                    _sysAudio = null;
-                    TryDelete(_tempSysWavPath);
-                    _tempSysWavPath = null;
-                    _desiredSysOutputPath = null;
-
-                    if (options.CaptureMicrophone)
-                        LastStartWarning = "screen_recording_denied";
-                    else
-                        throw;
-                }
+                _sysAudio = new SystemAudioLoopback();
+                _sysAudio.Start(_tempSysWavPath);
+                Logger.LogInformation("AudioCaptureService: WASAPI loopback started.");
             }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "AudioCaptureService: WASAPI loopback unavailable; continuing mic-only.");
+                _sysAudio?.Dispose();
+                _sysAudio = null;
+                TryDeleteFile(_tempSysWavPath);
+                _tempSysWavPath = null;
+                _desiredSysOutputPath = null;
 
-            _recordingStarted = DateTimeOffset.UtcNow;
-            SetState(AudioCaptureState.Recording);
+                if (options.CaptureMicrophone)
+                    LastStartWarning = "screen_recording_denied";
+                else
+                    throw;
+            }
         }
-        catch
-        {
-            _waveIn?.Dispose(); _waveIn = null;
-            _micWaveWriter?.Dispose(); _micWaveWriter = null;
-            TryDelete(_tempMicWavPath); _tempMicWavPath = null;
-            _sysAudio?.Dispose(); _sysAudio = null;
-            TryDelete(_tempSysWavPath); _tempSysWavPath = null;
-            _desiredMicOutputPath = null;
-            _desiredSysOutputPath = null;
-            SetState(AudioCaptureState.Idle);
-            throw;
-        }
-        finally
-        {
-            _stateLock.Release();
-        }
+
+        _recordingStarted = DateTimeOffset.UtcNow;
+        await Task.CompletedTask; // StartCaptureAsync is synchronous on Windows
     }
 
-    public async Task<AudioCaptureResult> StopAsync()
+    protected override Task CleanupAfterFailedStartAsync()
     {
-        string? tempMicWav, desiredMic, tempSysWav, desiredSys;
-        int bitRate;
-        DateTimeOffset started;
+        _waveIn?.Dispose(); _waveIn = null;
+        _micWaveWriter?.Dispose(); _micWaveWriter = null;
+        TryDeleteFile(_tempMicWavPath); _tempMicWavPath = null;
+        _sysAudio?.Dispose(); _sysAudio = null;
+        TryDeleteFile(_tempSysWavPath); _tempSysWavPath = null;
+        _desiredMicOutputPath = null;
+        _desiredSysOutputPath = null;
+        return Task.CompletedTask;
+    }
 
-        await _stateLock.WaitAsync();
-        try
+    protected override async Task<AudioCaptureResult> StopCaptureAsync()
+    {
+        // Stop microphone.
+        if (_waveIn is not null)
         {
-            if (_state != AudioCaptureState.Recording)
-                return new AudioCaptureResult { Success = false, ErrorMessage = "Not recording." };
+            _waveIn.StopRecording();
+            _waveIn.DataAvailable -= OnMicDataAvailable;
+            _waveIn.Dispose();
+            _waveIn = null;
 
-            SetState(AudioCaptureState.Stopping);
-
-            // Stop microphone.
-            if (_waveIn is not null)
-            {
-                _waveIn.StopRecording();
-                _waveIn.DataAvailable -= OnMicDataAvailable;
-                _waveIn.Dispose();
-                _waveIn = null;
-
-                _micWaveWriter!.Flush();
-                _micWaveWriter.Dispose();
-                _micWaveWriter = null;
-            }
-
-            // Stop system audio.
-            _sysAudio?.Stop();
-            _sysAudio?.Dispose();
-            _sysAudio = null;
-
-            tempMicWav = _tempMicWavPath;
-            desiredMic = _desiredMicOutputPath;
-            tempSysWav = _tempSysWavPath;
-            desiredSys = _desiredSysOutputPath;
-            bitRate = _encoderBitRate;
-            started = _recordingStarted;
-
-            _tempMicWavPath = null; _desiredMicOutputPath = null;
-            _tempSysWavPath = null; _desiredSysOutputPath = null;
-        }
-        finally
-        {
-            _stateLock.Release();
+            _micWaveWriter!.Flush();
+            _micWaveWriter.Dispose();
+            _micWaveWriter = null;
         }
 
-        // Encode both streams outside the lock — can take several seconds.
+        // Stop system audio.
+        _sysAudio?.Stop();
+        _sysAudio?.Dispose();
+        _sysAudio = null;
+
+        // Capture and clear per-recording state before the async encode step.
+        var tempMicWav = _tempMicWavPath;
+        var desiredMic = _desiredMicOutputPath;
+        var tempSysWav = _tempSysWavPath;
+        var desiredSys = _desiredSysOutputPath;
+        var bitRate = _encoderBitRate;
+        var started = _recordingStarted;
+
+        _tempMicWavPath = null; _desiredMicOutputPath = null;
+        _tempSysWavPath = null; _desiredSysOutputPath = null;
+
+        // Encode — can take several seconds.
         var duration = DateTimeOffset.UtcNow - started;
         var outputPaths = new List<string>(2);
         string? warning = null;
@@ -207,8 +164,6 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             warning ??= w;
         }
 
-        SetState(AudioCaptureState.Idle);
-
         return new AudioCaptureResult
         {
             Success = true,
@@ -217,6 +172,17 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
             ErrorMessage = warning,
         };
     }
+
+    protected override void DisposeResources()
+    {
+        _micWaveWriter?.Dispose();
+        _waveIn?.Dispose();
+        _sysAudio?.Dispose();
+        TryDeleteFile(_tempMicWavPath);
+        TryDeleteFile(_tempSysWavPath);
+    }
+
+    // ── Windows-specific encoding ─────────────────────────────────────────────
 
     private async Task<(string outputPath, string? warning)> EncodeAsync(
         string tempWavPath, string desiredOutputPath, int bitRate)
@@ -229,25 +195,25 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
                 case ".mp3":
                     if (TryEncodeToMp3WithMediaFoundation(tempWavPath, desiredOutputPath, bitRate))
                     {
-                        TryDelete(tempWavPath);
-                        _logger.LogInformation("AudioCaptureService: MP3 encoded via MediaFoundation.");
+                        TryDeleteFile(tempWavPath);
+                        Logger.LogInformation("AudioCaptureService: MP3 encoded via MediaFoundation.");
                         return (desiredOutputPath, null);
                     }
                     EncodeToMp3WithLame(tempWavPath, desiredOutputPath, bitRate);
-                    TryDelete(tempWavPath);
-                    _logger.LogInformation("AudioCaptureService: MP3 encoded via NAudio.Lame.");
+                    TryDeleteFile(tempWavPath);
+                    Logger.LogInformation("AudioCaptureService: MP3 encoded via NAudio.Lame.");
                     return (desiredOutputPath, null);
 
                 case ".flac":
                     if (await TryEncodeToFlacWithFfmpegAsync(tempWavPath, desiredOutputPath))
                     {
-                        TryDelete(tempWavPath);
-                        _logger.LogInformation("AudioCaptureService: FLAC encoded via ffmpeg.");
+                        TryDeleteFile(tempWavPath);
+                        Logger.LogInformation("AudioCaptureService: FLAC encoded via ffmpeg.");
                         return (desiredOutputPath, null);
                     }
                     var wavFallback = Path.ChangeExtension(desiredOutputPath, ".wav");
                     File.Move(tempWavPath, wavFallback, overwrite: true);
-                    _logger.LogWarning("AudioCaptureService: ffmpeg unavailable; saved as WAV instead of FLAC.");
+                    Logger.LogWarning("AudioCaptureService: ffmpeg unavailable; saved as WAV instead of FLAC.");
                     return (wavFallback, "ffmpeg not found in PATH; recording saved as WAV.");
 
                 default:
@@ -259,7 +225,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "AudioCaptureService: encoding failed; returning temp WAV.");
+            Logger.LogError(ex, "AudioCaptureService: encoding failed; returning temp WAV.");
             return (tempWavPath, $"Encoding failed: {ex.Message}");
         }
     }
@@ -279,7 +245,7 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AudioCaptureService: MediaFoundation MP3 encoding failed; falling back to LAME.");
+            Logger.LogWarning(ex, "AudioCaptureService: MediaFoundation MP3 encoding failed; falling back to LAME.");
             return false;
         }
     }
@@ -311,32 +277,11 @@ public sealed class AudioCaptureService : IAudioCaptureService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AudioCaptureService: ffmpeg FLAC encoding failed.");
+            Logger.LogWarning(ex, "AudioCaptureService: ffmpeg FLAC encoding failed.");
             return false;
         }
     }
 
     private void OnMicDataAvailable(object? sender, WaveInEventArgs e)
         => _micWaveWriter?.Write(e.Buffer, 0, e.BytesRecorded);
-
-    private void SetState(AudioCaptureState state)
-    {
-        _state = state;
-        StateChanged?.Invoke(this, state);
-    }
-
-    private static void TryDelete(string? path)
-    {
-        if (path is not null)
-            try { File.Delete(path); } catch { }
-    }
-
-    public void Dispose()
-    {
-        _micWaveWriter?.Dispose();
-        _waveIn?.Dispose();
-        _sysAudio?.Dispose();
-        TryDelete(_tempMicWavPath);
-        TryDelete(_tempSysWavPath);
-    }
 }
