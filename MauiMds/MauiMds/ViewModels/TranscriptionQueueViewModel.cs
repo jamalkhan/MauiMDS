@@ -50,11 +50,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
     private readonly Func<string, Exception?, string, Task> _reportError;
     private readonly Action<string> _setStatus;
 
-    private readonly Queue<RecordingGroup> _queue = new();
-    private readonly HashSet<string> _queuedBaseNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<TranscriptionJob> _jobs = [];
     private readonly CancellationTokenSource _cts = new();
     private bool _isProcessing;
-    private string? _activelyTranscribingBaseName;
 
     public TranscriptionQueueViewModel(
         ITranscriptionPipelineFactory pipelineFactory,
@@ -86,7 +84,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
     public bool CanReTranscribeGroup =>
         _getSelectedGroup() is { HasTranscript: true } group &&
-        !_queuedBaseNames.Contains(group.BaseName);
+        !_jobs.Any(j => string.Equals(j.Group.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Notifies the view that CanReTranscribeGroup may have changed (e.g. after selection changes).</summary>
     public void NotifyCanReTranscribeGroupChanged()
@@ -107,15 +105,15 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
     public void Enqueue(RecordingGroup group)
     {
-        if (!_queuedBaseNames.Add(group.BaseName))
+        if (_jobs.Any(j => string.Equals(j.Group.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase)))
         {
             _logger.LogInformation("Group {Name} is already queued — skipping duplicate.", group.BaseName);
             return;
         }
 
-        _queue.Enqueue(group);
+        _jobs.Add(new TranscriptionJob(group));
         _logger.LogInformation("Group {Name} added to transcription queue (depth: {Depth}).",
-            group.BaseName, _queue.Count);
+            group.BaseName, _jobs.Count);
         OnPropertyChanged(nameof(CanReTranscribeGroup));
         ApplyHighlights(_workspace.WorkspaceItems);
 
@@ -126,12 +124,14 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
     /// <summary>Applies queued/active-transcribing highlights to workspace items.</summary>
     public void ApplyHighlights(IEnumerable<WorkspaceTreeItem> items)
     {
+        var activeBaseName = _jobs.FirstOrDefault(j => j.Status == TranscriptionJobStatus.Active)?.Group.BaseName;
         foreach (var item in items)
         {
             if (!item.IsRecordingGroup) continue;
             var baseName = item.RecordingGroup!.BaseName;
-            item.IsActivelyTranscribing = string.Equals(baseName, _activelyTranscribingBaseName, StringComparison.Ordinal);
-            item.IsInTranscriptionQueue = !item.IsActivelyTranscribing && _queuedBaseNames.Contains(baseName);
+            item.IsActivelyTranscribing = string.Equals(baseName, activeBaseName, StringComparison.OrdinalIgnoreCase);
+            item.IsInTranscriptionQueue = _jobs.Any(j => j.Status == TranscriptionJobStatus.Queued &&
+                string.Equals(j.Group.BaseName, baseName, StringComparison.OrdinalIgnoreCase));
         }
     }
 
@@ -141,22 +141,25 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         _isProcessing = true;
         try
         {
-            while (_queue.TryDequeue(out var group))
+            while (true)
             {
+                var job = _jobs.FirstOrDefault(j => j.Status == TranscriptionJobStatus.Queued);
+                if (job is null) break;
+
+                job.Status = TranscriptionJobStatus.Active;
+                ApplyHighlights(_workspace.WorkspaceItems);
+
                 try
                 {
-                    _activelyTranscribingBaseName = group.BaseName;
-                    ApplyHighlights(_workspace.WorkspaceItems);
-                    await TranscribeGroupAsync(group);
+                    await TranscribeGroupAsync(job.Group);
                 }
                 finally
                 {
-                    _activelyTranscribingBaseName = null;
-                    _queuedBaseNames.Remove(group.BaseName);
+                    _jobs.Remove(job);
                     OnPropertyChanged(nameof(CanReTranscribeGroup));
                     ApplyHighlights(_workspace.WorkspaceItems);
                     _logger.LogInformation("Group {Name} removed from queue (remaining: {N}).",
-                        group.BaseName, _queue.Count);
+                        job.Group.BaseName, _jobs.Count);
                 }
             }
         }
@@ -420,4 +423,18 @@ public sealed class TranscriptionProgressEventArgs : EventArgs
 {
     public RecordingGroup Group { get; init; } = null!;
     public string Content { get; init; } = string.Empty;
+}
+
+internal enum TranscriptionJobStatus { Queued, Active }
+
+internal sealed class TranscriptionJob
+{
+    public RecordingGroup Group { get; }
+    public TranscriptionJobStatus Status { get; set; }
+
+    public TranscriptionJob(RecordingGroup group)
+    {
+        Group = group;
+        Status = TranscriptionJobStatus.Queued;
+    }
 }
