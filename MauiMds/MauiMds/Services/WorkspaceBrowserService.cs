@@ -1,62 +1,28 @@
 using MauiMds.AudioCapture;
 using MauiMds.Models;
 using Microsoft.Extensions.Logging;
-#if MACCATALYST
-using Foundation;
-using UniformTypeIdentifiers;
-using UIKit;
-#endif
 
 namespace MauiMds.Services;
 
 public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
 {
     private static readonly string[] AllowedExtensions = [".md", ".mds", ".m4a", ".mp3", ".flac", ".wav"];
+    private readonly IFolderPickerPlatformService _folderPicker;
     private readonly ILogger<WorkspaceBrowserService> _logger;
-#if MACCATALYST
-    private SecurityScopedResourceAccess? _currentWorkspaceAccess;
-#endif
 
-    public WorkspaceBrowserService(ILogger<WorkspaceBrowserService> logger)
+    public WorkspaceBrowserService(IFolderPickerPlatformService folderPicker, ILogger<WorkspaceBrowserService> logger)
     {
+        _folderPicker = folderPicker;
         _logger = logger;
     }
 
-    public async Task<string?> PickFolderAsync()
-    {
-#if MACCATALYST
-        var picker = new UIDocumentPickerViewController([CreateContentType("public.folder")], asCopy: false)
-        {
-            AllowsMultipleSelection = false
-        };
+    public Task<string?> PickFolderAsync() => _folderPicker.PickFolderAsync();
 
-        var pickedUrl = await PresentPickerAsync(picker);
-        if (pickedUrl is null)
-        {
-            return null;
-        }
+    public string? TryCreatePersistentAccessBookmark(string folderPath)
+        => _folderPicker.TryCreatePersistentAccessBookmark(folderPath);
 
-        _currentWorkspaceAccess?.Dispose();
-        _currentWorkspaceAccess = new SecurityScopedResourceAccess(pickedUrl);
-        _logger.LogInformation(
-            "Picked workspace folder. FolderPath: {FolderPath}, AccessGranted: {AccessGranted}",
-            pickedUrl.Path,
-            _currentWorkspaceAccess.HasAccess);
-        return pickedUrl.Path;
-#elif WINDOWS
-        var picker = new Windows.Storage.Pickers.FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        // Unpackaged Windows apps must associate the picker with the window handle.
-        var platformView = Application.Current?.Windows.FirstOrDefault()?.Handler?.PlatformView;
-        if (platformView is not null)
-            WinRT.Interop.InitializeWithWindow.Initialize(
-                picker, WinRT.Interop.WindowNative.GetWindowHandle(platformView));
-        var folder = await picker.PickSingleFolderAsync();
-        return folder?.Path;
-#else
-        return null;
-#endif
-    }
+    public bool TryRestorePersistentAccessFromBookmark(string bookmark, out string? restoredPath, out bool isStale)
+        => _folderPicker.TryRestorePersistentAccessFromBookmark(bookmark, out restoredPath, out isStale);
 
     public Task<IReadOnlyList<WorkspaceNodeInfo>> LoadWorkspaceTreeAsync(string rootPath, CancellationToken cancellationToken = default)
     {
@@ -200,122 +166,6 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
         return Task.CompletedTask;
     }
 
-    public string? TryCreatePersistentAccessBookmark(string folderPath)
-    {
-#if MACCATALYST
-        if (_currentWorkspaceAccess?.Url is null || !string.Equals(_currentWorkspaceAccess.Url.Path, folderPath, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var bookmarkData = _currentWorkspaceAccess.Url.CreateBookmarkData(
-            NSUrlBookmarkCreationOptions.WithSecurityScope,
-            [],
-            null,
-            out var error);
-
-        if (error is not null || bookmarkData is null)
-        {
-            _logger.LogWarning("Failed to create persistent access bookmark for workspace {FolderPath}. Error: {Error}", folderPath, error?.LocalizedDescription);
-            return null;
-        }
-
-        return Convert.ToBase64String(bookmarkData.ToArray());
-#else
-        return null;
-#endif
-    }
-
-    public bool TryRestorePersistentAccessFromBookmark(string bookmark, out string? restoredPath, out bool isStale)
-    {
-#if MACCATALYST
-        restoredPath = null;
-        isStale = false;
-
-        if (string.IsNullOrWhiteSpace(bookmark))
-        {
-            return false;
-        }
-
-        try
-        {
-            var bookmarkBytes = Convert.FromBase64String(bookmark);
-            using var bookmarkData = NSData.FromArray(bookmarkBytes);
-            var resolvedUrl = NSUrl.FromBookmarkData(
-                bookmarkData,
-                NSUrlBookmarkResolutionOptions.WithSecurityScope,
-                null,
-                out isStale,
-                out var error);
-
-            if (error is not null || resolvedUrl is null)
-            {
-                _logger.LogWarning("Failed to restore persistent workspace access bookmark. Error: {Error}", error?.LocalizedDescription);
-                return false;
-            }
-
-            restoredPath = resolvedUrl.Path;
-            if (string.IsNullOrWhiteSpace(restoredPath))
-            {
-                return false;
-            }
-
-            _currentWorkspaceAccess?.Dispose();
-            _currentWorkspaceAccess = new SecurityScopedResourceAccess(resolvedUrl);
-            if (!_currentWorkspaceAccess.HasAccess || !CanEnumerateWorkspaceRoot(restoredPath))
-            {
-                _logger.LogWarning(
-                    "Workspace bookmark resolved but access could not be validated. WorkspaceRootPath: {WorkspaceRootPath}, IsStale: {IsStale}, AccessGranted: {AccessGranted}",
-                    restoredPath,
-                    isStale,
-                    _currentWorkspaceAccess.HasAccess);
-                _currentWorkspaceAccess.Dispose();
-                _currentWorkspaceAccess = null;
-                restoredPath = null;
-                return false;
-            }
-
-            _logger.LogInformation(
-                "Restored workspace bookmark. WorkspaceRootPath: {WorkspaceRootPath}, IsStale: {IsStale}, AccessGranted: {AccessGranted}",
-                restoredPath,
-                isStale,
-                _currentWorkspaceAccess.HasAccess);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to decode or resolve persistent workspace access bookmark.");
-            restoredPath = null;
-            isStale = false;
-            return false;
-        }
-#else
-        restoredPath = null;
-        isStale = false;
-        return false;
-#endif
-    }
-
-    private bool CanEnumerateWorkspaceRoot(string rootPath)
-    {
-        try
-        {
-            using var enumerator = Directory.EnumerateFileSystemEntries(rootPath).GetEnumerator();
-            _ = enumerator.MoveNext();
-            return true;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            _logger.LogWarning(ex, "Workspace access validation failed for {WorkspaceRootPath}.", rootPath);
-            return false;
-        }
-        catch (IOException ex)
-        {
-            _logger.LogWarning(ex, "Workspace access validation could not enumerate {WorkspaceRootPath}.", rootPath);
-            return false;
-        }
-    }
-
     private List<WorkspaceNodeInfo> BuildChildren(DirectoryInfo directory, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -347,7 +197,6 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
 
     private static List<WorkspaceNodeInfo> BuildFileNodes(string directoryPath, List<FileInfo> files)
     {
-        // Collect files that belong to a recording group (mic/sys/transcript suffix).
         var groups = new Dictionary<string, (string? Mic, string? Sys, string? Transcript)>(
             StringComparer.OrdinalIgnoreCase);
         var standaloneFiles = new List<FileInfo>();
@@ -376,7 +225,6 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
 
         var result = new List<WorkspaceNodeInfo>();
 
-        // Emit one node per recording group.
         foreach (var (baseName, (mic, sys, transcript)) in groups.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
             var group = new RecordingGroup
@@ -388,7 +236,6 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
                 TranscriptPath = transcript
             };
 
-            // Use the mic path as the canonical FullPath for the tree node; fall back to sys.
             var canonicalPath = mic ?? sys ?? transcript ?? Path.Combine(directoryPath, baseName);
 
             result.Add(new WorkspaceNodeInfo
@@ -400,7 +247,6 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
             });
         }
 
-        // Emit standalone files unchanged.
         foreach (var file in standaloneFiles)
         {
             result.Add(new WorkspaceNodeInfo
@@ -411,7 +257,6 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
             });
         }
 
-        // Sort the combined list by display name so groups and files interleave alphabetically.
         result.Sort((a, b) =>
         {
             var nameA = a.RecordingGroup?.BaseName ?? Path.GetFileName(a.FullPath);
@@ -468,89 +313,4 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
         var attributes = fileSystemInfo.Attributes;
         return attributes.HasFlag(FileAttributes.Hidden) || attributes.HasFlag(FileAttributes.System);
     }
-
-#if MACCATALYST
-    private static Task<NSUrl?> PresentPickerAsync(UIDocumentPickerViewController picker)
-    {
-        var tcs = new TaskCompletionSource<NSUrl?>();
-        var pickerDelegate = new WorkspaceFolderPickerDelegate(tcs);
-        picker.Delegate = pickerDelegate;
-        picker.ModalPresentationStyle = UIModalPresentationStyle.FormSheet;
-
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            var presenter = GetPresentingViewController();
-            presenter?.PresentViewController(picker, true, null);
-        });
-
-        return tcs.Task;
-    }
-
-    private static UIViewController? GetPresentingViewController()
-    {
-        var scene = UIApplication.SharedApplication
-            .ConnectedScenes
-            .OfType<UIWindowScene>()
-            .FirstOrDefault();
-
-        var controller = scene?
-            .Windows
-            .FirstOrDefault(window => window.IsKeyWindow)?
-            .RootViewController;
-
-        while (controller?.PresentedViewController is not null)
-        {
-            controller = controller.PresentedViewController;
-        }
-
-        return controller;
-    }
-
-    private static UTType CreateContentType(string identifier)
-    {
-        return UTType.CreateFromIdentifier(identifier) ?? throw new InvalidOperationException($"Unable to create content type for '{identifier}'.");
-    }
-
-    private sealed class WorkspaceFolderPickerDelegate : UIDocumentPickerDelegate
-    {
-        private readonly TaskCompletionSource<NSUrl?> _tcs;
-
-        public WorkspaceFolderPickerDelegate(TaskCompletionSource<NSUrl?> tcs)
-        {
-            _tcs = tcs;
-        }
-
-        public override void WasCancelled(UIDocumentPickerViewController controller)
-        {
-            _tcs.TrySetResult(null);
-        }
-
-        public override void DidPickDocument(UIDocumentPickerViewController controller, NSUrl[] urls)
-        {
-            _tcs.TrySetResult(urls.FirstOrDefault());
-        }
-    }
-
-    private sealed class SecurityScopedResourceAccess : IDisposable
-    {
-        public NSUrl Url { get; }
-        private readonly NSUrl _url;
-        public bool HasAccess { get; }
-
-        public SecurityScopedResourceAccess(NSUrl url)
-        {
-            Url = url;
-            _url = url;
-            HasAccess = _url.StartAccessingSecurityScopedResource();
-        }
-
-        public void Dispose()
-        {
-            if (HasAccess)
-            {
-                _url.StopAccessingSecurityScopedResource();
-            }
-        }
-    }
-#endif
 }

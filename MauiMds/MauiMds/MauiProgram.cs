@@ -69,8 +69,15 @@ public static class MauiProgram
 		builder.Services.AddSingleton(fileLogLevelSwitch);
 		builder.Services.AddSingleton<IDocumentWatchService, DocumentWatchService>();
 		builder.Services.AddSingleton<ISessionStateService, SessionStateService>();
-		builder.Services.AddSingleton<MarkdownFileAccessService>();
-		builder.Services.AddSingleton<IMarkdownFileAccessService>(sp => sp.GetRequiredService<MarkdownFileAccessService>());
+#if MACCATALYST
+		builder.Services.AddSingleton<MacMarkdownFileAccessService>();
+		builder.Services.AddSingleton<IMarkdownFileAccessService>(sp => sp.GetRequiredService<MacMarkdownFileAccessService>());
+		builder.Services.AddSingleton<IDocumentPickerPlatformService, DocumentPickerPlatformService>();
+#else
+		builder.Services.AddSingleton<IMarkdownFileAccessService, MarkdownFileAccessService>();
+		builder.Services.AddSingleton<IDocumentPickerPlatformService, DocumentPickerPlatformService>();
+#endif
+		builder.Services.AddSingleton<IFolderPickerPlatformService, FolderPickerPlatformService>();
 		builder.Services.AddSingleton<IMarkdownFileStorageService, MarkdownFileStorageService>();
 		builder.Services.AddSingleton<IMarkdownDocumentPickerService, MarkdownDocumentPickerService>();
 		builder.Services.AddSingleton<IMarkdownDocumentService, MarkdownDocumentService>();
@@ -83,6 +90,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<AutosaveCoordinator>();
 		builder.Services.AddSingleton<IPlatformInfo, SystemPlatformInfo>();
 		builder.Services.AddSingleton<SessionRestoreCoordinator>();
+		builder.Services.AddSingleton<IPdfSaveDialogService, PdfSaveDialogService>();
 		builder.Services.AddSingleton<IPdfExportService, PdfExportService>();
 		builder.Services.AddSingleton<IAudioCaptureService, AudioCaptureService>();
 		builder.Services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
