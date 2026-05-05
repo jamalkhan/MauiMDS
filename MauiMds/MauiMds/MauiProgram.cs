@@ -23,11 +23,16 @@ public static class MauiProgram
 	public static MauiApp CreateMauiApp()
 	{
 		var builder = MauiApp.CreateBuilder();
+
+        // Bootstrap: read the two values needed to configure logging before the DI
+        // container exists. The EditorPreferencesService instance is throwaway — DI
+        // will own a fresh one after Build(). snackbarService and fileLogLevelSwitch
+        // must be pre-constructed because they're passed into logger providers AND
+        // need to be the same objects the rest of the app resolves from DI.
+        var bootPrefs = new EditorPreferencesService().Load();
         var snackbarService = new SnackbarService();
-        var preferencesService = new EditorPreferencesService();
-        var preferences = preferencesService.Load();
-        var fileLogLevelSwitch = new FileLogLevelSwitch(preferences.FileLogLevel);
-        var maxLogFileSizeBytes = (long)Math.Max(1, preferences.MaxLogFileSizeMb) * 1024 * 1024;
+        var fileLogLevelSwitch = new FileLogLevelSwitch(bootPrefs.FileLogLevel);
+        var maxLogFileSizeBytes = (long)Math.Max(1, bootPrefs.MaxLogFileSizeMb) * 1024 * 1024;
 
 		builder
 			.UseMauiApp<App>()
@@ -63,7 +68,7 @@ public static class MauiProgram
 		// Register our services for Dependency Injection
 		builder.Services.AddSingleton(snackbarService);
 		builder.Services.AddSingleton<MdsParser>();
-		builder.Services.AddSingleton<IEditorPreferencesService>(preferencesService);
+		builder.Services.AddSingleton<IEditorPreferencesService, EditorPreferencesService>();
 		builder.Services.AddSingleton<IClock, SystemClock>();
 		builder.Services.AddSingleton<IDelayScheduler, TaskDelayScheduler>();
 		builder.Services.AddSingleton(fileLogLevelSwitch);
