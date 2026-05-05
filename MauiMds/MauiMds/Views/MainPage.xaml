@@ -162,7 +162,7 @@
         </Grid>
 
         <!-- ── Full-screen preferences overlay (stacks on top of everything) ── -->
-        <Grid IsVisible="{Binding Preferences.IsPreferencesVisible}"
+        <Grid IsVisible="{Binding IsPreferencesVisible}"
               BindingContext="{Binding Preferences}"
               BackgroundColor="{AppThemeBinding Light=#EAEAEC, Dark=#28282B}">
             <ScrollView>
