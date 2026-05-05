@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:transparent}
+.wrap{position:relative;height:100vh}
+.hl,.ta{
+  position:absolute;top:0;left:0;right:0;bottom:0;
+  padding:8px 4px;
+  font:18px/1.6 'Segoe UI',sans-serif;
+  white-space:pre-wrap;word-break:break-word;
+  overflow-y:auto;tab-size:4
+}
+.hl{pointer-events:none;user-select:none}
+.ta{
+  background:transparent;border:none;outline:none;resize:none;
+  color:transparent;caret-color:#161616;
+  -webkit-text-fill-color:transparent
+}
+.h1{font-size:1.8em;font-weight:700;color:#1a4fa0}
+.h2{font-size:1.5em;font-weight:700;color:#2155b0}
+.h3{font-size:1.2em;font-weight:700;color:#2d66c8}
+.qt{color:#776e5e;font-style:italic}
+.cf{font-family:'Cascadia Code',monospace;font-size:.85em;color:#7a7060}
+.cb{font-family:'Cascadia Code',monospace;font-size:.85em;color:#161616}
+.bm{color:#c0b898}
+.bt{font-weight:700;color:#161616}
+.im{color:#c0b898}
+.it{font-style:italic;color:#161616}
+.ic{font-family:'Cascadia Code',monospace;font-size:.9em;color:#8b4513}
+.pl{color:#161616}
+.bul-m{color:#a09070}
+</style></head>
+<body><div class="wrap">
+  <div class="hl" id="hl"></div>
+  <textarea class="ta" id="ta" spellcheck="true" autocorrect="off" autocapitalize="off"></textarea>
+</div>
+<script>
+(function(){
+  'use strict';
+  var ta=document.getElementById('ta'),hl=document.getElementById('hl');
+  var inFence=false,sending=false;
+
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+  function highlightLine(line){
+    if(line==='') return '<span class="pl">\n</span>';
+    if(/^```/.test(line)){inFence=!inFence;return '<span class="cf">'+esc(line)+'</span>\n';}
+    if(inFence) return '<span class="cb">'+esc(line)+'</span>\n';
+    if(/^###\s/.test(line)) return '<span class="h3">'+esc(line)+'</span>\n';
+    if(/^##\s/.test(line))  return '<span class="h2">'+esc(line)+'</span>\n';
+    if(/^#\s/.test(line))   return '<span class="h1">'+esc(line)+'</span>\n';
+    if(/^>\s/.test(line))   return '<span class="qt">'+esc(line)+'</span>\n';
+    var out=esc(line);
+    out=out.replace(/\*\*(.+?)\*\*/g,'<span class="bm">**</span><span class="bt">$1</span><span class="bm">**</span>');
+    out=out.replace(/(?<![*_])_([^_\n]+?)_(?![*_])/g,'<span class="im">_</span><span class="it">$1</span><span class="im">_</span>');
+    out=out.replace(/`([^`\n]+)`/g,'<span class="ic">`$1`</span>');
+    if(/^[-*]\s/.test(line)) return '<span class="bul-m">'+out.substring(0,esc(line[0]).length+1)+'</span><span class="pl">'+out.substring(esc(line[0]).length+1)+'</span>\n';
+    return '<span class="pl">'+out+'</span>\n';
+  }
+
+  function render(){
+    inFence=false;
+    hl.innerHTML=ta.value.split('\n').map(highlightLine).join('');
+    hl.scrollTop=ta.scrollTop;
+  }
+
+  function b64url(s){
+    return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+  }
+
+  var textTimer,cursorTimer;
+  ta.addEventListener('input',function(){
+    render();
+    if(sending) return;
+    clearTimeout(textTimer);
+    textTimer=setTimeout(function(){
+      var c=ta.selectionStart,s=ta.selectionEnd-ta.selectionStart;
+      window.location.href='mauimds://tc/'+c+'/'+s+'/'+b64url(ta.value);
+    },80);
+  });
+  ta.addEventListener('scroll',function(){hl.scrollTop=ta.scrollTop;});
+  function reportCursor(){
+    clearTimeout(cursorTimer);
+    cursorTimer=setTimeout(function(){
+      window.location.href='mauimds://k/'+ta.selectionStart+'/'+(ta.selectionEnd-ta.selectionStart);
+    },60);
+  }
+  ta.addEventListener('keyup',reportCursor);
+  ta.addEventListener('click',reportCursor);
+  ta.addEventListener('select',reportCursor);
+
+  window.editorSetTextB64=function(b64){
+    sending=true;
+    ta.value=decodeURIComponent(escape(atob(b64)));
+    render();
+    sending=false;
+  };
+  window.editorSetText=function(t){
+    sending=true;ta.value=t;render();sending=false;
+  };
+  window.editorSetCursor=function(pos,len){
+    ta.focus();ta.setSelectionRange(pos,pos+(len||0));
+  };
+  window.editorFocus=function(){ta.focus();};
+
+  render();
+})();
+</script></body></html>
