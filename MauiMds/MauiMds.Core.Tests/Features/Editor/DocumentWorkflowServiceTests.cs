@@ -12,10 +12,10 @@ file sealed class ThrowingMdsParser : MdsParser
 }
 
 [TestClass]
-public sealed class DocumentWorkflowControllerTests
+public sealed class DocumentWorkflowServiceTests
 {
-    private static DocumentWorkflowController CreateController() =>
-        new(new MdsParser(new TestLogger<MdsParser>()), new TestLogger<DocumentWorkflowController>());
+    private static DocumentWorkflowService CreateController() =>
+        new(new MdsParser(new TestLogger<MdsParser>()), new TestLogger<DocumentWorkflowService>());
 
     [TestMethod]
     public void PrepareDocument_ParsesMarkdownAndPreservesViewerMode()
@@ -151,9 +151,9 @@ public sealed class DocumentWorkflowControllerTests
     [TestMethod]
     public void PreparePreview_WhenParserThrows_ReturnsFallbackParagraph()
     {
-        var controller = new DocumentWorkflowController(
+        var controller = new DocumentWorkflowService(
             new ThrowingMdsParser(),
-            new TestLogger<DocumentWorkflowController>());
+            new TestLogger<DocumentWorkflowService>());
 
         var result = controller.PreparePreview(new MarkdownDocument
         {
@@ -171,9 +171,9 @@ public sealed class DocumentWorkflowControllerTests
     [TestMethod]
     public void PreparePreview_WhenParserThrows_RichTextEditorDowngradesToTextEditor()
     {
-        var controller = new DocumentWorkflowController(
+        var controller = new DocumentWorkflowService(
             new ThrowingMdsParser(),
-            new TestLogger<DocumentWorkflowController>());
+            new TestLogger<DocumentWorkflowService>());
 
         var result = controller.PreparePreview(new MarkdownDocument
         {

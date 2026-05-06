@@ -4,12 +4,12 @@ using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Features.Editor;
 
-public sealed class EditorModeSupportController
+public sealed class EditorModeSupportService
 {
-    private readonly SnackbarService _snackbarService;
-    private readonly ILogger<EditorModeSupportController> _logger;
+    private readonly ISnackbarService _snackbarService;
+    private readonly ILogger<EditorModeSupportService> _logger;
 
-    public EditorModeSupportController(SnackbarService snackbarService, ILogger<EditorModeSupportController> logger)
+    public EditorModeSupportService(ISnackbarService snackbarService, ILogger<EditorModeSupportService> logger)
     {
         _snackbarService = snackbarService;
         _logger = logger;
@@ -31,7 +31,7 @@ public sealed class EditorModeSupportController
         if (showUnsupportedSnackbar)
         {
             var message = "Visual Editor is not available on this platform yet. Switched to Text Editor.";
-            _snackbarService.EnqueueMessage(SnackbarMessageLevel.Error, nameof(EditorModeSupportController), message);
+            _snackbarService.EnqueueMessage(SnackbarMessageLevel.Error, nameof(EditorModeSupportService), message);
             _logger.LogWarning("Attempted to activate Visual Editor on unsupported platform {Platform}. Falling back to Text Editor.", DeviceInfo.Current.Platform);
         }
 

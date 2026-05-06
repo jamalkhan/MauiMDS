@@ -26,7 +26,7 @@ public partial class MainPage : ContentPage
     private UIPointerInteraction? _historyResizePointerInteraction;
 #endif
 
-    public MainPage(MainViewModel vm, SnackbarService snackbarService, ILogger<MainPage> logger)
+    public MainPage(MainViewModel vm, ISnackbarService snackbarService, ILogger<MainPage> logger)
     {
         _logger = logger;
         _logger.LogDebug("Constructing MainPage.");

@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Services;
 
-public sealed class SnackbarService : INotifyPropertyChanged, IDisposable
+public sealed class SnackbarService : ISnackbarService, IDisposable
 {
     public static readonly TimeSpan DefaultDisplayDuration = TimeSpan.FromSeconds(5);
     public const SnackbarMessageLevel DefaultVisibleMinimumLevel = SnackbarMessageLevel.Error;

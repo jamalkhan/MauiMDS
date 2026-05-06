@@ -6,12 +6,12 @@ using MauiMds.Core.Tests.TestHelpers;
 namespace MauiMds.Core.Tests.Features.Editor;
 
 [TestClass]
-public sealed class DocumentApplyControllerTests
+public sealed class DocumentApplyServiceTests
 {
-    private static DocumentApplyController CreateController() =>
-        new(new DocumentWorkflowController(
+    private static DocumentApplyService CreateController() =>
+        new(new DocumentWorkflowService(
             new MdsParser(new TestLogger<MdsParser>()),
-            new TestLogger<DocumentWorkflowController>()));
+            new TestLogger<DocumentWorkflowService>()));
 
     [TestMethod]
     public void PrepareApply_FlagsChangedDocumentMetadataAndWatchState()

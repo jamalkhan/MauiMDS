@@ -4,12 +4,12 @@ using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Features.Editor;
 
-public sealed class DocumentWorkflowController
+public sealed class DocumentWorkflowService
 {
     private readonly MdsParser _parser;
-    private readonly ILogger<DocumentWorkflowController> _logger;
+    private readonly ILogger<DocumentWorkflowService> _logger;
 
-    public DocumentWorkflowController(MdsParser parser, ILogger<DocumentWorkflowController> logger)
+    public DocumentWorkflowService(MdsParser parser, ILogger<DocumentWorkflowService> logger)
     {
         _parser = parser;
         _logger = logger;

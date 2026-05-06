@@ -13,7 +13,7 @@ public partial class LogsDockView : ContentView
     public event EventHandler<PointerEventArgs>? ResizePointerEntered;
     public event EventHandler<PointerEventArgs>? ResizePointerExited;
 
-    private SnackbarService? _snackbarService;
+    private ISnackbarService? _snackbarService;
     private Func<string>? _getTimeFormat;
     private Func<double>? _getHistoryHeight;
 
@@ -31,7 +31,7 @@ public partial class LogsDockView : ContentView
         HistoryResizeHandle.IsVisible = resizeVisible;
     }
 
-    public void BindToSnackbar(SnackbarService snackbarService, Func<string> getTimeFormat, Func<double> getHistoryHeight)
+    public void BindToSnackbar(ISnackbarService snackbarService, Func<string> getTimeFormat, Func<double> getHistoryHeight)
     {
         _snackbarService = snackbarService;
         _getTimeFormat = getTimeFormat;

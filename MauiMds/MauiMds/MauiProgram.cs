@@ -66,7 +66,7 @@ public static class MauiProgram
         builder.Logging.AddProvider(new SnackbarLoggerProvider(snackbarService, LogLevel.Information));
 
 		// Register our services for Dependency Injection
-		builder.Services.AddSingleton(snackbarService);
+		builder.Services.AddSingleton<ISnackbarService>(snackbarService);
 		builder.Services.AddSingleton<MdsParser>();
 		builder.Services.AddSingleton<IEditorPreferencesService, EditorPreferencesService>();
 		builder.Services.AddSingleton<IClock, SystemClock>();
@@ -88,10 +88,10 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IMarkdownDocumentService, MarkdownDocumentService>();
 		builder.Services.AddSingleton<IWorkspaceBrowserService, WorkspaceBrowserService>();
 		builder.Services.AddSingleton<WorkspaceExplorerState>();
-		builder.Services.AddSingleton<DocumentWorkflowController>();
-		builder.Services.AddSingleton<DocumentApplyController>();
-		builder.Services.AddSingleton<PreviewPipelineController>();
-		builder.Services.AddSingleton<EditorModeSupportController>();
+		builder.Services.AddSingleton<DocumentWorkflowService>();
+		builder.Services.AddSingleton<DocumentApplyService>();
+		builder.Services.AddSingleton<PreviewPipelineCoordinator>();
+		builder.Services.AddSingleton<EditorModeSupportService>();
 		builder.Services.AddSingleton<AutosaveCoordinator>();
 		builder.Services.AddSingleton<IPlatformInfo, SystemPlatformInfo>();
 		builder.Services.AddSingleton<SessionRestoreCoordinator>();

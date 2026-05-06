@@ -6,17 +6,17 @@ using MauiMds.Core.Tests.TestHelpers;
 namespace MauiMds.Core.Tests.Features.Editor;
 
 [TestClass]
-public sealed class PreviewPipelineControllerTests
+public sealed class PreviewPipelineCoordinatorTests
 {
-    private static PreviewPipelineController CreateController(FakeClock clock, FakeDelayScheduler delayScheduler) =>
-        new(new DocumentWorkflowController(
+    private static PreviewPipelineCoordinator CreateController(FakeClock clock, FakeDelayScheduler delayScheduler) =>
+        new(new DocumentWorkflowService(
                 new MdsParser(new TestLogger<MdsParser>()),
-                new TestLogger<DocumentWorkflowController>()),
+                new TestLogger<DocumentWorkflowService>()),
             delayScheduler,
             clock,
-            new TestLogger<PreviewPipelineController>());
+            new TestLogger<PreviewPipelineCoordinator>());
 
-    private static (FakeClock clock, FakeDelayScheduler scheduler, PreviewPipelineController controller) Build()
+    private static (FakeClock clock, FakeDelayScheduler scheduler, PreviewPipelineCoordinator controller) Build()
     {
         var clock = new FakeClock();
         var scheduler = new FakeDelayScheduler(clock);
