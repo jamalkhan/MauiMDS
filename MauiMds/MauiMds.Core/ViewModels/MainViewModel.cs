@@ -55,6 +55,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IEditorModeSupportService _editorModeSupportController;
     private readonly IPdfExportService _pdfExportService;
     private readonly IMainThreadDispatcher _mainThreadDispatcher;
+    private readonly IApplicationLifetime _applicationLifetime;
 
     public RecordingSessionViewModel Recording { get; }
     public TranscriptionQueueViewModel TranscriptionQueue { get; }
@@ -113,6 +114,8 @@ public class MainViewModel : INotifyPropertyChanged
         ITranscriptionPipelineFactory transcriptionPipelineFactory,
         ILoggerFactory loggerFactory,
         IMainThreadDispatcher mainThreadDispatcher,
+        IApplicationLifetime applicationLifetime,
+        IAlertService alertService,
         ILogger<MainViewModel> logger)
     {
         _documentService = documentService;
@@ -127,6 +130,7 @@ public class MainViewModel : INotifyPropertyChanged
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
         _pdfExportService = pdfExportService;
         _mainThreadDispatcher = mainThreadDispatcher;
+        _applicationLifetime = applicationLifetime;
         _logger = logger;
         _sessionState = _sessionRestoreCoordinator.Load();
         Workspace = workspaceExplorerState;
@@ -140,17 +144,17 @@ public class MainViewModel : INotifyPropertyChanged
         Workspace.PropertyChanged += OnWorkspacePropertyChanged;
         Workspace.WorkspaceItems.CollectionChanged += OnWorkspaceItemsChanged;
 
-        OpenFileCommand = new Command(async () => await OpenFileAsync(), () => !IsBusy);
-        NewDocumentCommand = new Command(async () => await NewDocumentAsync(), () => !IsBusy);
-        SaveCommand = new Command(async () => await SaveDocumentAsync(), () => !IsBusy);
-        SaveAsCommand = new Command(async () => await SaveDocumentAsAsync(), () => !IsBusy);
-        RevertCommand = new Command(async () => await RevertDocumentAsync(), () => !IsBusy);
-        CloseDocumentCommand = new Command(async () => await CloseDocumentAsync(), () => !IsBusy);
-        ExportPdfCommand = new Command(async () => await ExportAsPdfAsync(), () => !IsBusy && _parsedBlocks.Count > 0);
-        SetViewModeCommand = new Command<EditorViewMode>(SetViewMode);
-        ToggleWorkspacePanelCommand = new Command(ToggleWorkspacePanel);
-        OpenFolderCommand = new Command(async () => await OpenFolderAsync());
-        SelectWorkspaceItemCommand = new Command<WorkspaceTreeItem>(async item =>
+        OpenFileCommand = new RelayCommand(async () => await OpenFileAsync(), () => !IsBusy);
+        NewDocumentCommand = new RelayCommand(async () => await NewDocumentAsync(), () => !IsBusy);
+        SaveCommand = new RelayCommand(async () => await SaveDocumentAsync(), () => !IsBusy);
+        SaveAsCommand = new RelayCommand(async () => await SaveDocumentAsAsync(), () => !IsBusy);
+        RevertCommand = new RelayCommand(async () => await RevertDocumentAsync(), () => !IsBusy);
+        CloseDocumentCommand = new RelayCommand(async () => await CloseDocumentAsync(), () => !IsBusy);
+        ExportPdfCommand = new RelayCommand(async () => await ExportAsPdfAsync(), () => !IsBusy && _parsedBlocks.Count > 0);
+        SetViewModeCommand = new RelayCommand<EditorViewMode>(SetViewMode);
+        ToggleWorkspacePanelCommand = new RelayCommand(ToggleWorkspacePanel);
+        OpenFolderCommand = new RelayCommand(async () => await OpenFolderAsync());
+        SelectWorkspaceItemCommand = new RelayCommand<WorkspaceTreeItem>(async item =>
         {
             if (item is null) return;
             if (item.IsPendingDelete) { CancelPendingDelete(item); return; }
@@ -172,40 +176,41 @@ public class MainViewModel : INotifyPropertyChanged
             _lastSingleTapTime = now;
             await SelectWorkspaceItemAsync(item);
         });
-        NavigateWorkspaceItemCommand = new Command<WorkspaceTreeItem>(async item =>
+        NavigateWorkspaceItemCommand = new RelayCommand<WorkspaceTreeItem>(async item =>
         {
             if (item is null) return;
             if (item.IsPendingDelete) { CancelPendingDelete(item); return; }
             _lastSingleTappedItem = null;
             await NavigateWorkspaceItemAsync(item);
         });
-        DeleteWorkspaceItemCommand = new Command<WorkspaceTreeItem>(async item => await StartDeleteAsync(item));
-        ToggleWorkspaceItemExpansionCommand = new Command<WorkspaceTreeItem>(ToggleWorkspaceItemExpansion);
-        BeginRenameWorkspaceItemCommand = new Command<WorkspaceTreeItem>(BeginRenameWorkspaceItem);
-        CreateMdsCommand = new Command(async () => await CreateMdsAsync(), () => HasWorkspaceRoot);
-        NavigateUpWorkspaceCommand = new Command(async () => await NavigateUpWorkspaceAsync(), () => CanNavigateUpWorkspace);
-        SetWorkspaceFolderToCurrentCommand = new Command(async () => await SetWorkspaceFolderToCurrentAsync(), () => CanSetCurrentFolderAsWorkspace);
-        UndoCommand = new Command(() => RequestEditorAction(e => { e.Undo(); return Task.CompletedTask; }));
-        RedoCommand = new Command(() => RequestEditorAction(e => { e.Redo(); return Task.CompletedTask; }));
-        CutCommand = new Command(() => RequestEditorAction(e => e.CutSelectionAsync()));
-        CopyCommand = new Command(() => RequestEditorAction(e => e.CopySelectionAsync()));
-        PasteCommand = new Command(() => RequestEditorAction(e => e.PasteAsync()));
-        FindCommand = new Command(() => FindRequested?.Invoke(this, EventArgs.Empty));
-        FormatParagraphCommand = new Command(() => RequestEditorAction(e => { e.ApplyParagraphStyle(); return Task.CompletedTask; }));
-        FormatHeader1Command = new Command(() => RequestEditorAction(e => { e.ApplyHeaderPrefix(1); return Task.CompletedTask; }));
-        FormatHeader2Command = new Command(() => RequestEditorAction(e => { e.ApplyHeaderPrefix(2); return Task.CompletedTask; }));
-        FormatHeader3Command = new Command(() => RequestEditorAction(e => { e.ApplyHeaderPrefix(3); return Task.CompletedTask; }));
-        FormatBulletCommand = new Command(() => RequestEditorAction(e => { e.ApplyBulletStyle(); return Task.CompletedTask; }));
-        FormatChecklistCommand = new Command(() => RequestEditorAction(e => { e.ApplyChecklistStyle(); return Task.CompletedTask; }));
-        FormatQuoteCommand = new Command(() => RequestEditorAction(e => { e.ApplyQuoteStyle(); return Task.CompletedTask; }));
-        FormatCodeCommand = new Command(() => RequestEditorAction(e => { e.ApplyCodeStyle(); return Task.CompletedTask; }));
-        FormatBoldCommand = new Command(() => RequestEditorAction(e => { e.ApplyBoldStyle(); return Task.CompletedTask; }));
-        FormatItalicCommand = new Command(() => RequestEditorAction(e => { e.ApplyItalicStyle(); return Task.CompletedTask; }));
-        RefreshWorkspaceCommand = new Command(async () => await RefreshWorkspaceFromDiskAsync());
+        DeleteWorkspaceItemCommand = new RelayCommand<WorkspaceTreeItem>(async item => await StartDeleteAsync(item));
+        ToggleWorkspaceItemExpansionCommand = new RelayCommand<WorkspaceTreeItem>(ToggleWorkspaceItemExpansion);
+        BeginRenameWorkspaceItemCommand = new RelayCommand<WorkspaceTreeItem>(BeginRenameWorkspaceItem);
+        CreateMdsCommand = new RelayCommand(async () => await CreateMdsAsync(), () => HasWorkspaceRoot);
+        NavigateUpWorkspaceCommand = new RelayCommand(async () => await NavigateUpWorkspaceAsync(), () => CanNavigateUpWorkspace);
+        SetWorkspaceFolderToCurrentCommand = new RelayCommand(async () => await SetWorkspaceFolderToCurrentAsync(), () => CanSetCurrentFolderAsWorkspace);
+        UndoCommand = new RelayCommand(() => RequestEditorAction(e => { e.Undo(); return Task.CompletedTask; }));
+        RedoCommand = new RelayCommand(() => RequestEditorAction(e => { e.Redo(); return Task.CompletedTask; }));
+        CutCommand = new RelayCommand(() => RequestEditorAction(e => e.CutSelectionAsync()));
+        CopyCommand = new RelayCommand(() => RequestEditorAction(e => e.CopySelectionAsync()));
+        PasteCommand = new RelayCommand(() => RequestEditorAction(e => e.PasteAsync()));
+        FindCommand = new RelayCommand(() => FindRequested?.Invoke(this, EventArgs.Empty));
+        FormatParagraphCommand = new RelayCommand(() => RequestEditorAction(e => { e.ApplyParagraphStyle(); return Task.CompletedTask; }));
+        FormatHeader1Command = new RelayCommand(() => RequestEditorAction(e => { e.ApplyHeaderPrefix(1); return Task.CompletedTask; }));
+        FormatHeader2Command = new RelayCommand(() => RequestEditorAction(e => { e.ApplyHeaderPrefix(2); return Task.CompletedTask; }));
+        FormatHeader3Command = new RelayCommand(() => RequestEditorAction(e => { e.ApplyHeaderPrefix(3); return Task.CompletedTask; }));
+        FormatBulletCommand = new RelayCommand(() => RequestEditorAction(e => { e.ApplyBulletStyle(); return Task.CompletedTask; }));
+        FormatChecklistCommand = new RelayCommand(() => RequestEditorAction(e => { e.ApplyChecklistStyle(); return Task.CompletedTask; }));
+        FormatQuoteCommand = new RelayCommand(() => RequestEditorAction(e => { e.ApplyQuoteStyle(); return Task.CompletedTask; }));
+        FormatCodeCommand = new RelayCommand(() => RequestEditorAction(e => { e.ApplyCodeStyle(); return Task.CompletedTask; }));
+        FormatBoldCommand = new RelayCommand(() => RequestEditorAction(e => { e.ApplyBoldStyle(); return Task.CompletedTask; }));
+        FormatItalicCommand = new RelayCommand(() => RequestEditorAction(e => { e.ApplyItalicStyle(); return Task.CompletedTask; }));
+        RefreshWorkspaceCommand = new RelayCommand(async () => await RefreshWorkspaceFromDiskAsync());
 
         Recording = new RecordingSessionViewModel(
             audioCaptureService, audioPlayerService, clock,
             loggerFactory.CreateLogger<RecordingSessionViewModel>(),
+            mainThreadDispatcher, applicationLifetime,
             () => Preferences.Current.RecordingFormat,
             () => WorkspaceRootPath,
             ReportErrorAsync);
@@ -213,6 +218,7 @@ public class MainViewModel : INotifyPropertyChanged
         TranscriptionQueue = new TranscriptionQueueViewModel(
             transcriptionPipelineFactory, Workspace,
             loggerFactory.CreateLogger<TranscriptionQueueViewModel>(),
+            mainThreadDispatcher, applicationLifetime, alertService,
             () => new TranscriptionConfig(
                 Preferences.Current.TranscriptionEngine, Preferences.Current.DiarizationEngine,
                 Preferences.Current.WhisperBinaryPath, Preferences.Current.WhisperModelPath,
@@ -287,7 +293,7 @@ public class MainViewModel : INotifyPropertyChanged
                 _document.FilePath,
                 _lastParsedBlocksAssignedUtc);
             OnPropertyChanged();
-            (ExportPdfCommand as Command)?.ChangeCanExecute();
+            (ExportPdfCommand as RelayCommand)?.ChangeCanExecute();
         }
     }
     public WorkspaceExplorerState Workspace { get; }
@@ -654,7 +660,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        if (App.IsTerminating) return;
+        if (_applicationLifetime.IsTerminating) return;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
         if (propertyName is nameof(HasWorkspaceRoot) or nameof(IsBusy) or nameof(IsDirty) or nameof(IsUntitled) or nameof(CanNavigateUpWorkspace) or nameof(CanSetCurrentFolderAsWorkspace))
@@ -1370,16 +1376,16 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void RefreshCommandStates()
     {
-        (OpenFileCommand as Command)?.ChangeCanExecute();
-        (NewDocumentCommand as Command)?.ChangeCanExecute();
-        (SaveCommand as Command)?.ChangeCanExecute();
-        (SaveAsCommand as Command)?.ChangeCanExecute();
-        (RevertCommand as Command)?.ChangeCanExecute();
-        (CloseDocumentCommand as Command)?.ChangeCanExecute();
-        (ExportPdfCommand as Command)?.ChangeCanExecute();
-        (CreateMdsCommand as Command)?.ChangeCanExecute();
-        (NavigateUpWorkspaceCommand as Command)?.ChangeCanExecute();
-        (SetWorkspaceFolderToCurrentCommand as Command)?.ChangeCanExecute();
+        (OpenFileCommand as RelayCommand)?.ChangeCanExecute();
+        (NewDocumentCommand as RelayCommand)?.ChangeCanExecute();
+        (SaveCommand as RelayCommand)?.ChangeCanExecute();
+        (SaveAsCommand as RelayCommand)?.ChangeCanExecute();
+        (RevertCommand as RelayCommand)?.ChangeCanExecute();
+        (CloseDocumentCommand as RelayCommand)?.ChangeCanExecute();
+        (ExportPdfCommand as RelayCommand)?.ChangeCanExecute();
+        (CreateMdsCommand as RelayCommand)?.ChangeCanExecute();
+        (NavigateUpWorkspaceCommand as RelayCommand)?.ChangeCanExecute();
+        (SetWorkspaceFolderToCurrentCommand as RelayCommand)?.ChangeCanExecute();
     }
 
     private void ToggleWorkspacePanel()

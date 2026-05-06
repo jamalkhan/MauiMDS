@@ -10,6 +10,7 @@ namespace MauiMds.Features.Workspace;
 public sealed class WorkspaceExplorerState : INotifyPropertyChanged
 {
     private readonly IWorkspaceBrowserService _workspaceBrowserService;
+    private readonly IMainThreadDispatcher _dispatcher;
     private readonly ILogger<WorkspaceExplorerState> _logger;
     private readonly List<WorkspaceTreeItem> _workspaceRootItems = [];
 
@@ -20,9 +21,13 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
     private WorkspaceTreeItem? _pendingRenameItem;
     private CancellationTokenSource? _workspaceSearchCancellationSource;
 
-    public WorkspaceExplorerState(IWorkspaceBrowserService workspaceBrowserService, ILogger<WorkspaceExplorerState> logger)
+    public WorkspaceExplorerState(
+        IWorkspaceBrowserService workspaceBrowserService,
+        IMainThreadDispatcher dispatcher,
+        ILogger<WorkspaceExplorerState> logger)
     {
         _workspaceBrowserService = workspaceBrowserService;
+        _dispatcher = dispatcher;
         _logger = logger;
         WorkspaceItems = new ObservableCollection<WorkspaceTreeItem>();
     }
@@ -36,11 +41,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
         get => _workspaceRootPath;
         private set
         {
-            if (_workspaceRootPath == value)
-            {
-                return;
-            }
-
+            if (_workspaceRootPath == value) return;
             _workspaceRootPath = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasWorkspaceRoot));
@@ -54,11 +55,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
         get => _currentWorkspaceFolderPath;
         private set
         {
-            if (_currentWorkspaceFolderPath == value)
-            {
-                return;
-            }
-
+            if (_currentWorkspaceFolderPath == value) return;
             _currentWorkspaceFolderPath = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(CurrentWorkspaceFolderName));
@@ -91,11 +88,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
         get => _workspaceSearchText;
         set
         {
-            if (_workspaceSearchText == value)
-            {
-                return;
-            }
-
+            if (_workspaceSearchText == value) return;
             _workspaceSearchText = value;
             OnPropertyChanged();
             _ = RefreshWorkspaceItemsAsync();
@@ -107,11 +100,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
         get => _pendingRenameItem;
         private set
         {
-            if (_pendingRenameItem == value)
-            {
-                return;
-            }
-
+            if (_pendingRenameItem == value) return;
             _pendingRenameItem = value;
             OnPropertyChanged();
         }
@@ -124,15 +113,12 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
 
     public async Task LoadWorkspaceAsync(string folderPath, string? currentFolderPath = null, string? selectedPath = null)
     {
-        if (string.IsNullOrWhiteSpace(folderPath))
-        {
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(folderPath)) return;
 
         var tree = await _workspaceBrowserService.LoadWorkspaceTreeAsync(folderPath);
         var rootItems = tree.Select(info => BuildWorkspaceItem(info, 0, null)).ToList();
 
-        await MainThread.InvokeOnMainThreadAsync(() =>
+        await _dispatcher.InvokeOnMainThreadAsync(() =>
         {
             WorkspaceRootPath = folderPath;
             _workspaceRootItems.Clear();
@@ -157,13 +143,11 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
                 ? BuildCurrentFolderItems()
                 : await BuildSearchedWorkspaceItemsAsync(WorkspaceSearchText.Trim(), cancellationToken);
 
-            await MainThread.InvokeOnMainThreadAsync(() =>
+            await _dispatcher.InvokeOnMainThreadAsync(() =>
             {
                 WorkspaceItems.Clear();
                 foreach (var item in visibleItems)
-                {
                     WorkspaceItems.Add(item);
-                }
             });
         }
         catch (OperationCanceledException)
@@ -173,61 +157,42 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
 
     public void SelectItem(WorkspaceTreeItem? item)
     {
-        if (item is null)
-        {
-            return;
-        }
-
+        if (item is null) return;
         SetSelectedWorkspaceItem(item);
     }
 
     public async Task NavigateToItemAsync(WorkspaceTreeItem? item)
     {
-        if (item is null)
-        {
-            return;
-        }
-
+        if (item is null) return;
         SetSelectedWorkspaceItem(item);
 
         if (item.IsDirectory)
         {
             SetSelectedWorkspaceItem(null);
-            // Reload from disk so newly-created files in this folder are visible.
             await LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: item.FullPath);
         }
     }
 
     public async Task NavigateUpAsync()
     {
-        if (!CanNavigateUpWorkspace)
-        {
-            return;
-        }
+        if (!CanNavigateUpWorkspace) return;
 
         var parentDirectory = Path.GetDirectoryName(CurrentWorkspaceFolderPath.TrimEnd(Path.DirectorySeparatorChar));
-        if (string.IsNullOrWhiteSpace(parentDirectory))
-        {
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(parentDirectory)) return;
 
         if (!parentDirectory.StartsWith(WorkspaceRootPath, StringComparison.Ordinal))
-        {
             parentDirectory = WorkspaceRootPath;
-        }
 
         SetSelectedWorkspaceItem(null);
-        // Reload from disk so newly-created files are visible.
         await LoadWorkspaceAsync(WorkspaceRootPath, currentFolderPath: parentDirectory);
     }
 
-    /// <summary>Re-scans the workspace root from disk without changing the current folder or selection.</summary>
     public async Task ReloadFromDiskAsync()
     {
         if (string.IsNullOrWhiteSpace(WorkspaceRootPath)) return;
         var tree = await _workspaceBrowserService.LoadWorkspaceTreeAsync(WorkspaceRootPath);
         var rootItems = tree.Select(info => BuildWorkspaceItem(info, 0, null)).ToList();
-        await MainThread.InvokeOnMainThreadAsync(() =>
+        await _dispatcher.InvokeOnMainThreadAsync(() =>
         {
             _workspaceRootItems.Clear();
             _workspaceRootItems.AddRange(rootItems);
@@ -237,11 +202,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
 
     public async Task SetWorkspaceFolderToCurrentAsync()
     {
-        if (!CanSetCurrentFolderAsWorkspace)
-        {
-            return;
-        }
-
+        if (!CanSetCurrentFolderAsWorkspace) return;
         var newWorkspaceRoot = CurrentWorkspaceFolderPath;
         WorkspaceSearchText = string.Empty;
         await LoadWorkspaceAsync(newWorkspaceRoot, currentFolderPath: newWorkspaceRoot);
@@ -249,10 +210,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
 
     public void BeginRename(WorkspaceTreeItem? item)
     {
-        if (item is null || !item.CanRename)
-        {
-            return;
-        }
+        if (item is null || !item.CanRename) return;
 
         if (PendingRenameItem is not null && !ReferenceEquals(PendingRenameItem, item))
         {
@@ -268,32 +226,21 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
 
     public void CancelRename(WorkspaceTreeItem? item)
     {
-        if (item is null)
-        {
-            return;
-        }
-
+        if (item is null) return;
         item.IsRenaming = false;
         item.ResetRenameText();
         PendingRenameItem = null;
     }
 
-    public void MarkRenameCommitted()
-    {
-        PendingRenameItem = null;
-    }
+    public void MarkRenameCommitted() => PendingRenameItem = null;
 
     public WorkspaceTreeItem? FindWorkspaceItem(string fullPath)
     {
         foreach (var rootItem in _workspaceRootItems)
         {
             var match = FindWorkspaceItemRecursive(rootItem, fullPath);
-            if (match is not null)
-            {
-                return match;
-            }
+            if (match is not null) return match;
         }
-
         return null;
     }
 
@@ -311,10 +258,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
     {
         var item = new WorkspaceTreeItem(info.FullPath, info.IsDirectory, depth, parent, info.RecordingGroup);
         foreach (var child in info.Children)
-        {
             item.Children.Add(BuildWorkspaceItem(child, depth + 1, item));
-        }
-
         return item;
     }
 
@@ -329,10 +273,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
         }
 
         var currentFolder = FindWorkspaceItem(CurrentWorkspaceFolderPath);
-        if (currentFolder is null)
-        {
-            return [];
-        }
+        if (currentFolder is null) return [];
 
         return currentFolder.Children
             .OrderBy(item => item.IsDirectory ? 0 : 1)
@@ -347,12 +288,10 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
             ? _workspaceRootItems
             : FindWorkspaceItem(CurrentWorkspaceFolderPath) is { } currentFolder
                 ? currentFolder.Children
-                : [];
+                : (IEnumerable<WorkspaceTreeItem>)[];
 
         foreach (var rootItem in searchRoots)
-        {
             await AppendMatchingWorkspaceItemsAsync(rootItem, query, visibleItems, cancellationToken);
-        }
 
         return visibleItems;
     }
@@ -363,20 +302,13 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
 
         var matchingChildren = new List<WorkspaceTreeItem>();
         foreach (var child in item.Children)
-        {
             await AppendMatchingWorkspaceItemsAsync(child, query, matchingChildren, cancellationToken);
-        }
 
         var selfMatches = item.Name.Contains(query, StringComparison.OrdinalIgnoreCase);
         if (!selfMatches && !item.IsDirectory)
-        {
             selfMatches = await _workspaceBrowserService.FileContainsTextAsync(item.FullPath, query, cancellationToken);
-        }
 
-        if (!selfMatches && matchingChildren.Count == 0)
-        {
-            return false;
-        }
+        if (!selfMatches && matchingChildren.Count == 0) return false;
 
         visibleItems.Add(item);
         visibleItems.AddRange(matchingChildren);
@@ -385,65 +317,42 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
 
     private void SetSelectedWorkspaceItem(WorkspaceTreeItem? item)
     {
-        if (ReferenceEquals(_selectedWorkspaceItem, item))
-        {
-            return;
-        }
+        if (ReferenceEquals(_selectedWorkspaceItem, item)) return;
 
         if (_selectedWorkspaceItem is not null)
-        {
             _selectedWorkspaceItem.IsSelected = false;
-        }
 
         _selectedWorkspaceItem = item;
 
         if (_selectedWorkspaceItem is not null)
-        {
             _selectedWorkspaceItem.IsSelected = true;
-        }
     }
 
     private string ResolveCurrentWorkspaceFolderPath(string workspaceRootPath, string? currentFolderPath)
     {
-        if (string.IsNullOrWhiteSpace(workspaceRootPath))
-        {
-            return string.Empty;
-        }
+        if (string.IsNullOrWhiteSpace(workspaceRootPath)) return string.Empty;
 
         if (string.IsNullOrWhiteSpace(currentFolderPath) || !Directory.Exists(currentFolderPath))
-        {
             return workspaceRootPath;
-        }
 
         if (!currentFolderPath.StartsWith(workspaceRootPath, StringComparison.Ordinal))
-        {
             return workspaceRootPath;
-        }
 
         return currentFolderPath;
     }
 
     private static WorkspaceTreeItem? FindWorkspaceItemRecursive(WorkspaceTreeItem item, string fullPath)
     {
-        if (string.Equals(item.FullPath, fullPath, StringComparison.Ordinal))
-        {
-            return item;
-        }
+        if (string.Equals(item.FullPath, fullPath, StringComparison.Ordinal)) return item;
 
         foreach (var child in item.Children)
         {
             var match = FindWorkspaceItemRecursive(child, fullPath);
-            if (match is not null)
-            {
-                return match;
-            }
+            if (match is not null) return match;
         }
-
         return null;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }

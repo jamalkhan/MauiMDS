@@ -1,4 +1,3 @@
-using MauiMds.AudioCapture;
 using MauiMds.Features.Editor;
 using MauiMds.Logging;
 using MauiMds.Models;
@@ -11,21 +10,16 @@ using System.Windows.Input;
 
 namespace MauiMds.ViewModels;
 
-/// <summary>
-/// Owns all preferences state: UI backing fields, open/save/cancel, keyboard shortcuts,
-/// and fires PreferencesSaved when the user commits. MainViewModel reacts to that event.
-/// </summary>
 public sealed class PreferencesViewModel : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    /// <summary>Fired after preferences are successfully saved. Carries the new snapshot.</summary>
     public event EventHandler<EditorPreferences>? PreferencesSaved;
+    public event EventHandler<(string Message, Exception? Exception, string InlineMessage)>? SaveError;
 
     private readonly IEditorPreferencesService _preferencesService;
     private readonly FileLogLevelSwitch _fileLogLevelSwitch;
-
-    public event EventHandler<(string Message, Exception? Exception, string InlineMessage)>? SaveError;
+    private readonly IPlatformInfo _platformInfo;
+    private readonly IApplicationLifetime _applicationLifetime;
 
     private bool _isPreferencesVisible;
     private string _preferencesAutoSaveDelaySecondsText = "30";
@@ -52,20 +46,24 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
 
     public PreferencesViewModel(
         IEditorPreferencesService preferencesService,
-        FileLogLevelSwitch fileLogLevelSwitch)
+        FileLogLevelSwitch fileLogLevelSwitch,
+        IPlatformInfo platformInfo,
+        IApplicationLifetime applicationLifetime)
     {
         _preferencesService = preferencesService;
         _fileLogLevelSwitch = fileLogLevelSwitch;
+        _platformInfo = platformInfo;
+        _applicationLifetime = applicationLifetime;
 
         Current = _preferencesService.Load();
         LoadFieldsFromCurrent();
 
-        ShowPreferencesCommand = new Command(Show);
-        SavePreferencesCommand = new Command(async () => await SaveAsync());
-        CancelPreferencesCommand = new Command(Cancel);
-        ShowGeneralTabCommand    = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = false; });
-        ShowShortcutsTabCommand  = new Command(() => { IsShortcutsTabActive = true;  IsTranscriptionTabActive = false; });
-        ShowTranscriptionTabCommand = new Command(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = true; });
+        ShowPreferencesCommand = new RelayCommand(Show);
+        SavePreferencesCommand = new RelayCommand(async () => await SaveAsync());
+        CancelPreferencesCommand = new RelayCommand(Cancel);
+        ShowGeneralTabCommand    = new RelayCommand(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = false; });
+        ShowShortcutsTabCommand  = new RelayCommand(() => { IsShortcutsTabActive = true;  IsTranscriptionTabActive = false; });
+        ShowTranscriptionTabCommand = new RelayCommand(() => { IsShortcutsTabActive = false; IsTranscriptionTabActive = true; });
     }
 
     public ICommand ShowPreferencesCommand { get; }
@@ -75,7 +73,6 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
     public ICommand ShowShortcutsTabCommand { get; }
     public ICommand ShowTranscriptionTabCommand { get; }
 
-    /// <summary>The most-recently-saved preferences. Always reflects disk state after a save.</summary>
     public EditorPreferences Current { get; private set; }
 
     public bool IsPreferencesVisible
@@ -206,15 +203,9 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         set { if (_preferencesRecordingFormat != value) { _preferencesRecordingFormat = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShowWindowsFlacWarning)); } }
     }
 
-#if WINDOWS
-    public bool IsWindowsPlatform => true;
-#else
-    public bool IsWindowsPlatform => false;
-#endif
-
+    public bool IsWindowsPlatform => _platformInfo.IsWindows;
     public bool ShowWindowsFlacWarning => IsWindowsPlatform && _preferencesRecordingFormat == RecordingFormat.FLAC;
-
-    public bool IsAppleSpeechAvailable => DeviceInfo.Current.Platform == DevicePlatform.MacCatalyst;
+    public bool IsAppleSpeechAvailable => _platformInfo.IsMacCatalyst;
 
     public string ShortcutKeyHeader1
     {
@@ -404,13 +395,12 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
             logLevel = LogLevel.Information;
             return true;
         }
-
         return Enum.TryParse(text, ignoreCase: true, out logLevel) && logLevel != LogLevel.None;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        if (App.IsTerminating) return;
+        if (_applicationLifetime.IsTerminating) return;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

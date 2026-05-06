@@ -6,7 +6,6 @@ public static class RecordingPathBuilder
 {
     public const string RecordingsFolderName = "Recordings";
 
-    // Legacy: single-file recording without source suffix (kept for old recordings on disk).
     public static string Build(string baseFolder, DateTimeOffset timestamp)
     {
         var fileName = $"audio_capture_{timestamp:yyyy_MM_dd_HHmmss}.m4a";
@@ -31,33 +30,20 @@ public static class RecordingPathBuilder
         return Path.Combine(baseFolder, RecordingsFolderName, fileName);
     }
 
-    // Matches any file whose name ends with _mic, _sys, or _transcript (plus optional extension).
-    // Uses greedy (.+) so backtracking finds the rightmost _role suffix before the extension.
     private static readonly Regex GroupFilePattern = new(
         @"^(.+)_(mic|sys|transcript)(\..+)?$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    /// <summary>
-    /// Returns true and sets <paramref name="baseName"/> and <paramref name="role"/>
-    /// ("mic", "sys", or "transcript") if <paramref name="fileName"/> belongs to a recording group.
-    /// Pass the full filename including extension.
-    /// </summary>
-    // Matches the timestamp segment inside auto-generated base names: audio_capture_yyyy_MM_dd_HHmmss
     private static readonly Regex TimestampPattern = new(
         @"audio_capture_(\d{4})_(\d{2})_(\d{2})_(\d{6})$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    /// <summary>
-    /// Tries to parse the recording start time from an auto-generated base name
-    /// (e.g. "audio_capture_2026_04_27_123456"). Returns false for freeform names.
-    /// The returned DateTime is in local time, matching how the filename was produced.
-    /// </summary>
     public static bool TryParseRecordingStart(string baseName, out DateTime startTime)
     {
         var m = TimestampPattern.Match(baseName);
         if (!m.Success) { startTime = default; return false; }
 
-        var time = m.Groups[4].Value; // 6-digit HHmmss
+        var time = m.Groups[4].Value;
         try
         {
             startTime = new DateTime(

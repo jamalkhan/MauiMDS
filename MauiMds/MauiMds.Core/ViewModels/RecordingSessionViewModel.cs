@@ -9,21 +9,17 @@ using System.Windows.Input;
 
 namespace MauiMds.ViewModels;
 
-/// <summary>
-/// Owns all recording session state: start/stop, mic permissions, audio playback,
-/// and the currently selected recording group.
-/// </summary>
 public sealed class RecordingSessionViewModel : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    /// <summary>Raised after a recording stops successfully. BaseName identifies the group to transcribe.</summary>
     public event EventHandler<RecordingStoppedEventArgs>? RecordingStopped;
 
     private readonly IAudioCaptureService _audioCaptureService;
     private readonly IAudioPlayerService _audioPlayerService;
     private readonly IClock _clock;
     private readonly ILogger<RecordingSessionViewModel> _logger;
+    private readonly IMainThreadDispatcher _mainThreadDispatcher;
+    private readonly IApplicationLifetime _applicationLifetime;
     private readonly Func<RecordingFormat> _getRecordingFormat;
     private readonly Func<string> _getWorkspaceRootPath;
     private readonly Func<string, Exception?, string, Task> _reportError;
@@ -33,11 +29,15 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
     private RecordingGroup? _selectedRecordingGroup;
     private string? _activeRecordingBaseName;
 
+    private readonly RelayCommand _toggleRecordingCommand;
+
     public RecordingSessionViewModel(
         IAudioCaptureService audioCaptureService,
         IAudioPlayerService audioPlayerService,
         IClock clock,
         ILogger<RecordingSessionViewModel> logger,
+        IMainThreadDispatcher mainThreadDispatcher,
+        IApplicationLifetime applicationLifetime,
         Func<RecordingFormat> getRecordingFormat,
         Func<string> getWorkspaceRootPath,
         Func<string, Exception?, string, Task> reportError)
@@ -46,6 +46,8 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
         _audioPlayerService = audioPlayerService;
         _clock = clock;
         _logger = logger;
+        _mainThreadDispatcher = mainThreadDispatcher;
+        _applicationLifetime = applicationLifetime;
         _getRecordingFormat = getRecordingFormat;
         _getWorkspaceRootPath = getWorkspaceRootPath;
         _reportError = reportError;
@@ -53,9 +55,10 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
         _audioCaptureService.StateChanged += OnAudioCaptureStateChanged;
         _audioPlayerService.PlaybackStateChanged += (_, _) => OnPropertyChanged(nameof(CurrentlyPlayingAudioPath));
 
-        ToggleRecordingCommand = new Command(async () => await ToggleRecordingAsync(), () => !_isRecordingTransitioning);
-        PlayAudioCommand = new Command<string>(async path => await _audioPlayerService.PlayAsync(path));
-        PauseAudioCommand = new Command(() => _audioPlayerService.Pause());
+        _toggleRecordingCommand = new RelayCommand(async () => await ToggleRecordingAsync(), () => !_isRecordingTransitioning);
+        ToggleRecordingCommand = _toggleRecordingCommand;
+        PlayAudioCommand = new RelayCommand<string>(async path => await _audioPlayerService.PlayAsync(path ?? string.Empty));
+        PauseAudioCommand = new RelayCommand(() => _audioPlayerService.Pause());
     }
 
     public ICommand ToggleRecordingCommand { get; }
@@ -106,7 +109,6 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
             _logger.LogWarning("StopRecordingAsync failed: {Error}", result.ErrorMessage);
     }
 
-    /// <summary>Applies the currently-recording highlight to workspace items.</summary>
     public void ApplyHighlights(IEnumerable<WorkspaceTreeItem> items)
     {
         foreach (var item in items)
@@ -128,7 +130,7 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
         if (_isRecording)
         {
             _isRecordingTransitioning = true;
-            (ToggleRecordingCommand as Command)?.ChangeCanExecute();
+            _toggleRecordingCommand.ChangeCanExecute();
             try
             {
                 var stoppedBaseName = _activeRecordingBaseName;
@@ -154,13 +156,13 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
             finally
             {
                 _isRecordingTransitioning = false;
-                (ToggleRecordingCommand as Command)?.ChangeCanExecute();
+                _toggleRecordingCommand.ChangeCanExecute();
             }
         }
         else
         {
             _isRecordingTransitioning = true;
-            (ToggleRecordingCommand as Command)?.ChangeCanExecute();
+            _toggleRecordingCommand.ChangeCanExecute();
             try
             {
                 var permission = await _audioCaptureService.CheckMicrophonePermissionAsync();
@@ -219,19 +221,19 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
             finally
             {
                 _isRecordingTransitioning = false;
-                (ToggleRecordingCommand as Command)?.ChangeCanExecute();
+                _toggleRecordingCommand.ChangeCanExecute();
             }
         }
     }
 
     private void OnAudioCaptureStateChanged(object? sender, AudioCaptureState state)
     {
-        MainThread.BeginInvokeOnMainThread(() => IsRecording = state == AudioCaptureState.Recording);
+        _mainThreadDispatcher.BeginInvokeOnMainThread(() => IsRecording = state == AudioCaptureState.Recording);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        if (App.IsTerminating) return;
+        if (_applicationLifetime.IsTerminating) return;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

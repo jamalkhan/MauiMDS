@@ -9,10 +9,6 @@ using System.Windows.Input;
 
 namespace MauiMds.ViewModels;
 
-/// <summary>
-/// Settings snapshot passed to the transcription pipeline. Populated from the current
-/// preferences UI fields so in-progress edits are used without requiring a preferences save.
-/// </summary>
 public sealed record TranscriptionConfig(
     TranscriptionEngineType Engine,
     DiarizationEngineType Diarization,
@@ -21,36 +17,26 @@ public sealed record TranscriptionConfig(
     string PyannotePythonPath,
     string PyannoteHfToken);
 
-/// <summary>
-/// Owns the transcription queue: enqueueing groups after recording, processing them in order,
-/// and surfacing per-item state (actively transcribing, queued) back to workspace items.
-/// </summary>
 public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    /// <summary>Fire to show a progress document in the editor while transcription runs.</summary>
     public event EventHandler<MarkdownDocument>? LoadDocumentRequested;
-
-    /// <summary>Fire to open the finished transcript in the editor.</summary>
     public event EventHandler<string>? OpenDocumentRequested;
-
-    /// <summary>Fire to update editor text with live transcription progress.</summary>
     public event EventHandler<TranscriptionProgressEventArgs>? EditorProgressUpdated;
-
-    /// <summary>Fire to trigger a workspace refresh after transcription completes.</summary>
     public event EventHandler? WorkspaceRefreshNeeded;
 
     private readonly ITranscriptionPipelineFactory _pipelineFactory;
     private readonly WorkspaceExplorerState _workspace;
     private readonly ILogger<TranscriptionQueueViewModel> _logger;
+    private readonly IMainThreadDispatcher _mainThreadDispatcher;
+    private readonly IApplicationLifetime _applicationLifetime;
+    private readonly IAlertService _alertService;
     private readonly Func<TranscriptionConfig> _getConfig;
     private readonly Func<RecordingGroup?> _getSelectedGroup;
     private readonly Action<RecordingGroup?> _setSelectedGroup;
     private readonly Func<string, Exception?, string, Task> _reportError;
     private readonly Action<string> _setStatus;
 
-    // Enough rows to show meaningful progress history without unbounded document growth.
     private const int MaxProgressRows = 20;
 
     private readonly List<TranscriptionJob> _jobs = [];
@@ -61,6 +47,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         ITranscriptionPipelineFactory pipelineFactory,
         WorkspaceExplorerState workspace,
         ILogger<TranscriptionQueueViewModel> logger,
+        IMainThreadDispatcher mainThreadDispatcher,
+        IApplicationLifetime applicationLifetime,
+        IAlertService alertService,
         Func<TranscriptionConfig> getConfig,
         Func<RecordingGroup?> getSelectedGroup,
         Action<RecordingGroup?> setSelectedGroup,
@@ -70,14 +59,17 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         _pipelineFactory = pipelineFactory;
         _workspace = workspace;
         _logger = logger;
+        _mainThreadDispatcher = mainThreadDispatcher;
+        _applicationLifetime = applicationLifetime;
+        _alertService = alertService;
         _getConfig = getConfig;
         _getSelectedGroup = getSelectedGroup;
         _setSelectedGroup = setSelectedGroup;
         _reportError = reportError;
         _setStatus = setStatus;
 
-        ReTranscribeGroupCommand = new Command(async () => await ReTranscribeGroupAsync());
-        TranscribeAudioCommand = new Command<WorkspaceTreeItem>(async item => await TranscribeAudioAsync(item));
+        ReTranscribeGroupCommand = new RelayCommand(async () => await ReTranscribeGroupAsync());
+        TranscribeAudioCommand = new RelayCommand<WorkspaceTreeItem>(async item => await TranscribeAudioAsync(item));
 
         AppDomain.CurrentDomain.ProcessExit += (_, _) => _cts.Cancel();
     }
@@ -89,7 +81,6 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         _getSelectedGroup() is { HasTranscript: true } group &&
         !_jobs.Any(j => string.Equals(j.Group.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Notifies the view that CanReTranscribeGroup may have changed (e.g. after selection changes).</summary>
     public void NotifyCanReTranscribeGroupChanged()
         => OnPropertyChanged(nameof(CanReTranscribeGroup));
 
@@ -124,7 +115,6 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
             _ = ProcessQueueAsync();
     }
 
-    /// <summary>Applies queued/active-transcribing highlights to workspace items.</summary>
     public void ApplyHighlights(IEnumerable<WorkspaceTreeItem> items)
     {
         var activeBaseName = _jobs.FirstOrDefault(j => j.Status == TranscriptionJobStatus.Active)?.Group.BaseName;
@@ -304,7 +294,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
                 config.PyannotePythonPath, config.PyannoteHfToken);
 
             var progress = new Progress<double>(v =>
-                MainThread.BeginInvokeOnMainThread(() => _setStatus($"Transcribing… {v:P0}")));
+                _mainThreadDispatcher.BeginInvokeOnMainThread(() => _setStatus($"Transcribing… {v:P0}")));
 
             var doc = await pipeline.RunAsync(audioPath, progress);
             var markdown = BuildTranscriptMarkdown(doc, audioPath);
@@ -312,13 +302,8 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
             _setStatus(string.Empty);
 
-            await MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                var page = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
-                if (page is not null)
-                    await page.DisplayAlertAsync("Transcription Complete",
-                        $"Transcript saved to:\n{Path.GetFileName(transcriptPath)}", "OK");
-            });
+            await _alertService.ShowAlertAsync("Transcription Complete",
+                $"Transcript saved to:\n{Path.GetFileName(transcriptPath)}", "OK");
         }
         catch (Exception ex)
         {
@@ -374,8 +359,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         {
             if (!string.Equals(seg.Speaker, currentSpeaker, StringComparison.Ordinal))
             {
-                if (currentSpeaker is not null)
-                    sb.AppendLine();
+                if (currentSpeaker is not null) sb.AppendLine();
                 sb.AppendLine($"### {seg.Speaker}");
                 currentSpeaker = seg.Speaker;
             }
@@ -395,8 +379,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
             sb.AppendLine($"> *[{startTs} – {endTs}]* {seg.Text}");
         }
 
-        if (currentSpeaker is not null)
-            sb.AppendLine();
+        if (currentSpeaker is not null) sb.AppendLine();
     }
 
     private static string GetRotatedTranscriptPath(string transcriptPath)
@@ -417,7 +400,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        if (App.IsTerminating) return;
+        if (_applicationLifetime.IsTerminating) return;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

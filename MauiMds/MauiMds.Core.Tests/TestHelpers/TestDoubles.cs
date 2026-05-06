@@ -184,6 +184,7 @@ internal sealed class FakeSessionStateService : ISessionStateService
 internal sealed class FakePlatformInfo : IPlatformInfo
 {
     public bool IsMacCatalyst { get; set; }
+    public bool IsWindows { get; set; }
 }
 
 internal sealed class FakeSynchronousDispatcher : IMainThreadDispatcher
