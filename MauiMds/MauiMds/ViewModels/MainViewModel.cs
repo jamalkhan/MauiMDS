@@ -47,13 +47,14 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IDocumentWatchService _documentWatchService;
     private readonly IClock _clock;
     private readonly ILogger<MainViewModel> _logger;
-    private readonly DocumentApplyService _documentApplyController;
-    private readonly DocumentWorkflowService _documentWorkflowController;
-    private readonly PreviewPipelineCoordinator _previewPipelineController;
-    private readonly AutosaveCoordinator _autosaveCoordinator;
-    private readonly SessionRestoreCoordinator _sessionRestoreCoordinator;
-    private readonly EditorModeSupportService _editorModeSupportController;
+    private readonly IDocumentApplyService _documentApplyController;
+    private readonly IDocumentWorkflowService _documentWorkflowController;
+    private readonly IPreviewPipelineCoordinator _previewPipelineController;
+    private readonly IAutosaveCoordinator _autosaveCoordinator;
+    private readonly ISessionRestoreCoordinator _sessionRestoreCoordinator;
+    private readonly IEditorModeSupportService _editorModeSupportController;
     private readonly IPdfExportService _pdfExportService;
+    private readonly IMainThreadDispatcher _mainThreadDispatcher;
 
     public RecordingSessionViewModel Recording { get; }
     public TranscriptionQueueViewModel TranscriptionQueue { get; }
@@ -100,17 +101,18 @@ public class MainViewModel : INotifyPropertyChanged
         IDocumentWatchService documentWatchService,
         IClock clock,
         WorkspaceExplorerState workspaceExplorerState,
-        DocumentApplyService documentApplyController,
-        DocumentWorkflowService documentWorkflowController,
-        PreviewPipelineCoordinator previewPipelineController,
-        EditorModeSupportService editorModeSupportController,
-        AutosaveCoordinator autosaveCoordinator,
-        SessionRestoreCoordinator sessionRestoreCoordinator,
+        IDocumentApplyService documentApplyController,
+        IDocumentWorkflowService documentWorkflowController,
+        IPreviewPipelineCoordinator previewPipelineController,
+        IEditorModeSupportService editorModeSupportController,
+        IAutosaveCoordinator autosaveCoordinator,
+        ISessionRestoreCoordinator sessionRestoreCoordinator,
         IPdfExportService pdfExportService,
         IAudioCaptureService audioCaptureService,
         IAudioPlayerService audioPlayerService,
         ITranscriptionPipelineFactory transcriptionPipelineFactory,
         ILoggerFactory loggerFactory,
+        IMainThreadDispatcher mainThreadDispatcher,
         ILogger<MainViewModel> logger)
     {
         _documentService = documentService;
@@ -124,6 +126,7 @@ public class MainViewModel : INotifyPropertyChanged
         _autosaveCoordinator = autosaveCoordinator;
         _sessionRestoreCoordinator = sessionRestoreCoordinator;
         _pdfExportService = pdfExportService;
+        _mainThreadDispatcher = mainThreadDispatcher;
         _logger = logger;
         _sessionState = _sessionRestoreCoordinator.Load();
         Workspace = workspaceExplorerState;
@@ -217,7 +220,7 @@ public class MainViewModel : INotifyPropertyChanged
             () => Recording.SelectedRecordingGroup,
             group => Recording.SelectedRecordingGroup = group,
             ReportErrorAsync,
-            msg => MainThread.BeginInvokeOnMainThread(() => InlineErrorMessage = msg));
+            msg => _mainThreadDispatcher.BeginInvokeOnMainThread(() => InlineErrorMessage = msg));
 
         Recording.RecordingStopped += async (_, args) =>
         {
@@ -252,7 +255,7 @@ public class MainViewModel : INotifyPropertyChanged
         TranscriptionQueue.EditorProgressUpdated += (_, args) =>
         {
             if (ReferenceEquals(Recording.SelectedRecordingGroup, args.Group) && _document.IsUntitled)
-                MainThread.BeginInvokeOnMainThread(() => EditorText = args.Content);
+                _mainThreadDispatcher.BeginInvokeOnMainThread(() => EditorText = args.Content);
         };
 
         TranscriptionQueue.WorkspaceRefreshNeeded += async (_, _) =>
@@ -553,7 +556,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            await MainThread.InvokeOnMainThreadAsync(() =>
+            await _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
             {
                 item.IsRenaming = false;
                 Workspace.MarkRenameCommitted();
@@ -600,7 +603,7 @@ public class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             await ReportErrorAsync("Workspace file rename failed.", ex, ex is InvalidOperationException ? ex.Message : "The file could not be renamed.");
-            await MainThread.InvokeOnMainThreadAsync(() =>
+            await _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
             {
                 item.IsRenaming = true;
                 Workspace.BeginRename(item);
@@ -615,7 +618,7 @@ public class MainViewModel : INotifyPropertyChanged
             return Task.CompletedTask;
         }
 
-        return MainThread.InvokeOnMainThreadAsync(() =>
+        return _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
         {
             Workspace.CancelRename(item);
         });
@@ -889,7 +892,7 @@ public class MainViewModel : INotifyPropertyChanged
             _document = applyResult.DocumentState;
 
             var uiStateStopwatch = Stopwatch.StartNew();
-            await MainThread.InvokeOnMainThreadAsync(() =>
+            await _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
             {
                 ClearPendingDocumentShell(raiseNotifications: false);
 
@@ -961,7 +964,7 @@ public class MainViewModel : INotifyPropertyChanged
         var applyStopwatch = Stopwatch.StartNew();
         var previewChanged = false;
         var previewDeferred = false;
-        await MainThread.InvokeOnMainThreadAsync(() =>
+        await _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
         {
             if (SelectedViewMode != preparedPreview.ViewMode)
             {
@@ -1098,7 +1101,7 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 if (_document.IsDirty)
                 {
-                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    await _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
                     {
                         InlineErrorMessage = "The file changed on disk while you have unsaved edits. Save or revert to reconcile it.";
                     });
@@ -1107,7 +1110,7 @@ public class MainViewModel : INotifyPropertyChanged
 
                 var updatedDocument = await _documentService.LoadDocumentAsync(_document.FilePath);
                 await LoadDocumentIntoStateAsync(updatedDocument);
-                await MainThread.InvokeOnMainThreadAsync(() =>
+                await _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
                 {
                     InlineErrorMessage = "The file changed on disk and was automatically reloaded.";
                 });
@@ -1127,7 +1130,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     private async Task ClearInlineErrorAsync()
     {
-        await MainThread.InvokeOnMainThreadAsync(() =>
+        await _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
         {
             InlineErrorMessage = string.Empty;
         });
@@ -1144,7 +1147,7 @@ public class MainViewModel : INotifyPropertyChanged
             _logger.LogError(exception, "{Message}", message);
         }
 
-        await MainThread.InvokeOnMainThreadAsync(() =>
+        await _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
         {
             InlineErrorMessage = inlineMessage;
         });
@@ -1202,7 +1205,7 @@ public class MainViewModel : INotifyPropertyChanged
         _pendingDocumentFilePath = filePath;
         _pendingDocumentFileName = Path.GetFileName(filePath);
 
-        MainThread.BeginInvokeOnMainThread(() =>
+        _mainThreadDispatcher.BeginInvokeOnMainThread(() =>
         {
             IsViewerLoading = IsReaderMode;
             OnPropertyChanged(nameof(FilePath));
@@ -1547,7 +1550,7 @@ public class MainViewModel : INotifyPropertyChanged
         _watcherDebounceTimer?.Dispose();
         _watcherDebounceTimer = new Timer(_ =>
         {
-            MainThread.BeginInvokeOnMainThread(async () =>
+            _mainThreadDispatcher.BeginInvokeOnMainThread(async () =>
             {
                 await RefreshWorkspaceFromDiskAsync();
             });
@@ -1565,7 +1568,7 @@ public class MainViewModel : INotifyPropertyChanged
             var intervalMs = intervalSeconds * 1000;
             _workspaceRefreshTimer = new Timer(_ =>
             {
-                MainThread.BeginInvokeOnMainThread(async () =>
+                _mainThreadDispatcher.BeginInvokeOnMainThread(async () =>
                 {
                     await RefreshWorkspaceFromDiskAsync();
                 });
@@ -1578,7 +1581,7 @@ public class MainViewModel : INotifyPropertyChanged
     {
         if (item is null) return;
 
-        await MainThread.InvokeOnMainThreadAsync(() => Workspace.SelectItem(item));
+        await _mainThreadDispatcher.InvokeOnMainThreadAsync(() => Workspace.SelectItem(item));
 
         if (item.IsRecordingGroup && item.RecordingGroup is { } group)
         {
@@ -1632,7 +1635,7 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        await MainThread.InvokeOnMainThreadAsync(() => Workspace.SelectItem(item));
+        await _mainThreadDispatcher.InvokeOnMainThreadAsync(() => Workspace.SelectItem(item));
 
         if (item.IsDirectory)
         {
@@ -1762,7 +1765,7 @@ public class MainViewModel : INotifyPropertyChanged
                 var repickMessage = documentRestore.RepickMessage ?? workspaceRepickMessage;
                 if (!string.IsNullOrWhiteSpace(repickMessage))
                 {
-                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    await _mainThreadDispatcher.InvokeOnMainThreadAsync(() =>
                     {
                         InlineErrorMessage = repickMessage;
                     });

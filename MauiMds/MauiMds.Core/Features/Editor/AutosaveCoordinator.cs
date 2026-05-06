@@ -2,14 +2,16 @@ using MauiMds.Services;
 
 namespace MauiMds.Features.Editor;
 
-public sealed class AutosaveCoordinator : IDisposable
+public sealed class AutosaveCoordinator : IAutosaveCoordinator
 {
     private readonly IDelayScheduler _delayScheduler;
+    private readonly IMainThreadDispatcher _dispatcher;
     private CancellationTokenSource? _autosaveCancellationSource;
 
-    public AutosaveCoordinator(IDelayScheduler delayScheduler)
+    public AutosaveCoordinator(IDelayScheduler delayScheduler, IMainThreadDispatcher dispatcher)
     {
         _delayScheduler = delayScheduler;
+        _dispatcher = dispatcher;
     }
 
     public void Schedule(
@@ -36,7 +38,7 @@ public sealed class AutosaveCoordinator : IDisposable
             {
                 await _delayScheduler.DelayAsync(delay, token);
                 token.ThrowIfCancellationRequested();
-                await MainThread.InvokeOnMainThreadAsync(saveAction);
+                await _dispatcher.InvokeOnMainThreadAsync(saveAction);
             }
             catch (OperationCanceledException)
             {

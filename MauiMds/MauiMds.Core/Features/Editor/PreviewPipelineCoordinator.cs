@@ -6,9 +6,9 @@ using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Features.Editor;
 
-public sealed class PreviewPipelineCoordinator : IDisposable
+public sealed class PreviewPipelineCoordinator : IPreviewPipelineCoordinator
 {
-    private readonly DocumentWorkflowService _documentWorkflowController;
+    private readonly IDocumentWorkflowService _documentWorkflowController;
     private readonly IDelayScheduler _delayScheduler;
     private readonly IClock _clock;
     private readonly ILogger<PreviewPipelineCoordinator> _logger;
@@ -19,7 +19,7 @@ public sealed class PreviewPipelineCoordinator : IDisposable
     private DateTimeOffset _lastSaveUtc;
 
     public PreviewPipelineCoordinator(
-        DocumentWorkflowService documentWorkflowController,
+        IDocumentWorkflowService documentWorkflowController,
         IDelayScheduler delayScheduler,
         IClock clock,
         ILogger<PreviewPipelineCoordinator> logger)

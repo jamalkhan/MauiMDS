@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Features.Session;
 
-public sealed class SessionRestoreCoordinator
+public sealed class SessionRestoreCoordinator : ISessionRestoreCoordinator
 {
     private readonly IWorkspaceBrowserService _workspaceBrowserService;
     private readonly IMarkdownDocumentService _documentService;

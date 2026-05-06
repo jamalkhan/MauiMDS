@@ -2,11 +2,11 @@ using MauiMds.Models;
 
 namespace MauiMds.Features.Editor;
 
-public sealed class DocumentApplyService
+public sealed class DocumentApplyService : IDocumentApplyService
 {
-    private readonly DocumentWorkflowService _documentWorkflowController;
+    private readonly IDocumentWorkflowService _documentWorkflowController;
 
-    public DocumentApplyService(DocumentWorkflowService documentWorkflowController)
+    public DocumentApplyService(IDocumentWorkflowService documentWorkflowController)
     {
         _documentWorkflowController = documentWorkflowController;
     }

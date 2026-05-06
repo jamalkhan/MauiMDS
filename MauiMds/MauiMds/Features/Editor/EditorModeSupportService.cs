@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Features.Editor;
 
-public sealed class EditorModeSupportService
+public sealed class EditorModeSupportService : IEditorModeSupportService
 {
     private readonly ISnackbarService _snackbarService;
     private readonly ILogger<EditorModeSupportService> _logger;

@@ -185,3 +185,10 @@ internal sealed class FakePlatformInfo : IPlatformInfo
 {
     public bool IsMacCatalyst { get; set; }
 }
+
+internal sealed class FakeSynchronousDispatcher : IMainThreadDispatcher
+{
+    public void BeginInvokeOnMainThread(Action action) => action();
+    public Task InvokeOnMainThreadAsync(Action action) { action(); return Task.CompletedTask; }
+    public Task InvokeOnMainThreadAsync(Func<Task> action) => action();
+}
