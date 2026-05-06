@@ -47,7 +47,7 @@ internal sealed class DocumentPickerPlatformService : IDocumentPickerPlatformSer
         await File.WriteAllTextAsync(
             tempPath,
             MarkdownFileConventions.NormalizeNewLines(document.Content, document.NewLine),
-            MarkdownFileConventions.ResolveEncoding(document.EncodingName),
+            MarkdownFileConventions.ResolveEncoding(document.EncodingName, _logger),
             ct);
 
         var tempUrl = NSUrl.CreateFileUrl(tempPath, null);

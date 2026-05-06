@@ -121,7 +121,7 @@ public sealed class MarkdownFileStorageService : IMarkdownFileStorageService
             await File.WriteAllTextAsync(
                 document.FilePath,
                 MarkdownFileConventions.NormalizeNewLines(document.Content, document.NewLine),
-                MarkdownFileConventions.ResolveEncoding(document.EncodingName),
+                MarkdownFileConventions.ResolveEncoding(document.EncodingName, _logger),
                 cancellationToken);
         }
         catch (UnauthorizedAccessException ex)

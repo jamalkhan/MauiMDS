@@ -1,6 +1,7 @@
 using System.Text.Json;
 using MauiMds.Logging;
 using MauiMds.Models;
+using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Services;
 
@@ -10,6 +11,13 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
     {
         WriteIndented = true
     };
+
+    private readonly ILogger<EditorPreferencesService>? _logger;
+
+    public EditorPreferencesService(ILogger<EditorPreferencesService>? logger = null)
+    {
+        _logger = logger;
+    }
 
     public EditorPreferences Load()
     {
@@ -43,7 +51,7 @@ public sealed class EditorPreferencesService : IEditorPreferencesService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"EditorPreferencesService: failed to load preferences, using defaults. {ex}");
+            _logger?.LogWarning(ex, "Failed to load preferences from {PreferencesPath}, using defaults", LogPaths.PreferencesFilePath);
             return CreateDefaultPreferences();
         }
     }

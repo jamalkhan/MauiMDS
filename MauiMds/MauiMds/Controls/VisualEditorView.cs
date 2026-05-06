@@ -1,6 +1,8 @@
 using MauiMds;
 using System.Windows.Input;
 using MauiMds.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace MauiMds.Controls;
@@ -21,6 +23,7 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
         BindingMode.TwoWay,
         propertyChanged: OnTextPropertyChanged);
 
+    private readonly ILogger<VisualEditorView> _logger;
     private readonly Editor _editor;
     private readonly Dictionary<RichTextBlockKind, Button> _toolbarButtons = [];
     private readonly VisualEditorDocumentController _documentController = new();
@@ -37,6 +40,9 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
 
     public VisualEditorView()
     {
+        _logger = IPlatformApplication.Current?.Services.GetService<ILogger<VisualEditorView>>()
+            ?? NullLogger<VisualEditorView>.Instance;
+
         var toolbar = new HorizontalStackLayout { Spacing = 8 };
         AddToolbarButton(toolbar, RichTextBlockKind.Paragraph, "Paragraph", () => ApplyBlockTransform(RichTextBlockKind.Paragraph));
         AddToolbarButton(toolbar, RichTextBlockKind.Header1, "H1", () => ApplyBlockTransform(RichTextBlockKind.Header1));
@@ -515,7 +521,7 @@ public sealed class VisualEditorView : ContentView, IEditorSurface
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"VisualEditorView: malformed WebView text payload — {ex.Message}");
+                _logger.LogWarning(ex, "Malformed WebView text payload");
             }
         }
         // Cursor-only update: mauimds://k/{cursor}/{selection}

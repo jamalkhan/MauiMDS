@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Services;
 
@@ -50,7 +51,7 @@ public static class MarkdownFileConventions
         return $"{Path.GetFileNameWithoutExtension(fileName)}.mds";
     }
 
-    public static Encoding ResolveEncoding(string encodingName)
+    public static Encoding ResolveEncoding(string encodingName, ILogger? logger = null)
     {
         try
         {
@@ -58,7 +59,7 @@ public static class MarkdownFileConventions
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"MarkdownFileConventions: unknown encoding '{encodingName}', falling back to UTF-8. {ex.Message}");
+            logger?.LogWarning(ex, "Unknown encoding '{EncodingName}', falling back to UTF-8", encodingName);
             return Encoding.UTF8;
         }
     }
