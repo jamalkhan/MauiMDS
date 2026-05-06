@@ -47,12 +47,12 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IDocumentWatchService _documentWatchService;
     private readonly IClock _clock;
     private readonly ILogger<MainViewModel> _logger;
-    private readonly DocumentApplyController _documentApplyController;
-    private readonly DocumentWorkflowController _documentWorkflowController;
-    private readonly PreviewPipelineController _previewPipelineController;
+    private readonly DocumentApplyService _documentApplyController;
+    private readonly DocumentWorkflowService _documentWorkflowController;
+    private readonly PreviewPipelineCoordinator _previewPipelineController;
     private readonly AutosaveCoordinator _autosaveCoordinator;
     private readonly SessionRestoreCoordinator _sessionRestoreCoordinator;
-    private readonly EditorModeSupportController _editorModeSupportController;
+    private readonly EditorModeSupportService _editorModeSupportController;
     private readonly IPdfExportService _pdfExportService;
 
     public RecordingSessionViewModel Recording { get; }
@@ -68,9 +68,7 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isOpeningDocument;
     private bool _isSavingDocument;
     private bool _isWorkspacePanelVisible;
-    private bool _isLoadingDocument;
     private double _workspacePanelWidth = DefaultWorkspacePanelWidth;
-    private string _editorText = string.Empty;
     private string _inlineErrorMessage = string.Empty;
     private bool _isViewerLoading;
     private string _viewerLoadingPreviewText = string.Empty;
@@ -102,10 +100,10 @@ public class MainViewModel : INotifyPropertyChanged
         IDocumentWatchService documentWatchService,
         IClock clock,
         WorkspaceExplorerState workspaceExplorerState,
-        DocumentApplyController documentApplyController,
-        DocumentWorkflowController documentWorkflowController,
-        PreviewPipelineController previewPipelineController,
-        EditorModeSupportController editorModeSupportController,
+        DocumentApplyService documentApplyController,
+        DocumentWorkflowService documentWorkflowController,
+        PreviewPipelineCoordinator previewPipelineController,
+        EditorModeSupportService editorModeSupportController,
         AutosaveCoordinator autosaveCoordinator,
         SessionRestoreCoordinator sessionRestoreCoordinator,
         IPdfExportService pdfExportService,
@@ -372,24 +370,17 @@ public class MainViewModel : INotifyPropertyChanged
 
     public string EditorText
     {
-        get => _editorText;
+        get => _document.Content;
         set
         {
-            if (_editorText == value)
-            {
-                return;
-            }
-
-            _editorText = value;
-            OnPropertyChanged();
-
-            if (_isLoadingDocument)
+            if (_document.Content == value)
             {
                 return;
             }
 
             _document.Content = value;
             _document.IsDirty = !string.Equals(_document.Content, _document.OriginalContent, StringComparison.Ordinal);
+            OnPropertyChanged();
             OnPropertyChanged(nameof(IsDirty));
             OnPropertyChanged(nameof(StatusText));
             ScheduleParse();
@@ -889,9 +880,7 @@ public class MainViewModel : INotifyPropertyChanged
     private async Task LoadDocumentIntoStateAsync(MarkdownDocument document, bool persistSessionState = true)
     {
         var overallStopwatch = Stopwatch.StartNew();
-        _isLoadingDocument = true;
 
-        try
         {
             var currentViewMode = SelectedViewMode;
             _previewPipelineController.CancelPreview();
@@ -916,7 +905,7 @@ public class MainViewModel : INotifyPropertyChanged
                     OnPropertyChanged(nameof(FileName));
                 }
 
-                EditorText = _document.Content;
+                OnPropertyChanged(nameof(EditorText));
                 InlineErrorMessage = string.Empty;
                 ViewerLoadingPreviewText = BuildViewerLoadingPreview(document.Content);
                 if (applyResult.IsDirtyChanged)
@@ -963,10 +952,6 @@ public class MainViewModel : INotifyPropertyChanged
                 sessionStopwatch.ElapsedMilliseconds,
                 overallStopwatch.ElapsedMilliseconds,
                 SelectedViewMode);
-        }
-        finally
-        {
-            _isLoadingDocument = false;
         }
     }
 
