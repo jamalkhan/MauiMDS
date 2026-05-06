@@ -37,6 +37,7 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
     private string _preferencesPyannotePythonPath = string.Empty;
     private string _preferencesPyannoteHfToken = string.Empty;
     private RecordingFormat _preferencesRecordingFormat = RecordingFormat.M4A;
+    private int _preferencesLiveChunkIntervalSeconds = 8;
     private string _shortcutKeyHeader1 = "1";
     private string _shortcutKeyHeader2 = "2";
     private string _shortcutKeyHeader3 = "3";
@@ -203,6 +204,12 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         set { if (_preferencesRecordingFormat != value) { _preferencesRecordingFormat = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShowWindowsFlacWarning)); } }
     }
 
+    public int PreferencesLiveChunkIntervalSeconds
+    {
+        get => _preferencesLiveChunkIntervalSeconds;
+        set { if (_preferencesLiveChunkIntervalSeconds != value) { _preferencesLiveChunkIntervalSeconds = value; OnPropertyChanged(); } }
+    }
+
     public bool IsWindowsPlatform => _platformInfo.IsWindows;
     public bool ShowWindowsFlacWarning => IsWindowsPlatform && _preferencesRecordingFormat == RecordingFormat.FLAC;
     public bool IsAppleSpeechAvailable => _platformInfo.IsMacCatalyst;
@@ -279,6 +286,7 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         _preferencesInitialViewerRenderLineCountText = Current.InitialViewerRenderLineCount.ToString();
         _preferencesFileLogLevelText = FormatLogLevel(Current.FileLogLevel);
         _preferencesWorkspaceRefreshIntervalSeconds = Current.WorkspaceRefreshIntervalSeconds;
+        _preferencesLiveChunkIntervalSeconds = Current.LiveChunkIntervalSeconds;
         LoadShortcutKeyFields();
         LoadTranscriptionFields();
     }
@@ -300,7 +308,8 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         _preferencesWhisperModelPath    = Current.WhisperModelPath;
         _preferencesPyannotePythonPath  = Current.PyannotePythonPath;
         _preferencesPyannoteHfToken     = Current.PyannoteHfToken;
-        _preferencesRecordingFormat     = Current.RecordingFormat;
+        _preferencesRecordingFormat          = Current.RecordingFormat;
+        _preferencesLiveChunkIntervalSeconds = Current.LiveChunkIntervalSeconds;
         OnPropertyChanged(nameof(PreferencesTranscriptionEngine));
         OnPropertyChanged(nameof(PreferencesDiarizationEngine));
         OnPropertyChanged(nameof(PreferencesWhisperBinaryPath));
@@ -357,6 +366,7 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
             PyannotePythonPath = _preferencesPyannotePythonPath,
             PyannoteHfToken = _preferencesPyannoteHfToken,
             RecordingFormat = _preferencesRecordingFormat,
+            LiveChunkIntervalSeconds = Math.Max(5, _preferencesLiveChunkIntervalSeconds),
             WorkspaceRefreshIntervalSeconds = Math.Max(0, _preferencesWorkspaceRefreshIntervalSeconds)
         };
 

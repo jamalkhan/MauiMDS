@@ -17,6 +17,7 @@ public abstract class AudioCaptureServiceBase : IAudioCaptureService, IDisposabl
     public AudioCaptureState State => _state;
     public string? LastStartWarning { get; protected set; }
     public event EventHandler<AudioCaptureState>? StateChanged;
+    public event EventHandler<LiveAudioChunk>? LiveChunkAvailable;
 
     protected AudioCaptureServiceBase(ILogger logger) => Logger = logger;
 
@@ -106,6 +107,9 @@ public abstract class AudioCaptureServiceBase : IAudioCaptureService, IDisposabl
         _state = newState;
         StateChanged?.Invoke(this, newState);
     }
+
+    protected void RaiseLiveChunkAvailable(LiveAudioChunk chunk)
+        => LiveChunkAvailable?.Invoke(this, chunk);
 
     protected static void EnsureDirectory(string filePath)
     {

@@ -99,7 +99,8 @@
                                TextColor="{AppThemeBinding Light=#615A51, Dark=#BFB8AE}" />
                     </Grid>
 
-                    <ScrollView Grid.Row="1"
+                    <ScrollView x:Name="HistoryScrollView"
+                                Grid.Row="1"
                                 VerticalScrollBarVisibility="Always">
                         <VerticalStackLayout x:Name="SnackbarHistoryStack"
                                              Spacing="10" />

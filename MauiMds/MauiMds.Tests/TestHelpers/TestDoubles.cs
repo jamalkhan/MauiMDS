@@ -222,6 +222,7 @@ internal sealed class FakeAudioCaptureService : IAudioCaptureService
     public AudioCaptureResult ResultToReturn { get; set; } = new() { Success = true };
 
     public event EventHandler<AudioCaptureState>? StateChanged;
+    public event EventHandler<LiveAudioChunk>? LiveChunkAvailable;
 
     public Task<AudioPermissionStatus> CheckMicrophonePermissionAsync() => Task.FromResult(PermissionToReturn);
     public Task<AudioPermissionStatus> RequestMicrophonePermissionAsync() => Task.FromResult(PermissionToReturn);
@@ -245,8 +246,11 @@ internal sealed class FakeAudioPlayerService : IAudioPlayerService
 {
     public string? CurrentlyPlayingPath { get; private set; }
     public bool IsPlaying { get; private set; }
+    public TimeSpan Position { get; set; }
+    public TimeSpan Duration { get; set; }
 
     public event EventHandler? PlaybackStateChanged;
+    public event EventHandler? PlaybackPositionChanged;
 
     public Task PlayAsync(string filePath)
     {
@@ -258,6 +262,7 @@ internal sealed class FakeAudioPlayerService : IAudioPlayerService
 
     public void Pause() { IsPlaying = false; PlaybackStateChanged?.Invoke(this, EventArgs.Empty); }
     public void Stop() { IsPlaying = false; CurrentlyPlayingPath = null; PlaybackStateChanged?.Invoke(this, EventArgs.Empty); }
+    public void Seek(TimeSpan position) { Position = position; PlaybackPositionChanged?.Invoke(this, EventArgs.Empty); }
 }
 
 internal sealed class FakeTranscriptionPipelineFactory : ITranscriptionPipelineFactory
@@ -270,4 +275,11 @@ internal sealed class FakeTranscriptionPipelineFactory : ITranscriptionPipelineF
         string whisperBinaryPath = "", string whisperModelPath = "",
         string pyannotePythonPath = "", string pyannoteHfToken = "")
         => throw new NotSupportedException("Transcription not expected in unit tests.");
+
+    public ILiveTranscriptionSession? CreateLiveSession(
+        TranscriptionEngineType engine,
+        string whisperBinaryPath = "",
+        string whisperModelPath = "",
+        INativeMicrophoneSource? nativeMicSource = null)
+        => null;
 }

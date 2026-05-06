@@ -12,6 +12,7 @@ namespace MauiMds.ViewModels;
 public sealed class RecordingSessionViewModel : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<RecordingGroup>? RecordingStarted;
     public event EventHandler<RecordingStoppedEventArgs>? RecordingStopped;
 
     private readonly IAudioCaptureService _audioCaptureService;
@@ -21,6 +22,7 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
     private readonly IMainThreadDispatcher _mainThreadDispatcher;
     private readonly IApplicationLifetime _applicationLifetime;
     private readonly Func<RecordingFormat> _getRecordingFormat;
+    private readonly Func<int> _getLiveChunkIntervalSeconds;
     private readonly Func<string> _getWorkspaceRootPath;
     private readonly Func<string, Exception?, string, Task> _reportError;
 
@@ -39,6 +41,7 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
         IMainThreadDispatcher mainThreadDispatcher,
         IApplicationLifetime applicationLifetime,
         Func<RecordingFormat> getRecordingFormat,
+        Func<int> getLiveChunkIntervalSeconds,
         Func<string> getWorkspaceRootPath,
         Func<string, Exception?, string, Task> reportError)
     {
@@ -49,21 +52,40 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
         _mainThreadDispatcher = mainThreadDispatcher;
         _applicationLifetime = applicationLifetime;
         _getRecordingFormat = getRecordingFormat;
+        _getLiveChunkIntervalSeconds = getLiveChunkIntervalSeconds;
         _getWorkspaceRootPath = getWorkspaceRootPath;
         _reportError = reportError;
 
         _audioCaptureService.StateChanged += OnAudioCaptureStateChanged;
-        _audioPlayerService.PlaybackStateChanged += (_, _) => OnPropertyChanged(nameof(CurrentlyPlayingAudioPath));
+        _audioPlayerService.PlaybackStateChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(CurrentlyPlayingAudioPath));
+            OnPropertyChanged(nameof(PlaybackDuration));
+            OnPropertyChanged(nameof(PlaybackPosition));
+        };
+        _audioPlayerService.PlaybackPositionChanged += (_, _) => OnPropertyChanged(nameof(PlaybackPosition));
 
         _toggleRecordingCommand = new RelayCommand(async () => await ToggleRecordingAsync(), () => !_isRecordingTransitioning);
         ToggleRecordingCommand = _toggleRecordingCommand;
         PlayAudioCommand = new RelayCommand<string>(async path => await _audioPlayerService.PlayAsync(path ?? string.Empty));
         PauseAudioCommand = new RelayCommand(() => _audioPlayerService.Pause());
+        RewindCommand = new RelayCommand(() => _audioPlayerService.Seek(
+            TimeSpan.FromSeconds(Math.Max(0, _audioPlayerService.Position.TotalSeconds - 15))));
+        FastForwardCommand = new RelayCommand(() => _audioPlayerService.Seek(
+            TimeSpan.FromSeconds(Math.Min(_audioPlayerService.Duration.TotalSeconds, _audioPlayerService.Position.TotalSeconds + 15))));
+        SeekCommand = new RelayCommand<object>(param =>
+        {
+            if (param is double seconds)
+                _audioPlayerService.Seek(TimeSpan.FromSeconds(seconds));
+        });
     }
 
     public ICommand ToggleRecordingCommand { get; }
     public ICommand PlayAudioCommand { get; }
     public ICommand PauseAudioCommand { get; }
+    public ICommand RewindCommand { get; }
+    public ICommand FastForwardCommand { get; }
+    public ICommand SeekCommand { get; }  // execute with a boxed double (seconds)
 
     public bool IsRecording
     {
@@ -94,6 +116,8 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
     public bool IsRecordingGroupSelected => _selectedRecordingGroup is not null;
 
     public string? CurrentlyPlayingAudioPath => _audioPlayerService.CurrentlyPlayingPath;
+    public TimeSpan PlaybackPosition => _audioPlayerService.Position;
+    public TimeSpan PlaybackDuration => _audioPlayerService.Duration;
 
     public void StopPlayback() => _audioPlayerService.Stop();
     public Task PlayAudioAsync(string path) => _audioPlayerService.PlayAsync(path);
@@ -198,12 +222,27 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
                 };
                 var micPath = RecordingPathBuilder.BuildMic(baseFolder, now, ext);
                 var sysPath = RecordingPathBuilder.BuildSys(baseFolder, now);
-                var options = new AudioCaptureOptions { OutputPath = micPath, SysOutputPath = sysPath };
+                var options = new AudioCaptureOptions
+                {
+                    OutputPath = micPath,
+                    SysOutputPath = sysPath,
+                    EnableLiveChunks = true,
+                    LiveChunkInterval = TimeSpan.FromSeconds(Math.Max(5, _getLiveChunkIntervalSeconds()))
+                };
 
                 await _audioCaptureService.StartAsync(options);
                 RecordingPathBuilder.TryParseGroupFile(Path.GetFileName(micPath), out var activeBaseName, out _);
                 SetActiveRecordingBaseName(activeBaseName);
                 _logger.LogInformation("Recording started: mic={Mic}, sys={Sys}", micPath, sysPath);
+
+                var prelimGroup = new RecordingGroup
+                {
+                    BaseName = activeBaseName ?? string.Empty,
+                    DirectoryPath = Path.GetDirectoryName(micPath) ?? baseFolder,
+                    MicFilePath = micPath,
+                    SysFilePath = sysPath
+                };
+                RecordingStarted?.Invoke(this, prelimGroup);
 
                 if (_audioCaptureService.LastStartWarning == "screen_recording_denied")
                 {

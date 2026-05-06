@@ -4,17 +4,21 @@ using System.Diagnostics;
 
 namespace MauiMds.AudioCapture.MacCatalyst;
 
-public sealed class AudioCaptureService : AudioCaptureServiceBase
+public sealed class AudioCaptureService : AudioCaptureServiceBase, INativeMicrophoneSource
 {
     private SystemAudioOutput? _systemAudio;
     private MicrophoneInput? _micAudio;
     private AudioFileWriter? _micWriter;
     private AudioFileWriter? _sysWriter;
+    private LiveAudioChunkWriter? _liveChunkWriter;
     private AudioCaptureOptions? _activeOptions;
     private bool _micPermissionGrantedThisSession;
 
     // When the mic target format is not M4A, we record to temp M4A and convert after stop.
     private string? _desiredMicOutputPath;
+
+    // INativeMicrophoneSource — fires CMSampleBuffer.Handle for each mic buffer.
+    public event EventHandler<nint>? NativeSampleBufferAvailable;
 
     public AudioCaptureService(ILogger<AudioCaptureService> logger) : base(logger) { }
 
@@ -103,6 +107,18 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
         {
             _micWriter = new AudioFileWriter(internalMicM4aPath!, options, "mic", Logger);
             _micAudio!.SampleBufferReceived += buf => _micWriter?.AppendBuffer(buf);
+
+            // Live chunk writer — active only when requested.
+            if (options.EnableLiveChunks)
+            {
+                _liveChunkWriter = new LiveAudioChunkWriter(options, Logger);
+                _liveChunkWriter.ChunkReady += (_, chunk) => RaiseLiveChunkAvailable(chunk);
+                _micAudio.SampleBufferReceived += buf => _liveChunkWriter?.AppendBuffer(buf);
+            }
+
+            // Native sample buffer forwarding for engines that can use raw buffers directly.
+            if (NativeSampleBufferAvailable is not null)
+                _micAudio.SampleBufferReceived += buf => NativeSampleBufferAvailable?.Invoke(this, buf.Handle);
         }
 
         if (sysActive)
@@ -119,6 +135,14 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
 
     protected override async Task<AudioCaptureResult> StopCaptureAsync()
     {
+        // Flush the live chunk writer before stopping sources so the final chunk is emitted.
+        if (_liveChunkWriter is not null)
+        {
+            await _liveChunkWriter.FlushAsync();
+            _liveChunkWriter.Dispose();
+            _liveChunkWriter = null;
+        }
+
         await CleanupSourcesAsync();
 
         var allPaths = new List<string>(2);
@@ -188,6 +212,7 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
         _micAudio?.Dispose();
         _micWriter?.Dispose();
         _sysWriter?.Dispose();
+        _liveChunkWriter?.Dispose();
     }
 
     // ── Mac-specific helpers ──────────────────────────────────────────────────

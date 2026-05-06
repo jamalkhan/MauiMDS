@@ -215,6 +215,21 @@
                                                VerticalTextAlignment="Center" />
                                     </Border>
 
+                                    <Border Grid.Column="4"
+                                            BackgroundColor="#5533AA"
+                                            StrokeThickness="0"
+                                            StrokeShape="RoundRectangle 4"
+                                            Padding="5,2"
+                                            VerticalOptions="Center"
+                                            HorizontalOptions="End"
+                                            IsVisible="{Binding IsActivelyDiarizing}">
+                                        <Label Text="Diarizing..."
+                                               FontSize="10"
+                                               FontAttributes="Bold"
+                                               TextColor="White"
+                                               VerticalTextAlignment="Center" />
+                                    </Border>
+
                                     <Border Grid.Column="5"
                                             WidthRequest="20"
                                             HeightRequest="20"

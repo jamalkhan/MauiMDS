@@ -13,6 +13,7 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
     private bool _isActivelyRecording;
     private bool _isInTranscriptionQueue;
     private bool _isActivelyTranscribing;
+    private bool _isActivelyDiarizing;
     private string _renameText;
 
     public WorkspaceTreeItem(string fullPath, bool isDirectory, int depth, WorkspaceTreeItem? parent = null,
@@ -173,6 +174,17 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         {
             if (_isActivelyTranscribing == value) return;
             _isActivelyTranscribing = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsActivelyDiarizing
+    {
+        get => _isActivelyDiarizing;
+        set
+        {
+            if (_isActivelyDiarizing == value) return;
+            _isActivelyDiarizing = value;
             OnPropertyChanged();
         }
     }

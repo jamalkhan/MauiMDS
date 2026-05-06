@@ -163,6 +163,8 @@ public partial class MainPage : ContentPage
     private async void OnSnackbarTapped(object? sender, TappedEventArgs e)
     {
         await _logsDockController.ToggleAsync(Height);
+        if (_logsDockController.CurrentHeight > 0.5)
+            await LogsDock.ScrollHistoryToBottomAsync();
     }
 
     private void OnHistoryResizePanUpdated(object? sender, PanUpdatedEventArgs e)

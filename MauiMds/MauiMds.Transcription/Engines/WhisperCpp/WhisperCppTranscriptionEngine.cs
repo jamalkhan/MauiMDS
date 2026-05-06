@@ -33,6 +33,8 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
         _logger = logger;
     }
 
+    public ILiveTranscriptionSession CreateLiveSession() => new WhisperCppLiveSession(this, _logger);
+
     // whisper-cli only accepts: flac, mp3, ogg, wav
     private static readonly HashSet<string> SupportedExtensions =
         new(StringComparer.OrdinalIgnoreCase) { ".flac", ".mp3", ".ogg", ".wav" };

@@ -21,6 +21,12 @@ public sealed class EditorPreferences
     public RecordingFormat RecordingFormat { get; init; } = RecordingFormat.M4A;
 
     /// <summary>
+    /// How often live transcription chunks are emitted during recording (seconds).
+    /// Lower values reduce latency; minimum effective value is ~5 s.
+    /// </summary>
+    public int LiveChunkIntervalSeconds { get; init; } = 8;
+
+    /// <summary>
     /// How often (in seconds) the workspace file explorer auto-refreshes from disk.
     /// 0 = disabled; a FileSystemWatcher handles instant updates regardless.
     /// </summary>

@@ -12,6 +12,7 @@ internal sealed class FakeAudioCaptureService : IAudioCaptureService
     public AudioCaptureState State => _state;
     public string? LastStartWarning { get; set; }
     public event EventHandler<AudioCaptureState>? StateChanged;
+    public event EventHandler<LiveAudioChunk>? LiveChunkAvailable;
 
     // Configuration knobs
     public bool ShouldThrowOnStart { get; set; }

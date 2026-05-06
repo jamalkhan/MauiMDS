@@ -1,4 +1,5 @@
 using Foundation;
+using MauiMds.AudioCapture;
 using Speech;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +27,12 @@ public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
     public AppleSpeechTranscriptionEngine(ILogger<AppleSpeechTranscriptionEngine> logger)
     {
         _logger = logger;
+    }
+
+    public ILiveTranscriptionSession CreateLiveSession(INativeMicrophoneSource? nativeMicSource = null)
+    {
+        var recognizer = new SFSpeechRecognizer();
+        return new AppleSpeechLiveSession(recognizer, nativeMicSource, _logger);
     }
 
     public async Task<IReadOnlyList<TranscriptSegment>> TranscribeAsync(
@@ -116,7 +123,15 @@ public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
         return tcs.Task;
     }
 
-    private static IReadOnlyList<TranscriptSegment> ConvertSegments(SFSpeechRecognitionResult result)
+    // Called from AppleSpeechLiveSession for both native streaming results and chunk results.
+    internal static IReadOnlyList<TranscriptSegment> ConvertSegmentsPublic(
+        SFSpeechRecognitionResult result,
+        TimeSpan startOffset = default)
+        => ConvertSegments(result, startOffset);
+
+    private static IReadOnlyList<TranscriptSegment> ConvertSegments(
+        SFSpeechRecognitionResult result,
+        TimeSpan startOffset = default)
     {
         var rawSegments = result.BestTranscription.Segments;
 
@@ -139,8 +154,8 @@ public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
                 grouped.Add(new TranscriptSegment
                 {
                     Text = buffer.ToString().Trim(),
-                    Start = groupStart,
-                    End = prevEnd,
+                    Start = groupStart + startOffset,
+                    End = prevEnd + startOffset,
                     Confidence = minConfidence
                 });
                 buffer.Clear();
@@ -167,8 +182,8 @@ public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
             grouped.Add(new TranscriptSegment
             {
                 Text = buffer.ToString().Trim(),
-                Start = groupStart,
-                End = prevEnd,
+                Start = groupStart + startOffset,
+                End = prevEnd + startOffset,
                 Confidence = minConfidence
             });
         }

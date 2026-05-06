@@ -10,12 +10,16 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
     private readonly ILogger<AudioPlayerService> _logger;
     private AVAudioPlayer? _player;
     private string? _currentPath;
+    private System.Threading.Timer? _positionTimer;
     private bool _disposed;
 
     public string? CurrentlyPlayingPath => _currentPath;
     public bool IsPlaying => _player?.Playing ?? false;
+    public TimeSpan Position => TimeSpan.FromSeconds(_player?.CurrentTime ?? 0);
+    public TimeSpan Duration => TimeSpan.FromSeconds(_player?.Duration ?? 0);
 
     public event EventHandler? PlaybackStateChanged;
+    public event EventHandler? PlaybackPositionChanged;
 
     public AudioPlayerService(ILogger<AudioPlayerService> logger)
     {
@@ -44,6 +48,7 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
             _player.Play();
             _currentPath = filePath;
 
+            StartPositionTimer();
             _logger.LogInformation("AudioPlayerService: playing {Path}", filePath);
             RaiseStateChanged();
         }
@@ -59,12 +64,14 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
     {
         if (_player is null || !_player.Playing) return;
         _player.Pause();
+        StopPositionTimer();
         _logger.LogInformation("AudioPlayerService: paused.");
         RaiseStateChanged();
     }
 
     public void Stop()
     {
+        StopPositionTimer();
         if (_player is null) return;
         _player.FinishedPlaying -= OnFinishedPlaying;
         _player.Stop();
@@ -75,10 +82,34 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
         RaiseStateChanged();
     }
 
+    public void Seek(TimeSpan position)
+    {
+        if (_player is null) return;
+        var clamped = Math.Max(0, Math.Min(position.TotalSeconds, _player.Duration));
+        _player.CurrentTime = clamped;
+        RaisePositionChanged();
+    }
+
+    private void StartPositionTimer()
+    {
+        _positionTimer?.Dispose();
+        _positionTimer = new System.Threading.Timer(_ =>
+        {
+            DispatchQueue.MainQueue.DispatchAsync(RaisePositionChanged);
+        }, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
+    }
+
+    private void StopPositionTimer()
+    {
+        _positionTimer?.Dispose();
+        _positionTimer = null;
+    }
+
     private void OnFinishedPlaying(object? sender, AVStatusEventArgs e)
     {
         DispatchQueue.MainQueue.DispatchAsync(() =>
         {
+            StopPositionTimer();
             _player?.Dispose();
             _player = null;
             _currentPath = null;
@@ -89,6 +120,9 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
 
     private void RaiseStateChanged() =>
         DispatchQueue.MainQueue.DispatchAsync(() => PlaybackStateChanged?.Invoke(this, EventArgs.Empty));
+
+    private void RaisePositionChanged() =>
+        PlaybackPositionChanged?.Invoke(this, EventArgs.Empty);
 
     public void Dispose()
     {

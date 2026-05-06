@@ -19,7 +19,7 @@
                                          Margin="0,0,20,0" />
 
             <Grid Grid.Column="1"
-                  RowDefinitions="Auto,Auto,*,Auto"
+                  RowDefinitions="Auto,Auto,*,Auto,Auto"
                   RowSpacing="12">
                 <views:DocumentHeaderView x:Name="DocumentHeader"
                                           Grid.Row="0" />
@@ -151,13 +151,12 @@
                                       Grid.Row="2" />
 
                 <views:RecordingGroupView x:Name="RecordingGroupView"
-                                           Grid.Row="2"
-                                           VerticalOptions="End"
+                                           Grid.Row="3"
                                            IsVisible="{Binding Recording.IsRecordingGroupSelected}"
                                            BindingContext="{Binding}" />
 
                 <views:LogsDockView x:Name="LogsDock"
-                                    Grid.Row="3" />
+                                    Grid.Row="4" />
             </Grid>
         </Grid>
 
@@ -475,6 +474,19 @@
                                        TextColor="#CC7700"
                                        IsVisible="{Binding ShowWindowsFlacWarning}" />
                             </VerticalStackLayout>
+
+                            <HorizontalStackLayout Spacing="12">
+                                <Label Text="Live Transcription Interval (seconds)"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light=#1C1C1E, Dark=#F0F0F2}" />
+                                <Entry WidthRequest="90"
+                                       Keyboard="Numeric"
+                                       Text="{Binding PreferencesLiveChunkIntervalSeconds}" />
+                                <Label Text="Min 5, default 8"
+                                       VerticalTextAlignment="Center"
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                            </HorizontalStackLayout>
 
                             <Label Text="Transcription Engine"
                                    FontSize="13"

@@ -24,6 +24,9 @@ public partial class LogsDockView : ContentView
 
     public VisualElement ResizeHandleElement => HistoryResizeHandle;
 
+    public Task ScrollHistoryToBottomAsync()
+        => HistoryScrollView.ScrollToAsync(0, double.MaxValue, animated: false);
+
     public void ApplyHistoryPaneState(double height, bool historyVisible, bool resizeVisible)
     {
         HistoryTrayBorder.HeightRequest = height;

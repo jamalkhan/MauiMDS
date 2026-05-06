@@ -1,3 +1,4 @@
+using MauiMds.AudioCapture;
 using MauiMds.Models;
 #if MACCATALYST
 using MauiMds.Transcription.Engines.AppleSpeech;
@@ -83,5 +84,28 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
             transcriptionEngine,
             diarizationEngine,
             _loggerFactory.CreateLogger<StandardTranscriptionPipeline>());
+    }
+
+    public ILiveTranscriptionSession? CreateLiveSession(
+        TranscriptionEngineType engine,
+        string whisperBinaryPath = "",
+        string whisperModelPath = "",
+        INativeMicrophoneSource? nativeMicSource = null)
+    {
+        return engine switch
+        {
+            TranscriptionEngineType.WhisperCpp =>
+                new WhisperCppTranscriptionEngine(
+                    whisperBinaryPath, whisperModelPath,
+                    _loggerFactory.CreateLogger<WhisperCppTranscriptionEngine>())
+                .CreateLiveSession(),
+#if MACCATALYST
+            TranscriptionEngineType.AppleSpeech =>
+                new AppleSpeechTranscriptionEngine(
+                    _loggerFactory.CreateLogger<AppleSpeechTranscriptionEngine>())
+                .CreateLiveSession(nativeMicSource),
+#endif
+            _ => null
+        };
     }
 }

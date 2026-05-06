@@ -56,6 +56,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IPdfExportService _pdfExportService;
     private readonly IMainThreadDispatcher _mainThreadDispatcher;
     private readonly IApplicationLifetime _applicationLifetime;
+    private readonly IAudioCaptureService _audioCaptureService;
 
     public RecordingSessionViewModel Recording { get; }
     public TranscriptionQueueViewModel TranscriptionQueue { get; }
@@ -131,6 +132,7 @@ public class MainViewModel : INotifyPropertyChanged
         _pdfExportService = pdfExportService;
         _mainThreadDispatcher = mainThreadDispatcher;
         _applicationLifetime = applicationLifetime;
+        _audioCaptureService = audioCaptureService;
         _logger = logger;
         _sessionState = _sessionRestoreCoordinator.Load();
         Workspace = workspaceExplorerState;
@@ -212,6 +214,7 @@ public class MainViewModel : INotifyPropertyChanged
             loggerFactory.CreateLogger<RecordingSessionViewModel>(),
             mainThreadDispatcher, applicationLifetime,
             () => Preferences.Current.RecordingFormat,
+            () => Preferences.Current.LiveChunkIntervalSeconds,
             () => WorkspaceRootPath,
             ReportErrorAsync);
 
@@ -228,6 +231,15 @@ public class MainViewModel : INotifyPropertyChanged
             ReportErrorAsync,
             msg => _mainThreadDispatcher.BeginInvokeOnMainThread(() => InlineErrorMessage = msg));
 
+        Recording.RecordingStarted += (_, group) =>
+        {
+            Recording.SelectedRecordingGroup = group;
+            TranscriptionQueue.StartLiveTranscription(group, _audioCaptureService as INativeMicrophoneSource);
+        };
+
+        _audioCaptureService.LiveChunkAvailable += (_, chunk) =>
+            TranscriptionQueue.FeedLiveChunk(chunk);
+
         Recording.RecordingStopped += async (_, args) =>
         {
             if (!string.IsNullOrWhiteSpace(WorkspaceRootPath))
@@ -241,7 +253,7 @@ public class MainViewModel : INotifyPropertyChanged
                     ?.RecordingGroup;
 
                 if (newGroup is not null)
-                    TranscriptionQueue.Enqueue(newGroup);
+                    await TranscriptionQueue.FinalizeRecordingAsync(newGroup);
             }
         };
 
