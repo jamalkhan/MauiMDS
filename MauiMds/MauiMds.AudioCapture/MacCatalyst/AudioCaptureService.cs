@@ -90,7 +90,7 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase, INativeMicrop
                 Logger.LogWarning(ex, "AudioCaptureService: system audio unavailable, falling back to microphone-only.");
                 _systemAudio.Dispose();
                 _systemAudio = null;
-                LastStartWarning = "screen_recording_denied";
+                LastStartWarning = AudioCaptureWarnings.ScreenRecordingDenied;
             }
         }
 

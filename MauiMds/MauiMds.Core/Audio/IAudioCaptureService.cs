@@ -1,5 +1,15 @@
 namespace MauiMds.AudioCapture;
 
+/// <summary>Well-known values for <see cref="IAudioCaptureService.LastStartWarning"/>.</summary>
+public static class AudioCaptureWarnings
+{
+    /// <summary>Mac: Screen Recording permission was denied; system audio capture is unavailable.</summary>
+    public const string ScreenRecordingDenied = "screen_recording_denied";
+
+    /// <summary>Windows: WASAPI loopback initialisation failed; system audio capture is unavailable.</summary>
+    public const string WasapiLoopbackUnavailable = "wasapi_loopback_unavailable";
+}
+
 public interface IAudioCaptureService
 {
     AudioCaptureState State { get; }

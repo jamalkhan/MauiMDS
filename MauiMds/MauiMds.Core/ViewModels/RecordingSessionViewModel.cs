@@ -244,12 +244,19 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
                 };
                 RecordingStarted?.Invoke(this, prelimGroup);
 
-                if (_audioCaptureService.LastStartWarning == "screen_recording_denied")
+                if (_audioCaptureService.LastStartWarning == AudioCaptureWarnings.ScreenRecordingDenied)
                 {
                     await _reportError(
                         "Recording started without system audio: Screen Recording permission denied.",
                         null,
-                        "System audio unavailable — grant Screen Recording permission in System Settings → Privacy & Security → Screen Recording, then restart.");
+                        "System audio unavailable — grant Screen Recording permission in System Settings → Privacy & Security → Screen Recording, then restart the app.");
+                }
+                else if (_audioCaptureService.LastStartWarning == AudioCaptureWarnings.WasapiLoopbackUnavailable)
+                {
+                    await _reportError(
+                        "Recording started without system audio: WASAPI loopback unavailable.",
+                        null,
+                        "System audio capture requires 'Stereo Mix' to be enabled. To enable it: right-click the speaker icon in the taskbar → Sounds → Recording tab → right-click in the device list → Show Disabled Devices → right-click Stereo Mix → Enable.");
                 }
             }
             catch (Exception ex)

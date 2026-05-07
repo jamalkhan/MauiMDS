@@ -19,6 +19,9 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
     private string? _tempSysWavPath;
     private string? _desiredSysOutputPath;
 
+    // Live chunk emission
+    private WindowsLiveChunkWriter? _liveChunkWriter;
+
     private int _encoderBitRate;
     private DateTimeOffset _recordingStarted;
 
@@ -62,6 +65,13 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
                 BufferMilliseconds = 50,
             };
             _micWaveWriter = new WaveFileWriter(_tempMicWavPath, _waveIn.WaveFormat);
+
+            if (options.EnableLiveChunks)
+            {
+                _liveChunkWriter = new WindowsLiveChunkWriter(_waveIn.WaveFormat, options.LiveChunkInterval, Logger);
+                _liveChunkWriter.ChunkReady += (_, chunk) => RaiseLiveChunkAvailable(chunk);
+            }
+
             _waveIn.DataAvailable += OnMicDataAvailable;
             _waveIn.StartRecording();
         }
@@ -92,7 +102,7 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
                 _desiredSysOutputPath = null;
 
                 if (options.CaptureMicrophone)
-                    LastStartWarning = "screen_recording_denied";
+                    LastStartWarning = AudioCaptureWarnings.WasapiLoopbackUnavailable;
                 else
                     throw;
             }
@@ -109,6 +119,7 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
         TryDeleteFile(_tempMicWavPath); _tempMicWavPath = null;
         _sysAudio?.Dispose(); _sysAudio = null;
         TryDeleteFile(_tempSysWavPath); _tempSysWavPath = null;
+        _liveChunkWriter?.Dispose(); _liveChunkWriter = null;
         _desiredMicOutputPath = null;
         _desiredSysOutputPath = null;
         return Task.CompletedTask;
@@ -127,6 +138,14 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
             _micWaveWriter!.Flush();
             _micWaveWriter.Dispose();
             _micWaveWriter = null;
+        }
+
+        // Flush the last live chunk (if any) before signalling that recording stopped.
+        if (_liveChunkWriter is not null)
+        {
+            await _liveChunkWriter.FlushLastChunkAsync();
+            _liveChunkWriter.Dispose();
+            _liveChunkWriter = null;
         }
 
         // Stop system audio.
@@ -178,6 +197,7 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
         _micWaveWriter?.Dispose();
         _waveIn?.Dispose();
         _sysAudio?.Dispose();
+        _liveChunkWriter?.Dispose();
         TryDeleteFile(_tempMicWavPath);
         TryDeleteFile(_tempSysWavPath);
     }
@@ -283,5 +303,8 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase
     }
 
     private void OnMicDataAvailable(object? sender, WaveInEventArgs e)
-        => _micWaveWriter?.Write(e.Buffer, 0, e.BytesRecorded);
+    {
+        _micWaveWriter?.Write(e.Buffer, 0, e.BytesRecorded);
+        _liveChunkWriter?.Write(e.Buffer, 0, e.BytesRecorded);
+    }
 }
