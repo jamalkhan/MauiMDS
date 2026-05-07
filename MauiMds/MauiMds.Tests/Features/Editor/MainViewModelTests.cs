@@ -1,3 +1,4 @@
+using MauiMds;
 using MauiMds.Features.Editor;
 using MauiMds.Features.Session;
 using MauiMds.Features.Workspace;
@@ -5,6 +6,7 @@ using MauiMds.Logging;
 using MauiMds.Models;
 using MauiMds.Services;
 using MauiMds.Tests.TestHelpers;
+using MauiMds.Transcription;
 using MauiMds.ViewModels;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -81,6 +83,10 @@ public sealed class MainViewModelTests
             _audioCaptureService,
             _audioPlayerService,
             _pipelineFactory,
+            new FakeTranscriptStorage(),
+            new FakeTranscriptFormatter(),
+            new FakeSpeakerMergeStrategy(),
+            new FakeFileSystem(),
             NullLoggerFactory.Instance,
             _dispatcher,
             _applicationLifetime,

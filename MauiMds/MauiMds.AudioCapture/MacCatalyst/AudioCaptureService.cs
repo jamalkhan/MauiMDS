@@ -1,11 +1,11 @@
 using AVFoundation;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 
 namespace MauiMds.AudioCapture.MacCatalyst;
 
 public sealed class AudioCaptureService : AudioCaptureServiceBase, INativeMicrophoneSource
 {
+    private readonly IAudioFormatConverter _formatConverter;
     private SystemAudioOutput? _systemAudio;
     private MicrophoneInput? _micAudio;
     private AudioFileWriter? _micWriter;
@@ -20,7 +20,11 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase, INativeMicrop
     // INativeMicrophoneSource — fires CMSampleBuffer.Handle for each mic buffer.
     public event EventHandler<nint>? NativeSampleBufferAvailable;
 
-    public AudioCaptureService(ILogger<AudioCaptureService> logger) : base(logger) { }
+    public AudioCaptureService(IAudioFormatConverter formatConverter, ILogger<AudioCaptureService> logger)
+        : base(logger)
+    {
+        _formatConverter = formatConverter;
+    }
 
     // ── Permissions ───────────────────────────────────────────────────────────
 
@@ -236,7 +240,7 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase, INativeMicrop
             return micResult;
 
         var tempM4aPath = micResult.FilePath;
-        var convertedResult = await ConvertToTargetFormatAsync(tempM4aPath, _desiredMicOutputPath, micResult.Duration);
+        var convertedResult = await _formatConverter.ConvertAsync(tempM4aPath, _desiredMicOutputPath, micResult.Duration);
 
         if (convertedResult.Success)
         {
@@ -249,96 +253,11 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase, INativeMicrop
         Logger.LogWarning("AudioCaptureService: format conversion failed ({Err}) — keeping temp M4A at {Path}",
             convertedResult.ErrorMessage, tempM4aPath);
 
-        // Return temp M4A as a fallback so the recording is not lost.
         return new AudioCaptureResult
         {
             Success = true,
             AudioFilePaths = [tempM4aPath],
             Duration = micResult.Duration
         };
-    }
-
-    private async Task<AudioCaptureResult> ConvertToTargetFormatAsync(
-        string sourcePath, string targetPath, TimeSpan duration)
-    {
-        var ext = Path.GetExtension(targetPath).ToLowerInvariant();
-        return ext switch
-        {
-            ".flac" => await ConvertToFlacAsync(sourcePath, targetPath, duration),
-            ".mp3"  => await ConvertToMp3Async(sourcePath, targetPath, duration),
-            _ => new AudioCaptureResult { Success = false, ErrorMessage = $"Unsupported recording format: {ext}" }
-        };
-    }
-
-    private async Task<AudioCaptureResult> ConvertToFlacAsync(
-        string sourcePath, string targetPath, TimeSpan duration)
-    {
-        var (exitCode, stderr) = await RunProcessAsync(
-            "/usr/bin/afconvert",
-            $"-f fLaC -d fLaC \"{sourcePath}\" \"{targetPath}\"");
-
-        if (exitCode != 0 || !File.Exists(targetPath))
-        {
-            Logger.LogError("afconvert FLAC failed (code {Code}): {Err}", exitCode, stderr);
-            return new AudioCaptureResult
-            {
-                Success = false,
-                ErrorMessage = $"FLAC conversion failed (afconvert exited {exitCode}). {stderr}".Trim()
-            };
-        }
-        return new AudioCaptureResult { Success = true, AudioFilePaths = [targetPath], Duration = duration };
-    }
-
-    private async Task<AudioCaptureResult> ConvertToMp3Async(
-        string sourcePath, string targetPath, TimeSpan duration)
-    {
-        var ffmpeg = FindFfmpeg();
-        if (ffmpeg is null)
-        {
-            Logger.LogWarning("ffmpeg not found — cannot convert to MP3.");
-            return new AudioCaptureResult
-            {
-                Success = false,
-                ErrorMessage = "MP3 recording requires ffmpeg. Install it with: brew install ffmpeg"
-            };
-        }
-
-        var (exitCode, stderr) = await RunProcessAsync(
-            ffmpeg, $"-i \"{sourcePath}\" -q:a 2 -y \"{targetPath}\"");
-
-        if (exitCode != 0 || !File.Exists(targetPath))
-        {
-            Logger.LogError("ffmpeg MP3 failed (code {Code}): {Err}", exitCode, stderr);
-            return new AudioCaptureResult
-            {
-                Success = false,
-                ErrorMessage = $"MP3 conversion failed (ffmpeg exited {exitCode}). {stderr}".Trim()
-            };
-        }
-        return new AudioCaptureResult { Success = true, AudioFilePaths = [targetPath], Duration = duration };
-    }
-
-    private static string? FindFfmpeg()
-    {
-        string[] candidates = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"];
-        return candidates.FirstOrDefault(File.Exists);
-    }
-
-    private static async Task<(int ExitCode, string Stderr)> RunProcessAsync(string fileName, string arguments)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = fileName,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        using var process = new Process { StartInfo = psi };
-        process.Start();
-        var stderr = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        return (process.ExitCode, stderr);
     }
 }

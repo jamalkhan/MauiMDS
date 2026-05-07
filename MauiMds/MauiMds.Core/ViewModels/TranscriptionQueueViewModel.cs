@@ -26,6 +26,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
     public event EventHandler? WorkspaceRefreshNeeded;
 
     private readonly ITranscriptionPipelineFactory _pipelineFactory;
+    private readonly ITranscriptStorage _storage;
+    private readonly ITranscriptFormatter _formatter;
+    private readonly ISpeakerMergeStrategy _mergeStrategy;
     private readonly WorkspaceExplorerState _workspace;
     private readonly ILogger<TranscriptionQueueViewModel> _logger;
     private readonly IMainThreadDispatcher _mainThreadDispatcher;
@@ -57,6 +60,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
     public TranscriptionQueueViewModel(
         ITranscriptionPipelineFactory pipelineFactory,
+        ITranscriptStorage storage,
+        ITranscriptFormatter formatter,
+        ISpeakerMergeStrategy mergeStrategy,
         WorkspaceExplorerState workspace,
         ILogger<TranscriptionQueueViewModel> logger,
         IMainThreadDispatcher mainThreadDispatcher,
@@ -69,6 +75,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         Action<string> setStatus)
     {
         _pipelineFactory = pipelineFactory;
+        _storage = storage;
+        _formatter = formatter;
+        _mergeStrategy = mergeStrategy;
         _workspace = workspace;
         _logger = logger;
         _mainThreadDispatcher = mainThreadDispatcher;
@@ -139,7 +148,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         var progressDoc = new MarkdownDocument
         {
             FilePath = string.Empty,
-            Content = BuildLiveTranscriptMarkdown(group, _liveStartedAt, _liveSegments),
+            Content = _formatter.FormatLiveProgress(group, _liveStartedAt, _liveSegments),
             IsUntitled = true,
             FileName = group.DisplayName
         };
@@ -197,11 +206,11 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         List<TranscriptSegment> segments;
         lock (_liveLock) { segments = [.. _liveSegments]; }
 
-        var transcriptPath = Path.Combine(group.DirectoryPath, group.BaseName + "_transcript.md");
+        var transcriptPath = _storage.GetTranscriptPath(group);
         try
         {
-            var markdown = BuildFinalLiveTranscriptMarkdown(group, _liveStartedAt, segments);
-            await File.WriteAllTextAsync(transcriptPath, markdown);
+            var markdown = _formatter.FormatFinalLiveTranscript(group, _liveStartedAt, segments);
+            await _storage.WriteAsync(transcriptPath, markdown);
             _logger.LogInformation("Live transcript saved: {Path}", transcriptPath);
         }
         catch (Exception ex)
@@ -244,7 +253,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
         if (group is null) return;
 
-        var content = BuildLiveTranscriptMarkdown(group, startedAt, _liveSegments);
+        var content = _formatter.FormatLiveProgress(group, startedAt, _liveSegments);
         EditorProgressUpdated?.Invoke(this, new TranscriptionProgressEventArgs
         {
             Group = group,
@@ -317,26 +326,15 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
             }
 
             // Merge diarization speaker labels into the live segments by timestamp overlap.
-            var mergedSegments = MergeDiarizationIntoLive(job.LiveSegments, doc.Segments);
+            var speakerSegments = doc.Segments
+                .Select(s => new SpeakerSegment { SpeakerLabel = s.SpeakerLabel ?? "Speaker", Start = s.Start, End = s.End })
+                .ToList();
+            var mergedSegments = _mergeStrategy.Merge(job.LiveSegments, speakerSegments);
 
             // Rewrite the transcript with speaker-labelled segments.
-            var transcriptPath = group.TranscriptPath
-                ?? Path.Combine(group.DirectoryPath, group.BaseName + "_transcript.md");
-
-            RecordingPathBuilder.TryParseRecordingStart(group.BaseName, out var groupRecordingStart);
-
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"# Transcript: {group.DisplayName}");
-            sb.AppendLine($"Generated: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine($"Engine: {doc.TranscriptionEngineName} | {doc.DiarizationEngineName}");
-            sb.AppendLine();
-            sb.AppendLine("---");
-            sb.AppendLine();
-            AppendSpeakerGroupedSegments(sb,
-                mergedSegments.Select(s => (s.Start, s.End, s.SpeakerLabel ?? "Speaker", s.Text)),
-                groupRecordingStart == default ? null : groupRecordingStart);
-
-            await File.WriteAllTextAsync(transcriptPath, sb.ToString());
+            var transcriptPath = group.TranscriptPath ?? _storage.GetTranscriptPath(group);
+            var content = _formatter.FormatDiarizedTranscript(group, mergedSegments, doc);
+            await _storage.WriteAsync(transcriptPath, content);
             _logger.LogInformation("Diarization complete — transcript updated: {Path}", transcriptPath);
 
             WorkspaceRefreshNeeded?.Invoke(this, EventArgs.Empty);
@@ -350,41 +348,6 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         }
     }
 
-    private static IReadOnlyList<TranscriptSegment> MergeDiarizationIntoLive(
-        IReadOnlyList<TranscriptSegment> liveSegments,
-        IReadOnlyList<TranscriptSegment> diarizedSegments)
-    {
-        // diarizedSegments come from StandardTranscriptionPipeline which already has
-        // speaker labels assigned from pyannote by overlap. We match live segments to
-        // diarized segments by finding the best timestamp overlap.
-        var result = new List<TranscriptSegment>(liveSegments.Count);
-        foreach (var live in liveSegments)
-        {
-            string? bestLabel = null;
-            var bestOverlap = TimeSpan.Zero;
-            foreach (var diar in diarizedSegments)
-            {
-                var overlapStart = live.Start > diar.Start ? live.Start : diar.Start;
-                var overlapEnd   = live.End   < diar.End   ? live.End   : diar.End;
-                var overlap = overlapEnd - overlapStart;
-                if (overlap > bestOverlap)
-                {
-                    bestOverlap = overlap;
-                    bestLabel = diar.SpeakerLabel;
-                }
-            }
-            result.Add(new TranscriptSegment
-            {
-                Text         = live.Text,
-                Start        = live.Start,
-                End          = live.End,
-                Confidence   = live.Confidence,
-                SpeakerLabel = bestLabel ?? live.SpeakerLabel ?? "Speaker"
-            });
-        }
-        return result;
-    }
-
     // ── Batch transcription queue (re-transcribe / fallback) ──────────────────
 
     public void EnqueueWithProgressDocument(RecordingGroup group)
@@ -392,7 +355,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         var progressDoc = new MarkdownDocument
         {
             FilePath = string.Empty,
-            Content = BuildTranscriptionProgressMarkdown(DateTime.Now, []),
+            Content = _formatter.FormatBatchProgress(DateTime.Now, []),
             IsUntitled = true,
             FileName = group.DisplayName
         };
@@ -481,7 +444,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         void PushProgressRow(string row)
         {
             progressRows.Add(row);
-            var content = BuildTranscriptionProgressMarkdown(startedAt, progressRows);
+            var content = _formatter.FormatBatchProgress(startedAt, progressRows);
             EditorProgressUpdated?.Invoke(this, new TranscriptionProgressEventArgs
             {
                 Group = group,
@@ -505,27 +468,18 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
                 config.WhisperBinaryPath, config.WhisperModelPath,
                 config.PyannotePythonPath, config.PyannoteHfToken);
 
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"# Transcript: {group.DisplayName}");
-            sb.AppendLine($"Generated: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine();
-            sb.AppendLine("---");
-            sb.AppendLine();
-
-            RecordingPathBuilder.TryParseRecordingStart(group.BaseName, out var groupRecordingStart);
-
-            var allSegments = new List<(TimeSpan Start, TimeSpan End, string Speaker, string Text)>();
+            var allSegments = new List<TranscriptSegment>();
 
             if (group.MicFilePath is { } micPath)
             {
                 var micDoc = await pipeline.RunAsync(micPath, progress, _cts.Token);
                 foreach (var seg in micDoc.Segments)
                 {
-                    // Use diarization label if present; otherwise neutral source label.
-                    var label = !string.IsNullOrEmpty(seg.SpeakerLabel)
-                        ? seg.SpeakerLabel
-                        : "Microphone";
-                    allSegments.Add((seg.Start, seg.End, label, seg.Text));
+                    allSegments.Add(new TranscriptSegment
+                    {
+                        Start = seg.Start, End = seg.End, Text = seg.Text, Confidence = seg.Confidence,
+                        SpeakerLabel = !string.IsNullOrEmpty(seg.SpeakerLabel) ? seg.SpeakerLabel : "Microphone"
+                    });
                 }
             }
 
@@ -534,18 +488,17 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
                 var sysDoc = await pipeline.RunAsync(sysPath, progress, _cts.Token);
                 foreach (var seg in sysDoc.Segments)
                 {
-                    var label = !string.IsNullOrEmpty(seg.SpeakerLabel)
-                        ? seg.SpeakerLabel
-                        : "System Audio";
-                    allSegments.Add((seg.Start, seg.End, label, seg.Text));
+                    allSegments.Add(new TranscriptSegment
+                    {
+                        Start = seg.Start, End = seg.End, Text = seg.Text, Confidence = seg.Confidence,
+                        SpeakerLabel = !string.IsNullOrEmpty(seg.SpeakerLabel) ? seg.SpeakerLabel : "System Audio"
+                    });
                 }
             }
 
-            AppendSpeakerGroupedSegments(sb, allSegments.OrderBy(s => s.Start),
-                groupRecordingStart == default ? null : groupRecordingStart);
-
-            var transcriptPath = Path.Combine(group.DirectoryPath, group.BaseName + "_transcript.md");
-            await File.WriteAllTextAsync(transcriptPath, sb.ToString());
+            var transcriptPath = _storage.GetTranscriptPath(group);
+            var transcriptContent = _formatter.FormatGroupTranscript(group, allSegments.OrderBy(s => s.Start));
+            await _storage.WriteAsync(transcriptPath, transcriptContent);
 
             WorkspaceRefreshNeeded?.Invoke(this, EventArgs.Empty);
 
@@ -565,8 +518,8 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         if (_getSelectedGroup() is not { } group) return;
         if (!group.HasTranscript || group.TranscriptPath is not { } transcriptPath) return;
 
-        var rotated = GetRotatedTranscriptPath(transcriptPath);
-        File.Move(transcriptPath, rotated);
+        var rotated = _storage.GetRotatedPath(transcriptPath);
+        _storage.Move(transcriptPath, rotated);
         _logger.LogInformation("Re-transcribe: {Name} — existing transcript rotated to {Rotated}.",
             group.DisplayName, rotated);
 
@@ -586,7 +539,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         var progressDoc = new MarkdownDocument
         {
             FilePath = string.Empty,
-            Content = BuildTranscriptionProgressMarkdown(DateTime.Now, []),
+            Content = _formatter.FormatBatchProgress(DateTime.Now, []),
             IsUntitled = true,
             FileName = freshGroup.DisplayName
         };
@@ -616,8 +569,8 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
                 _mainThreadDispatcher.BeginInvokeOnMainThread(() => _setStatus($"Transcribing… {v:P0}")));
 
             var doc = await pipeline.RunAsync(audioPath, progress);
-            var markdown = BuildTranscriptMarkdown(doc, audioPath);
-            await File.WriteAllTextAsync(transcriptPath, markdown);
+            var markdown = _formatter.FormatSingleFileTranscript(doc, audioPath);
+            await _storage.WriteAsync(transcriptPath, markdown);
 
             _setStatus(string.Empty);
 
@@ -627,145 +580,6 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             await _reportError("Transcription failed.", ex, ex.Message);
-        }
-    }
-
-    // ── Markdown builders ─────────────────────────────────────────────────────
-
-    private static string BuildLiveTranscriptMarkdown(
-        RecordingGroup group,
-        DateTime startedAt,
-        IReadOnlyList<TranscriptSegment> segments)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"# Live Transcript: {group.DisplayName}");
-        sb.AppendLine($"Recording started: {startedAt:yyyy-MM-dd HH:mm:ss}");
-        sb.AppendLine();
-
-        if (segments.Count == 0)
-        {
-            sb.AppendLine("*Transcription in progress…*");
-            return sb.ToString();
-        }
-
-        sb.AppendLine("---");
-        sb.AppendLine();
-        AppendSpeakerGroupedSegments(sb,
-            segments.Select(s => (s.Start, s.End, s.SpeakerLabel ?? "Speaker", s.Text)),
-            recordingStart: startedAt);
-        return sb.ToString();
-    }
-
-    private static string BuildFinalLiveTranscriptMarkdown(
-        RecordingGroup group,
-        DateTime startedAt,
-        IReadOnlyList<TranscriptSegment> segments)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"# Transcript: {group.DisplayName}");
-        sb.AppendLine($"Generated: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
-        sb.AppendLine();
-        sb.AppendLine("---");
-        sb.AppendLine();
-
-        if (segments.Count == 0)
-        {
-            sb.AppendLine("*No speech detected.*");
-            return sb.ToString();
-        }
-
-        AppendSpeakerGroupedSegments(sb,
-            segments.Select(s => (s.Start, s.End, s.SpeakerLabel ?? "Speaker", s.Text)),
-            recordingStart: startedAt);
-        return sb.ToString();
-    }
-
-    private static string BuildTranscriptionProgressMarkdown(DateTime startedAt, IList<string> progressRows)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("# Audio File Found. Beginning Transcription.");
-        sb.AppendLine();
-        sb.AppendLine($"* {startedAt:yyyy-MM-dd HH:mm:ss} Transcription Started");
-        foreach (var row in progressRows)
-            sb.AppendLine(row);
-        return sb.ToString();
-    }
-
-    private static string BuildTranscriptMarkdown(TranscriptDocument doc, string audioPath)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"# Transcript: {Path.GetFileName(audioPath)}");
-        sb.AppendLine($"Generated: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
-        sb.AppendLine($"Engine: {doc.TranscriptionEngineName} | {doc.DiarizationEngineName}");
-        sb.AppendLine($"Duration: {doc.Duration:hh\\:mm\\:ss}");
-        sb.AppendLine();
-        sb.AppendLine("---");
-        sb.AppendLine();
-
-        var baseName = Path.GetFileNameWithoutExtension(audioPath);
-        RecordingPathBuilder.TryParseGroupFile(baseName, out var fileBaseName, out _);
-        DateTime? startTime = RecordingPathBuilder.TryParseRecordingStart(
-            string.IsNullOrEmpty(fileBaseName) ? baseName : fileBaseName, out var t) ? t : null;
-
-        AppendSpeakerGroupedSegments(sb,
-            doc.Segments.Select(s => (s.Start, s.End,
-                !string.IsNullOrEmpty(s.SpeakerLabel) ? s.SpeakerLabel : "Speaker",
-                s.Text)),
-            startTime);
-
-        return sb.ToString();
-    }
-
-    private static void AppendSpeakerGroupedSegments(
-        System.Text.StringBuilder sb,
-        IEnumerable<(TimeSpan Start, TimeSpan End, string Speaker, string Text)> segments,
-        DateTime? recordingStart = null)
-    {
-        if (recordingStart is null)
-            sb.AppendLine("> *All timestamps relative to recording start time.*");
-
-        string? currentSpeaker = null;
-
-        foreach (var seg in segments)
-        {
-            if (!string.Equals(seg.Speaker, currentSpeaker, StringComparison.Ordinal))
-            {
-                if (currentSpeaker is not null) sb.AppendLine();
-                sb.AppendLine($"### {seg.Speaker}");
-                currentSpeaker = seg.Speaker;
-            }
-
-            string startTs, endTs;
-            if (recordingStart is { } rs)
-            {
-                startTs = (rs + seg.Start).ToString("HH:mm:ss");
-                endTs   = (rs + seg.End).ToString("HH:mm:ss");
-            }
-            else
-            {
-                startTs = seg.Start.ToString(@"hh\:mm\:ss");
-                endTs   = seg.End.ToString(@"hh\:mm\:ss");
-            }
-
-            sb.AppendLine($"> *[{startTs} – {endTs}]* {seg.Text}");
-        }
-
-        if (currentSpeaker is not null) sb.AppendLine();
-    }
-
-    private static string GetRotatedTranscriptPath(string transcriptPath)
-    {
-        var dir  = Path.GetDirectoryName(transcriptPath) ?? string.Empty;
-        var stem = Path.GetFileNameWithoutExtension(transcriptPath);
-        var ext  = Path.GetExtension(transcriptPath);
-
-        var candidate = Path.Combine(dir, $"{stem}.old{ext}");
-        if (!File.Exists(candidate)) return candidate;
-
-        for (var i = 1; ; i++)
-        {
-            candidate = Path.Combine(dir, $"{stem}.old.{i}{ext}");
-            if (!File.Exists(candidate)) return candidate;
         }
     }
 

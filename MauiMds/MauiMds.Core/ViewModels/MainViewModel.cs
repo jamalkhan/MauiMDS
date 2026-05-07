@@ -57,6 +57,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly IMainThreadDispatcher _mainThreadDispatcher;
     private readonly IApplicationLifetime _applicationLifetime;
     private readonly IAudioCaptureService _audioCaptureService;
+    private readonly IFileSystem _fileSystem;
 
     public RecordingSessionViewModel Recording { get; }
     public TranscriptionQueueViewModel TranscriptionQueue { get; }
@@ -113,6 +114,10 @@ public class MainViewModel : INotifyPropertyChanged
         IAudioCaptureService audioCaptureService,
         IAudioPlayerService audioPlayerService,
         ITranscriptionPipelineFactory transcriptionPipelineFactory,
+        ITranscriptStorage transcriptStorage,
+        ITranscriptFormatter transcriptFormatter,
+        ISpeakerMergeStrategy speakerMergeStrategy,
+        IFileSystem fileSystem,
         ILoggerFactory loggerFactory,
         IMainThreadDispatcher mainThreadDispatcher,
         IApplicationLifetime applicationLifetime,
@@ -133,6 +138,7 @@ public class MainViewModel : INotifyPropertyChanged
         _mainThreadDispatcher = mainThreadDispatcher;
         _applicationLifetime = applicationLifetime;
         _audioCaptureService = audioCaptureService;
+        _fileSystem = fileSystem;
         _logger = logger;
         _sessionState = _sessionRestoreCoordinator.Load();
         Workspace = workspaceExplorerState;
@@ -219,8 +225,8 @@ public class MainViewModel : INotifyPropertyChanged
             ReportErrorAsync);
 
         TranscriptionQueue = new TranscriptionQueueViewModel(
-            transcriptionPipelineFactory, Workspace,
-            loggerFactory.CreateLogger<TranscriptionQueueViewModel>(),
+            transcriptionPipelineFactory, transcriptStorage, transcriptFormatter, speakerMergeStrategy,
+            Workspace, loggerFactory.CreateLogger<TranscriptionQueueViewModel>(),
             mainThreadDispatcher, applicationLifetime, alertService,
             () => new TranscriptionConfig(
                 Preferences.Current.TranscriptionEngine, Preferences.Current.DiarizationEngine,
@@ -1505,10 +1511,10 @@ public class MainViewModel : INotifyPropertyChanged
             if (group.MicFilePath is not null) MoveToTrash(group.MicFilePath);
             if (group.SysFilePath is not null) MoveToTrash(group.SysFilePath);
 
-            if (Directory.Exists(group.DirectoryPath))
+            if (_fileSystem.DirectoryExists(group.DirectoryPath))
             {
                 var transcriptBase = group.BaseName + "_transcript";
-                foreach (var file in Directory.GetFiles(group.DirectoryPath))
+                foreach (var file in _fileSystem.GetFiles(group.DirectoryPath))
                 {
                     var name = Path.GetFileName(file);
                     if (name.StartsWith(transcriptBase, StringComparison.OrdinalIgnoreCase) &&
@@ -1527,14 +1533,14 @@ public class MainViewModel : INotifyPropertyChanged
         return Task.CompletedTask;
     }
 
-    private static void MoveToTrash(string path)
+    private void MoveToTrash(string path)
     {
-        if (!File.Exists(path)) return;
+        if (!_fileSystem.FileExists(path)) return;
 #if MACCATALYST
         var url = Foundation.NSUrl.FromFilename(path);
         Foundation.NSFileManager.DefaultManager.TrashItem(url, out _, out _);
 #else
-        File.Delete(path);
+        _fileSystem.DeleteFile(path);
 #endif
     }
 
@@ -1741,7 +1747,7 @@ public class MainViewModel : INotifyPropertyChanged
             SelectedViewMode = _editorModeSupportController.ResolveSupportedViewMode(_sessionState.LastViewMode, showUnsupportedSnackbar: true);
 
             var restoredWorkspacePath = _sessionRestoreCoordinator.ResolveWorkspaceRestorePath(_sessionState, out var workspaceRepickMessage);
-            var hasWorkspaceAccess = !string.IsNullOrWhiteSpace(restoredWorkspacePath) && Directory.Exists(restoredWorkspacePath);
+            var hasWorkspaceAccess = !string.IsNullOrWhiteSpace(restoredWorkspacePath) && _fileSystem.DirectoryExists(restoredWorkspacePath);
             if (hasWorkspaceAccess)
             {
                 try
@@ -1824,7 +1830,7 @@ public class MainViewModel : INotifyPropertyChanged
             _sessionState.DocumentFilePath,
             !string.IsNullOrWhiteSpace(_sessionState.DocumentFileBookmark));
 
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        if (string.IsNullOrWhiteSpace(filePath) || !_fileSystem.FileExists(filePath))
         {
             if (needsRepick)
             {
@@ -1947,14 +1953,14 @@ public class MainViewModel : INotifyPropertyChanged
             startupStopwatch.ElapsedMilliseconds);
     }
 
-    private static string ResolveCurrentWorkspaceFolderPath(string workspaceRootPath, string? currentFolderPath)
+    private string ResolveCurrentWorkspaceFolderPath(string workspaceRootPath, string? currentFolderPath)
     {
         if (string.IsNullOrWhiteSpace(workspaceRootPath))
         {
             return string.Empty;
         }
 
-        if (string.IsNullOrWhiteSpace(currentFolderPath) || !Directory.Exists(currentFolderPath))
+        if (string.IsNullOrWhiteSpace(currentFolderPath) || !_fileSystem.DirectoryExists(currentFolderPath))
         {
             return workspaceRootPath;
         }

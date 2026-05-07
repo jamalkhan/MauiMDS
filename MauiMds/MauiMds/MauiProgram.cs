@@ -98,9 +98,19 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ISessionRestoreCoordinator, SessionRestoreCoordinator>();
 		builder.Services.AddSingleton<IPdfSaveDialogService, PdfSaveDialogService>();
 		builder.Services.AddSingleton<IPdfExportService, PdfExportService>();
+		builder.Services.AddSingleton<IProcessRunner, SystemProcessRunner>();
+#if MACCATALYST
+		builder.Services.AddSingleton<IAudioFormatConverter, MacAudioFormatConverter>();
+#elif WINDOWS
+		builder.Services.AddSingleton<IAudioFormatConverter, WindowsAudioFormatConverter>();
+#endif
 		builder.Services.AddSingleton<IAudioCaptureService, AudioCaptureService>();
 		builder.Services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
+		builder.Services.AddSingleton<ISpeakerMergeStrategy, OverlapSpeakerMergeStrategy>();
 		builder.Services.AddSingleton<ITranscriptionPipelineFactory, TranscriptionPipelineFactory>();
+		builder.Services.AddSingleton<ITranscriptStorage, FileTranscriptStorage>();
+		builder.Services.AddSingleton<ITranscriptFormatter, MarkdownTranscriptFormatter>();
+		builder.Services.AddSingleton<IFileSystem, RealFileSystem>();
 		builder.Services.AddSingleton<IApplicationLifetime, MauiApplicationLifetime>();
 		builder.Services.AddSingleton<IAlertService, MauiAlertService>();
 		builder.Services.AddSingleton<PreferencesViewModel>();

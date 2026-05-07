@@ -17,10 +17,12 @@ namespace MauiMds.Transcription;
 public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
 {
     private readonly ILoggerFactory _loggerFactory;
+    private readonly ISpeakerMergeStrategy _mergeStrategy;
 
-    public TranscriptionPipelineFactory(ILoggerFactory loggerFactory)
+    public TranscriptionPipelineFactory(ILoggerFactory loggerFactory, ISpeakerMergeStrategy mergeStrategy)
     {
         _loggerFactory = loggerFactory;
+        _mergeStrategy = mergeStrategy;
     }
 
     // Used by the Preferences UI to enumerate engine names and availability.
@@ -83,6 +85,7 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
         return new StandardTranscriptionPipeline(
             transcriptionEngine,
             diarizationEngine,
+            _mergeStrategy,
             _loggerFactory.CreateLogger<StandardTranscriptionPipeline>());
     }
 

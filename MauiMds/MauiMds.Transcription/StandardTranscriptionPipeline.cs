@@ -4,13 +4,13 @@ namespace MauiMds.Transcription;
 
 /// <summary>
 /// Runs transcription then diarization and merges the results.
-/// Transcript segments are labelled by finding the diarization speaker
-/// with the greatest time overlap for each segment.
+/// Speaker assignment is delegated to the injected <see cref="ISpeakerMergeStrategy"/>.
 /// </summary>
 internal sealed class StandardTranscriptionPipeline : ITranscriptionPipeline
 {
     private readonly ITranscriptionEngine _transcription;
     private readonly IDiarizationEngine _diarization;
+    private readonly ISpeakerMergeStrategy _mergeStrategy;
     private readonly ILogger _logger;
 
     public string TranscriptionEngineName => _transcription.Name;
@@ -19,10 +19,12 @@ internal sealed class StandardTranscriptionPipeline : ITranscriptionPipeline
     public StandardTranscriptionPipeline(
         ITranscriptionEngine transcription,
         IDiarizationEngine diarization,
+        ISpeakerMergeStrategy mergeStrategy,
         ILogger logger)
     {
         _transcription = transcription;
         _diarization = diarization;
+        _mergeStrategy = mergeStrategy;
         _logger = logger;
     }
 
@@ -53,7 +55,7 @@ internal sealed class StandardTranscriptionPipeline : ITranscriptionPipeline
 
         var merged = speakerSegments.Count == 0
             ? transcriptSegments
-            : MergeByOverlap(transcriptSegments, speakerSegments);
+            : _mergeStrategy.Merge(transcriptSegments, speakerSegments);
 
         progress?.Report(1.0);
 
@@ -69,51 +71,4 @@ internal sealed class StandardTranscriptionPipeline : ITranscriptionPipeline
         };
     }
 
-    /// <summary>
-    /// Assigns each transcript segment the speaker label from the diarization
-    /// segment that has the greatest temporal overlap with it.
-    /// </summary>
-    private static IReadOnlyList<TranscriptSegment> MergeByOverlap(
-        IReadOnlyList<TranscriptSegment> segments,
-        IReadOnlyList<SpeakerSegment> speakers)
-    {
-        var result = new List<TranscriptSegment>(segments.Count);
-
-        foreach (var seg in segments)
-        {
-            var bestLabel = FindBestSpeaker(seg.Start, seg.End, speakers);
-            result.Add(new TranscriptSegment
-            {
-                SpeakerLabel = bestLabel ?? seg.SpeakerLabel,
-                Text = seg.Text,
-                Start = seg.Start,
-                End = seg.End,
-                Confidence = seg.Confidence
-            });
-        }
-
-        return result;
-    }
-
-    private static string? FindBestSpeaker(
-        TimeSpan start, TimeSpan end, IReadOnlyList<SpeakerSegment> speakers)
-    {
-        string? best = null;
-        var bestOverlap = TimeSpan.Zero;
-
-        foreach (var sp in speakers)
-        {
-            var overlapStart = start > sp.Start ? start : sp.Start;
-            var overlapEnd = end < sp.End ? end : sp.End;
-            var overlap = overlapEnd - overlapStart;
-
-            if (overlap > bestOverlap)
-            {
-                bestOverlap = overlap;
-                best = sp.SpeakerLabel;
-            }
-        }
-
-        return best;
-    }
 }

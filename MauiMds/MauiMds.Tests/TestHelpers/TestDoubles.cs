@@ -1,3 +1,4 @@
+using MauiMds;
 using MauiMds.AudioCapture;
 using MauiMds.Features.Editor;
 using MauiMds.Features.Export;
@@ -11,11 +12,40 @@ using Microsoft.Extensions.Logging;
 
 namespace MauiMds.Tests.TestHelpers;
 
+/// <summary>
+/// Executes all dispatcher calls synchronously inline. Convenient for most tests, but
+/// masks bugs where code incorrectly assumes BeginInvokeOnMainThread is deferred.
+/// Use <see cref="FakeQueuedDispatcher"/> when you need to verify that work is
+/// properly posted to the main thread rather than executing inline.
+/// </summary>
 internal sealed class FakeSynchronousDispatcher : IMainThreadDispatcher
 {
     public void BeginInvokeOnMainThread(Action action) => action();
     public Task InvokeOnMainThreadAsync(Action action) { action(); return Task.CompletedTask; }
     public Task InvokeOnMainThreadAsync(Func<Task> action) => action();
+}
+
+/// <summary>
+/// Queues BeginInvokeOnMainThread actions rather than executing them immediately.
+/// Call <see cref="Flush"/> to run queued actions. InvokeOnMainThreadAsync runs
+/// synchronously (it must complete before the awaiting caller continues).
+/// </summary>
+internal sealed class FakeQueuedDispatcher : IMainThreadDispatcher
+{
+    private readonly Queue<Action> _queue = new();
+
+    public int QueuedCount => _queue.Count;
+
+    public void BeginInvokeOnMainThread(Action action) => _queue.Enqueue(action);
+
+    public Task InvokeOnMainThreadAsync(Action action) { action(); return Task.CompletedTask; }
+    public Task InvokeOnMainThreadAsync(Func<Task> action) => action();
+
+    public void Flush()
+    {
+        while (_queue.Count > 0)
+            _queue.Dequeue()();
+    }
 }
 
 internal sealed class FakeApplicationLifetime : IApplicationLifetime
@@ -219,16 +249,27 @@ internal sealed class FakeAudioCaptureService : IAudioCaptureService
     public AudioCaptureState State { get; private set; } = AudioCaptureState.Idle;
     public string? LastStartWarning { get; set; }
     public AudioPermissionStatus PermissionToReturn { get; set; } = AudioPermissionStatus.Granted;
+    public AudioPermissionStatus? RequestPermissionToReturn { get; set; }
     public AudioCaptureResult ResultToReturn { get; set; } = new() { Success = true };
+
+    /// <summary>
+    /// When set, <see cref="StartAsync"/> throws this exception instead of starting.
+    /// State remains <see cref="AudioCaptureState.Idle"/> and <see cref="StateChanged"/>
+    /// is not fired — mirrors how the real service behaves on a failed start.
+    /// </summary>
+    public Exception? StartException { get; set; }
 
     public event EventHandler<AudioCaptureState>? StateChanged;
     public event EventHandler<LiveAudioChunk>? LiveChunkAvailable;
 
     public Task<AudioPermissionStatus> CheckMicrophonePermissionAsync() => Task.FromResult(PermissionToReturn);
-    public Task<AudioPermissionStatus> RequestMicrophonePermissionAsync() => Task.FromResult(PermissionToReturn);
+    public Task<AudioPermissionStatus> RequestMicrophonePermissionAsync()
+        => Task.FromResult(RequestPermissionToReturn ?? PermissionToReturn);
 
     public Task StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default)
     {
+        if (StartException is not null)
+            throw StartException;
         State = AudioCaptureState.Recording;
         StateChanged?.Invoke(this, State);
         return Task.CompletedTask;
@@ -269,17 +310,134 @@ internal sealed class FakeTranscriptionPipelineFactory : ITranscriptionPipelineF
 {
     public IReadOnlyList<ITranscriptionEngine> AvailableTranscriptionEngines { get; } = [];
     public IReadOnlyList<IDiarizationEngine> AvailableDiarizationEngines { get; } = [];
+    public ILiveTranscriptionSession? SessionToReturn { get; set; }
+    public ITranscriptionPipeline? PipelineToReturn { get; set; }
 
     public ITranscriptionPipeline Create(
         TranscriptionEngineType engine, DiarizationEngineType diarization,
         string whisperBinaryPath = "", string whisperModelPath = "",
         string pyannotePythonPath = "", string pyannoteHfToken = "")
-        => throw new NotSupportedException("Transcription not expected in unit tests.");
+        => PipelineToReturn ?? throw new NotSupportedException("Transcription not expected in unit tests.");
 
     public ILiveTranscriptionSession? CreateLiveSession(
         TranscriptionEngineType engine,
         string whisperBinaryPath = "",
         string whisperModelPath = "",
         INativeMicrophoneSource? nativeMicSource = null)
-        => null;
+        => SessionToReturn;
+}
+
+internal sealed class FakeLiveTranscriptionSession : ILiveTranscriptionSession
+{
+    public event EventHandler<IReadOnlyList<TranscriptSegment>>? SegmentsReady;
+
+    public int FeedChunkCallCount { get; private set; }
+    public bool FlushCalled { get; private set; }
+    public bool IsDisposed { get; private set; }
+    public List<string> FedChunkPaths { get; } = [];
+
+    public Task FeedChunkAsync(string wavChunkPath, TimeSpan chunkStartOffset, CancellationToken ct = default)
+    {
+        FeedChunkCallCount++;
+        FedChunkPaths.Add(wavChunkPath);
+        return Task.CompletedTask;
+    }
+
+    public Task FlushAsync(CancellationToken ct = default) { FlushCalled = true; return Task.CompletedTask; }
+
+    public ValueTask DisposeAsync() { IsDisposed = true; return ValueTask.CompletedTask; }
+
+    public void RaiseSegmentsReady(IReadOnlyList<TranscriptSegment> segments)
+        => SegmentsReady?.Invoke(this, segments);
+}
+
+internal sealed class FakeTranscriptionPipeline : ITranscriptionPipeline
+{
+    public string TranscriptionEngineName { get; set; } = "Fake";
+    public string DiarizationEngineName { get; set; } = "None";
+    public TranscriptDocument DocumentToReturn { get; set; } = new();
+    public int RunCallCount { get; private set; }
+
+    public Task<TranscriptDocument> RunAsync(
+        string audioFilePath,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        RunCallCount++;
+        return Task.FromResult(DocumentToReturn);
+    }
+}
+
+internal sealed class FakeClock : IClock
+{
+    public DateTimeOffset UtcNow { get; set; } = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    public DateTimeOffset Now => UtcNow.ToLocalTime();
+}
+
+internal sealed class FakeTranscriptStorage : ITranscriptStorage
+{
+    public List<(string Path, string Content)> Writes { get; } = [];
+    public List<(string Source, string Dest)> Moves { get; } = [];
+
+    public string GetTranscriptPath(RecordingGroup group)
+        => Path.Combine(group.DirectoryPath, group.BaseName + "_transcript.md");
+
+    public string GetRotatedPath(string existingPath)
+    {
+        var dir  = Path.GetDirectoryName(existingPath) ?? string.Empty;
+        var stem = Path.GetFileNameWithoutExtension(existingPath);
+        var ext  = Path.GetExtension(existingPath);
+        return Path.Combine(dir, $"{stem}.old{ext}");
+    }
+
+    public Task WriteAsync(string path, string content)
+    {
+        Writes.Add((path, content));
+        return Task.CompletedTask;
+    }
+
+    public bool Exists(string path) => Writes.Any(w => w.Path == path);
+
+    public void Move(string sourcePath, string destPath) => Moves.Add((sourcePath, destPath));
+}
+
+internal sealed class FakeTranscriptFormatter : ITranscriptFormatter
+{
+    public string FormatLiveProgress(RecordingGroup group, DateTime startedAt, IReadOnlyList<TranscriptSegment> segments)
+        => $"[live-progress:{group.DisplayName}:{string.Join(",", segments.Select(s => s.Text))}]";
+
+    public string FormatFinalLiveTranscript(RecordingGroup group, DateTime startedAt, IReadOnlyList<TranscriptSegment> segments)
+        => $"[final-live:{group.DisplayName}:{string.Join(",", segments.Select(s => s.Text))}]";
+
+    public string FormatBatchProgress(DateTime startedAt, IList<string> progressRows)
+        => "[batch-progress]";
+
+    public string FormatGroupTranscript(RecordingGroup group, IEnumerable<TranscriptSegment> segments)
+        => $"[group-transcript:{group.BaseName}:{string.Join(",", segments.Select(s => $"{s.SpeakerLabel}:{s.Text}"))}]";
+
+    public string FormatDiarizedTranscript(RecordingGroup group, IReadOnlyList<TranscriptSegment> segments, TranscriptDocument doc)
+        => $"[diarized:{group.BaseName}:{string.Join(",", segments.Select(s => $"{s.SpeakerLabel}:{s.Text}"))}]";
+
+    public string FormatSingleFileTranscript(TranscriptDocument doc, string audioPath)
+        => $"[single-file:{Path.GetFileName(audioPath)}:{string.Join(",", doc.Segments.Select(s => s.Text))}]";
+}
+
+internal sealed class FakeSpeakerMergeStrategy : ISpeakerMergeStrategy
+{
+    public IReadOnlyList<TranscriptSegment> Merge(
+        IReadOnlyList<TranscriptSegment> source,
+        IReadOnlyList<SpeakerSegment> speakers)
+        => source;
+}
+
+internal sealed class FakeFileSystem : IFileSystem
+{
+    public HashSet<string> ExistingFiles { get; } = [];
+    public HashSet<string> ExistingDirectories { get; } = [];
+    public List<string> DeletedFiles { get; } = [];
+
+    public bool FileExists(string path) => ExistingFiles.Contains(path);
+    public bool DirectoryExists(string path) => ExistingDirectories.Contains(path);
+    public IEnumerable<string> GetFiles(string directoryPath) => [];
+    public void DeleteFile(string path) => DeletedFiles.Add(path);
 }
