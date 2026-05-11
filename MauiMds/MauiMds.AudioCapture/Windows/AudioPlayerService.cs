@@ -86,14 +86,18 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
             : position > _reader.TotalTime ? _reader.TotalTime
             : position;
         _reader.CurrentTime = clamped;
+        _logger.LogDebug("AudioPlayerService: seek to {Position:g}", clamped);
         RaisePositionChanged();
     }
 
     private void StartPositionTimer()
     {
         _positionTimer?.Dispose();
-        _positionTimer = new System.Threading.Timer(_ => RaisePositionChanged(),
-            null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
+        _positionTimer = new System.Threading.Timer(_ =>
+        {
+            try { RaisePositionChanged(); }
+            catch (Exception ex) { _logger.LogWarning(ex, "AudioPlayerService: position timer error."); }
+        }, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
     }
 
     private void StopPositionTimer()

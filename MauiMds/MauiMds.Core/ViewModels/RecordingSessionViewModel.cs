@@ -185,8 +185,10 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposa
             try
             {
                 var permission = await _audioCaptureService.CheckMicrophonePermissionAsync();
+                _logger.LogInformation("Microphone permission status: {Status}", permission);
                 if (permission == AudioPermissionStatus.Denied)
                 {
+                    _logger.LogWarning("Recording blocked: microphone permission denied.");
                     await _reportError("Microphone permission denied.", null,
                         "Microphone access is required for recording. Please grant permission in System Settings.");
                     return;
@@ -194,7 +196,9 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposa
 
                 if (permission == AudioPermissionStatus.NotDetermined)
                 {
+                    _logger.LogInformation("Microphone permission not yet determined — requesting.");
                     var granted = await _audioCaptureService.RequestMicrophonePermissionAsync();
+                    _logger.LogInformation("Microphone permission request result: {Status}", granted);
                     if (granted == AudioPermissionStatus.Denied)
                     {
                         await _reportError("Microphone permission denied.", null,

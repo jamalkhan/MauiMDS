@@ -106,9 +106,14 @@ public sealed class WindowsAudioFormatConverter : IAudioFormatConverter
     {
         try
         {
-            var (exitCode, _) = await _processRunner.RunAsync(
+            var (exitCode, stderr) = await _processRunner.RunAsync(
                 "ffmpeg", $"-y -i \"{wavPath}\" -compression_level 8 \"{flacPath}\"");
-            return exitCode == 0 && File.Exists(flacPath);
+            var success = exitCode == 0 && File.Exists(flacPath);
+            if (!success)
+                _logger.LogError("ffmpeg FLAC failed (code {Code}): {Stderr}", exitCode, stderr);
+            else if (!string.IsNullOrWhiteSpace(stderr))
+                _logger.LogDebug("ffmpeg FLAC stderr: {Stderr}", stderr);
+            return success;
         }
         catch (Exception ex)
         {

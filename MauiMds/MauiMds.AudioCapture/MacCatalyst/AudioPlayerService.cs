@@ -87,6 +87,7 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
         if (_player is null) return;
         var clamped = Math.Max(0, Math.Min(position.TotalSeconds, _player.Duration));
         _player.CurrentTime = clamped;
+        _logger.LogDebug("AudioPlayerService: seek to {Position:g}", TimeSpan.FromSeconds(clamped));
         RaisePositionChanged();
     }
 
@@ -95,7 +96,8 @@ public sealed class AudioPlayerService : IAudioPlayerService, IDisposable
         _positionTimer?.Dispose();
         _positionTimer = new System.Threading.Timer(_ =>
         {
-            DispatchQueue.MainQueue.DispatchAsync(RaisePositionChanged);
+            try { DispatchQueue.MainQueue.DispatchAsync(RaisePositionChanged); }
+            catch (Exception ex) { _logger.LogWarning(ex, "AudioPlayerService: position timer error."); }
         }, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
     }
 

@@ -1589,6 +1589,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnWorkspaceFsEvent(object sender, FileSystemEventArgs e)
     {
+        _logger.LogDebug("Workspace FS event: {ChangeType} {Path}", e.ChangeType, e.FullPath);
         // Debounce: reset the debounce timer on every event.
         _watcherDebounceTimer?.Dispose();
         _watcherDebounceTimer = new Timer(_ =>

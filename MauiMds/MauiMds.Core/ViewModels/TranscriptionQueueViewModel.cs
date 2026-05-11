@@ -217,6 +217,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "FinalizeRecordingAsync: failed to write transcript to {Path}", transcriptPath);
             await _reportError("Failed to save transcript.", ex, ex.Message);
             return;
         }
@@ -336,6 +337,19 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
                 .Select(s => new SpeakerSegment { SpeakerLabel = s.SpeakerLabel ?? "Speaker", Start = s.Start, End = s.End })
                 .ToList();
             var mergedSegments = _mergeStrategy.Merge(job.LiveSegments, speakerSegments);
+
+            var fallbackCount = mergedSegments
+                .Zip(job.LiveSegments, (merged, src) =>
+                    string.Equals(merged.SpeakerLabel, src.SpeakerLabel, StringComparison.Ordinal))
+                .Count(isFallback => isFallback);
+            var uniqueSpeakers = mergedSegments
+                .Select(s => s.SpeakerLabel)
+                .Where(l => !string.IsNullOrEmpty(l))
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            _logger.LogInformation(
+                "Diarization merge: {Total} segments, {Speakers} unique speakers, {Fallbacks} unmatched (no overlap).",
+                mergedSegments.Count, uniqueSpeakers, fallbackCount);
 
             // Rewrite the transcript with speaker-labelled segments.
             var transcriptPath = group.TranscriptPath ?? _storage.GetTranscriptPath(group);

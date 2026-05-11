@@ -42,6 +42,8 @@ public sealed class MacAudioFormatConverter : IAudioFormatConverter
                 ErrorMessage = $"FLAC conversion failed (afconvert exited {exitCode}). {stderr}".Trim()
             };
         }
+        if (!string.IsNullOrWhiteSpace(stderr))
+            _logger.LogDebug("afconvert FLAC stderr: {Stderr}", stderr);
         return new AudioCaptureResult { Success = true, AudioFilePaths = [targetPath], Duration = duration };
     }
 
@@ -71,6 +73,8 @@ public sealed class MacAudioFormatConverter : IAudioFormatConverter
                 ErrorMessage = $"MP3 conversion failed (ffmpeg exited {exitCode}). {stderr}".Trim()
             };
         }
+        if (!string.IsNullOrWhiteSpace(stderr))
+            _logger.LogDebug("ffmpeg MP3 stderr: {Stderr}", stderr);
         return new AudioCaptureResult { Success = true, AudioFilePaths = [targetPath], Duration = duration };
     }
 
