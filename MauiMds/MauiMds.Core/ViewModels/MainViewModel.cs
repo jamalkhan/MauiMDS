@@ -18,6 +18,19 @@ using Microsoft.Extensions.Logging;
 
 namespace MauiMds.ViewModels;
 
+/// <summary>
+/// Top-level view-model for the main window. Owns and coordinates:
+/// <list type="bullet">
+///   <item><description><see cref="Recording"/> — recording lifecycle and audio playback.</description></item>
+///   <item><description><see cref="TranscriptionQueue"/> — live and batch transcription workstreams.</description></item>
+///   <item><description><see cref="Preferences"/> — user settings, propagated to dependent services.</description></item>
+///   <item><description>Editor state — current document text, parse pipeline, autosave, and view-mode.</description></item>
+///   <item><description>Workspace explorer — folder tree, file-system watcher, rename/delete operations.</description></item>
+///   <item><description>Session restore — persists and restores the last open document and workspace across launches.</description></item>
+/// </list>
+/// All UI-mutating work is marshalled through <see cref="IMainThreadDispatcher"/>. Long-running
+/// operations (parse, I/O) run on background threads and post results back to the UI thread.
+/// </summary>
 public class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     // Fast enough to feel live in viewer mode; the markdown parser is cheap for display-only rendering.

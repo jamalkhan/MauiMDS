@@ -17,12 +17,44 @@ public sealed record TranscriptionConfig(
     string PyannotePythonPath,
     string PyannoteHfToken);
 
+/// <summary>
+/// Coordinates three concurrent transcription workstreams:
+/// <list type="number">
+///   <item><description>
+///     <b>Live transcription</b> — during an active recording, accepts audio chunks via
+///     <see cref="FeedLiveChunk"/> and feeds them to an <see cref="ILiveTranscriptionSession"/>,
+///     publishing incremental progress through <see cref="EditorProgressUpdated"/>.
+///   </description></item>
+///   <item><description>
+///     <b>Batch queue</b> — for recordings that don't support live transcription (or when
+///     the live session is absent), groups are queued via <see cref="Enqueue"/> and processed
+///     sequentially by <see cref="ITranscriptionPipeline.RunAsync"/>.
+///   </description></item>
+///   <item><description>
+///     <b>Diarization post-processing</b> — after live transcription finishes, speaker
+///     identification runs as a separate background pass and rewrites the transcript in place.
+///   </description></item>
+/// </list>
+/// All three workstreams share a single <see cref="CancellationTokenSource"/>; call-site
+/// state is coordinated through <see cref="MainViewModel"/>.
+/// </summary>
 public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>Raised when a new in-memory document should be loaded into the editor (e.g. progress view).</summary>
     public event EventHandler<MarkdownDocument>? LoadDocumentRequested;
+
+    /// <summary>Raised when a saved transcript file should be opened in the editor by path.</summary>
     public event EventHandler<string>? OpenDocumentRequested;
+
+    /// <summary>
+    /// Raised when live transcription produces new content or batch progress advances.
+    /// Fired at most once per 250 ms to avoid excessive layout updates.
+    /// </summary>
     public event EventHandler<TranscriptionProgressEventArgs>? EditorProgressUpdated;
+
+    /// <summary>Raised when transcript files are written or rotated and the workspace tree needs to reload.</summary>
     public event EventHandler? WorkspaceRefreshNeeded;
 
     private readonly ITranscriptionPipelineFactory _pipelineFactory;

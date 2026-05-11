@@ -9,10 +9,20 @@ using System.Windows.Input;
 
 namespace MauiMds.ViewModels;
 
+/// <summary>
+/// Manages the recording lifecycle (start / stop / permissions) and audio playback for
+/// the selected recording group. Exposes commands for the recording toolbar and playback
+/// scrubber; raises <see cref="RecordingStarted"/> / <see cref="RecordingStopped"/> so
+/// <see cref="MainViewModel"/> can coordinate workspace refresh and transcript finalization.
+/// </summary>
 public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposable
 {
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>Raised when recording starts. The argument is the preliminary recording group.</summary>
     public event EventHandler<RecordingGroup>? RecordingStarted;
+
+    /// <summary>Raised when recording stops. The argument carries the group base name and capture result.</summary>
     public event EventHandler<RecordingStoppedEventArgs>? RecordingStopped;
 
     private readonly IAudioCaptureService _audioCaptureService;
@@ -75,12 +85,23 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposa
         });
     }
 
+    /// <summary>Starts or stops recording. Disabled while a state transition is in progress.</summary>
     public ICommand ToggleRecordingCommand { get; }
+
+    /// <summary>Plays the audio file at the given path. Execute with the file path as parameter.</summary>
     public ICommand PlayAudioCommand { get; }
+
+    /// <summary>Pauses playback if audio is currently playing.</summary>
     public ICommand PauseAudioCommand { get; }
+
+    /// <summary>Rewinds playback by 15 seconds.</summary>
     public ICommand RewindCommand { get; }
+
+    /// <summary>Fast-forwards playback by 15 seconds.</summary>
     public ICommand FastForwardCommand { get; }
-    public ICommand SeekCommand { get; }  // execute with a boxed double (seconds)
+
+    /// <summary>Seeks to an absolute position. Execute with a boxed <see cref="double"/> (seconds from start).</summary>
+    public ICommand SeekCommand { get; }
 
     public bool IsRecording
     {

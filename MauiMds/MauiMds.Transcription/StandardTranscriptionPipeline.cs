@@ -28,6 +28,11 @@ internal sealed class StandardTranscriptionPipeline : ITranscriptionPipeline
         _logger = logger;
     }
 
+    /// <summary>
+    /// Runs transcription (0–60%), diarization (60–90%), and speaker-label merge (90–100%)
+    /// on <paramref name="audioFilePath"/>. If diarization produces no segments the merge step
+    /// is skipped and transcript segments retain whatever labels the engine assigned.
+    /// </summary>
     public async Task<TranscriptDocument> RunAsync(
         string audioFilePath,
         IProgress<double>? progress = null,
