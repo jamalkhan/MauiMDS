@@ -9,4 +9,5 @@ public interface ITranscriptStorage
     Task WriteAsync(string path, string content);
     bool Exists(string path);
     void Move(string sourcePath, string destPath);
+    Task MoveAsync(string sourcePath, string destPath);
 }

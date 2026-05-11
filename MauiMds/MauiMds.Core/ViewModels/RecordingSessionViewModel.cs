@@ -9,7 +9,7 @@ using System.Windows.Input;
 
 namespace MauiMds.ViewModels;
 
-public sealed class RecordingSessionViewModel : INotifyPropertyChanged
+public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposable
 {
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<RecordingGroup>? RecordingStarted;
@@ -57,13 +57,8 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
         _reportError = reportError;
 
         _audioCaptureService.StateChanged += OnAudioCaptureStateChanged;
-        _audioPlayerService.PlaybackStateChanged += (_, _) =>
-        {
-            OnPropertyChanged(nameof(CurrentlyPlayingAudioPath));
-            OnPropertyChanged(nameof(PlaybackDuration));
-            OnPropertyChanged(nameof(PlaybackPosition));
-        };
-        _audioPlayerService.PlaybackPositionChanged += (_, _) => OnPropertyChanged(nameof(PlaybackPosition));
+        _audioPlayerService.PlaybackStateChanged += OnPlaybackStateChanged;
+        _audioPlayerService.PlaybackPositionChanged += OnPlaybackPositionChanged;
 
         _toggleRecordingCommand = new RelayCommand(async () => await ToggleRecordingAsync(), () => !_isRecordingTransitioning);
         ToggleRecordingCommand = _toggleRecordingCommand;
@@ -272,10 +267,27 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged
         }
     }
 
+    public void Dispose()
+    {
+        _audioCaptureService.StateChanged -= OnAudioCaptureStateChanged;
+        _audioPlayerService.PlaybackStateChanged -= OnPlaybackStateChanged;
+        _audioPlayerService.PlaybackPositionChanged -= OnPlaybackPositionChanged;
+    }
+
     private void OnAudioCaptureStateChanged(object? sender, AudioCaptureState state)
     {
         _mainThreadDispatcher.BeginInvokeOnMainThread(() => IsRecording = state == AudioCaptureState.Recording);
     }
+
+    private void OnPlaybackStateChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(CurrentlyPlayingAudioPath));
+        OnPropertyChanged(nameof(PlaybackDuration));
+        OnPropertyChanged(nameof(PlaybackPosition));
+    }
+
+    private void OnPlaybackPositionChanged(object? sender, EventArgs e)
+        => OnPropertyChanged(nameof(PlaybackPosition));
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {

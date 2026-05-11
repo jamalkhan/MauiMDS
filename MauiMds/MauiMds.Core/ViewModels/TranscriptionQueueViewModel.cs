@@ -52,6 +52,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
     private RecordingGroup? _liveGroup;
     private readonly List<TranscriptSegment> _liveSegments = [];
     private DateTime _liveStartedAt;
+    private DateTimeOffset _lastLiveUpdateAt;
     private readonly object _liveLock = new();
 
     // ── Diarization post-processing queue ─────────────────────────────────────
@@ -199,6 +200,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         }
         finally
         {
+            session.SegmentsReady -= OnLiveSegmentsReady;
             await session.DisposeAsync();
         }
 
@@ -243,15 +245,19 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
     {
         RecordingGroup? group;
         DateTime startedAt;
+        bool throttled;
 
         lock (_liveLock)
         {
             _liveSegments.AddRange(segments);
             group = _liveGroup;
             startedAt = _liveStartedAt;
+            var now = DateTimeOffset.UtcNow;
+            throttled = (now - _lastLiveUpdateAt).TotalMilliseconds < 250;
+            if (!throttled) _lastLiveUpdateAt = now;
         }
 
-        if (group is null) return;
+        if (group is null || throttled) return;
 
         var content = _formatter.FormatLiveProgress(group, startedAt, _liveSegments);
         EditorProgressUpdated?.Invoke(this, new TranscriptionProgressEventArgs
@@ -519,7 +525,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         if (!group.HasTranscript || group.TranscriptPath is not { } transcriptPath) return;
 
         var rotated = _storage.GetRotatedPath(transcriptPath);
-        _storage.Move(transcriptPath, rotated);
+        await _storage.MoveAsync(transcriptPath, rotated);
         _logger.LogInformation("Re-transcribe: {Name} — existing transcript rotated to {Rotated}.",
             group.DisplayName, rotated);
 

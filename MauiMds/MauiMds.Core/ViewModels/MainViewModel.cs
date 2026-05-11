@@ -18,7 +18,7 @@ using Microsoft.Extensions.Logging;
 
 namespace MauiMds.ViewModels;
 
-public class MainViewModel : INotifyPropertyChanged
+public class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     // Fast enough to feel live in viewer mode; the markdown parser is cheap for display-only rendering.
     private static readonly TimeSpan ViewerParseDebounceDelay = TimeSpan.FromMilliseconds(250);
@@ -97,6 +97,10 @@ public class MainViewModel : INotifyPropertyChanged
     private WorkspaceTreeItem? _lastSingleTappedItem;
     private DateTime _lastSingleTapTime;
 
+    // Stored delegates for event subscriptions that need clean-up
+    private readonly EventHandler<(string Message, Exception? Exception, string InlineMessage)> _onPreferencesSaveError;
+    private readonly EventHandler<LiveAudioChunk> _onLiveChunkAvailable;
+
     public MainViewModel(
         IMarkdownDocumentService documentService,
         IWorkspaceBrowserService workspaceBrowserService,
@@ -145,8 +149,9 @@ public class MainViewModel : INotifyPropertyChanged
         _workspacePanelWidth = ClampWorkspacePanelWidth(_sessionState.WorkspacePanelWidth);
 
         Preferences = preferencesViewModel;
-        Preferences.SaveError += async (_, args) =>
+        _onPreferencesSaveError = async (_, args) =>
             await ReportErrorAsync(args.Message, args.Exception, args.InlineMessage);
+        Preferences.SaveError += _onPreferencesSaveError;
 
         _documentWatchService.DocumentChanged += OnWatchedDocumentChanged;
         Workspace.PropertyChanged += OnWorkspacePropertyChanged;
@@ -243,8 +248,8 @@ public class MainViewModel : INotifyPropertyChanged
             TranscriptionQueue.StartLiveTranscription(group, _audioCaptureService as INativeMicrophoneSource);
         };
 
-        _audioCaptureService.LiveChunkAvailable += (_, chunk) =>
-            TranscriptionQueue.FeedLiveChunk(chunk);
+        _onLiveChunkAvailable = (_, chunk) => TranscriptionQueue.FeedLiveChunk(chunk);
+        _audioCaptureService.LiveChunkAvailable += _onLiveChunkAvailable;
 
         Recording.RecordingStopped += async (_, args) =>
         {
@@ -646,6 +651,20 @@ public class MainViewModel : INotifyPropertyChanged
         {
             Workspace.CancelRename(item);
         });
+    }
+
+    public void Dispose()
+    {
+        _documentWatchService.DocumentChanged -= OnWatchedDocumentChanged;
+        Workspace.PropertyChanged -= OnWorkspacePropertyChanged;
+        Workspace.WorkspaceItems.CollectionChanged -= OnWorkspaceItemsChanged;
+        Preferences.SaveError -= _onPreferencesSaveError;
+        Preferences.PreferencesSaved -= OnPreferencesSaved;
+        _audioCaptureService.LiveChunkAvailable -= _onLiveChunkAvailable;
+        Recording.Dispose();
+        _workspaceWatcher?.Dispose();
+        _workspaceRefreshTimer?.Dispose();
+        _watcherDebounceTimer?.Dispose();
     }
 
     private void OnWorkspacePropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -1747,14 +1766,17 @@ public class MainViewModel : INotifyPropertyChanged
             SelectedViewMode = _editorModeSupportController.ResolveSupportedViewMode(_sessionState.LastViewMode, showUnsupportedSnackbar: true);
 
             var restoredWorkspacePath = _sessionRestoreCoordinator.ResolveWorkspaceRestorePath(_sessionState, out var workspaceRepickMessage);
-            var hasWorkspaceAccess = !string.IsNullOrWhiteSpace(restoredWorkspacePath) && _fileSystem.DirectoryExists(restoredWorkspacePath);
+            var hasWorkspaceAccess = !string.IsNullOrWhiteSpace(restoredWorkspacePath) &&
+                await Task.Run(() => _fileSystem.DirectoryExists(restoredWorkspacePath!));
             if (hasWorkspaceAccess)
             {
                 try
                 {
+                    var currentFolderPath = await Task.Run(() =>
+                        ResolveCurrentWorkspaceFolderPath(restoredWorkspacePath!, _sessionState.CurrentFolderPath));
                     await Workspace.LoadWorkspaceAsync(
                         restoredWorkspacePath!,
-                        ResolveCurrentWorkspaceFolderPath(restoredWorkspacePath!, _sessionState.CurrentFolderPath),
+                        currentFolderPath,
                         _sessionState.DocumentFilePath);
                     StartWorkspaceWatcher(restoredWorkspacePath!);
                     ApplyWorkspaceRefreshSettings();
@@ -1830,7 +1852,7 @@ public class MainViewModel : INotifyPropertyChanged
             _sessionState.DocumentFilePath,
             !string.IsNullOrWhiteSpace(_sessionState.DocumentFileBookmark));
 
-        if (string.IsNullOrWhiteSpace(filePath) || !_fileSystem.FileExists(filePath))
+        if (string.IsNullOrWhiteSpace(filePath) || !await Task.Run(() => _fileSystem.FileExists(filePath)))
         {
             if (needsRepick)
             {

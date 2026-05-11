@@ -36,6 +36,9 @@ public sealed class RecordingSessionViewModelTests
             (title, ex, msg) => { _errors.Add((title, ex, msg)); return Task.CompletedTask; });
     }
 
+    [TestCleanup]
+    public void Cleanup() => _vm.Dispose();
+
     // ── Initial state ─────────────────────────────────────────────────────────
 
     [TestMethod]

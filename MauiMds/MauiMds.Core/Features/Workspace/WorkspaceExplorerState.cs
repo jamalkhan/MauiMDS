@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using MauiMds.Collections;
 using MauiMds.Models;
 using MauiMds.Services;
 using Microsoft.Extensions.Logging;
@@ -13,6 +14,8 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
     private readonly IMainThreadDispatcher _dispatcher;
     private readonly ILogger<WorkspaceExplorerState> _logger;
     private readonly List<WorkspaceTreeItem> _workspaceRootItems = [];
+
+    private readonly BulkObservableCollection<WorkspaceTreeItem> _workspaceItems = new();
 
     private string _workspaceRootPath = string.Empty;
     private string _currentWorkspaceFolderPath = string.Empty;
@@ -29,12 +32,11 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
         _workspaceBrowserService = workspaceBrowserService;
         _dispatcher = dispatcher;
         _logger = logger;
-        WorkspaceItems = new ObservableCollection<WorkspaceTreeItem>();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public ObservableCollection<WorkspaceTreeItem> WorkspaceItems { get; }
+    public ObservableCollection<WorkspaceTreeItem> WorkspaceItems => _workspaceItems;
 
     public string WorkspaceRootPath
     {
@@ -143,12 +145,7 @@ public sealed class WorkspaceExplorerState : INotifyPropertyChanged
                 ? BuildCurrentFolderItems()
                 : await BuildSearchedWorkspaceItemsAsync(WorkspaceSearchText.Trim(), cancellationToken);
 
-            await _dispatcher.InvokeOnMainThreadAsync(() =>
-            {
-                WorkspaceItems.Clear();
-                foreach (var item in visibleItems)
-                    WorkspaceItems.Add(item);
-            });
+            await _dispatcher.InvokeOnMainThreadAsync(() => _workspaceItems.ReplaceAll(visibleItems));
         }
         catch (OperationCanceledException)
         {

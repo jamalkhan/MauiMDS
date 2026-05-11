@@ -30,4 +30,7 @@ public sealed class FileTranscriptStorage : ITranscriptStorage
 
     public void Move(string sourcePath, string destPath)
         => File.Move(sourcePath, destPath);
+
+    public Task MoveAsync(string sourcePath, string destPath)
+        => Task.Run(() => File.Move(sourcePath, destPath));
 }

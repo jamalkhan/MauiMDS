@@ -399,6 +399,12 @@ internal sealed class FakeTranscriptStorage : ITranscriptStorage
     public bool Exists(string path) => Writes.Any(w => w.Path == path);
 
     public void Move(string sourcePath, string destPath) => Moves.Add((sourcePath, destPath));
+
+    public Task MoveAsync(string sourcePath, string destPath)
+    {
+        Moves.Add((sourcePath, destPath));
+        return Task.CompletedTask;
+    }
 }
 
 internal sealed class FakeTranscriptFormatter : ITranscriptFormatter

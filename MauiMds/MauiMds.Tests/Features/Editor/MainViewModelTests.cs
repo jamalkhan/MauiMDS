@@ -95,7 +95,7 @@ public sealed class MainViewModelTests
     }
 
     [TestCleanup]
-    public void Cleanup() { }  // MainViewModel is not IDisposable; resources cleaned up by coordinators
+    public void Cleanup() => _vm.Dispose();
 
     // ── Initial state ──────────────────────────────────────────────────────────
 
