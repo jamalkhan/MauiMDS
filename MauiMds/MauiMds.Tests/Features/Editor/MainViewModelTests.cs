@@ -87,6 +87,7 @@ public sealed class MainViewModelTests
             new FakeTranscriptFormatter(),
             new FakeSpeakerMergeStrategy(),
             new FakeFileSystem(),
+            _platformInfo,
             NullLoggerFactory.Instance,
             _dispatcher,
             _applicationLifetime,

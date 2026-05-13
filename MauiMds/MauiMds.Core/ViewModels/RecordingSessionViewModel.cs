@@ -34,6 +34,7 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposa
     private readonly Func<RecordingFormat> _getRecordingFormat;
     private readonly Func<int> _getLiveChunkIntervalSeconds;
     private readonly Func<string> _getWorkspaceRootPath;
+    private readonly Func<string> _getDefaultRecordingFolder;
     private readonly Func<string, Exception?, string, Task> _reportError;
 
     private bool _isRecording;
@@ -53,6 +54,7 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposa
         Func<RecordingFormat> getRecordingFormat,
         Func<int> getLiveChunkIntervalSeconds,
         Func<string> getWorkspaceRootPath,
+        Func<string> getDefaultRecordingFolder,
         Func<string, Exception?, string, Task> reportError)
     {
         _audioCaptureService = audioCaptureService;
@@ -64,6 +66,7 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposa
         _getRecordingFormat = getRecordingFormat;
         _getLiveChunkIntervalSeconds = getLiveChunkIntervalSeconds;
         _getWorkspaceRootPath = getWorkspaceRootPath;
+        _getDefaultRecordingFolder = getDefaultRecordingFolder;
         _reportError = reportError;
 
         _audioCaptureService.StateChanged += OnAudioCaptureStateChanged;
@@ -231,7 +234,7 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposa
                 var workspaceRoot = _getWorkspaceRootPath();
                 var baseFolder = !string.IsNullOrWhiteSpace(workspaceRoot)
                     ? workspaceRoot
-                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MauiMds");
+                    : _getDefaultRecordingFolder();
 
                 var now = _clock.UtcNow.ToLocalTime();
                 var ext = _getRecordingFormat() switch

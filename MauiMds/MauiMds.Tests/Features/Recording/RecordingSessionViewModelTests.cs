@@ -33,6 +33,7 @@ public sealed class RecordingSessionViewModelTests
             () => RecordingFormat.M4A,
             () => 30,
             () => Path.GetTempPath(),
+            () => Path.GetTempPath(),
             (title, ex, msg) => { _errors.Add((title, ex, msg)); return Task.CompletedTask; });
     }
 
@@ -437,6 +438,7 @@ public sealed class RecordingSessionViewModelTests
             _lifetime,
             () => RecordingFormat.M4A,
             () => 30,
+            () => Path.GetTempPath(),
             () => Path.GetTempPath(),
             (title, ex, msg) => { _errors.Add((title, ex, msg)); return Task.CompletedTask; });
 }

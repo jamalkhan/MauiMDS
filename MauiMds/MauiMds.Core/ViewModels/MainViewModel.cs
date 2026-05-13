@@ -135,6 +135,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ITranscriptFormatter transcriptFormatter,
         ISpeakerMergeStrategy speakerMergeStrategy,
         IFileSystem fileSystem,
+        IPlatformInfo platformInfo,
         ILoggerFactory loggerFactory,
         IMainThreadDispatcher mainThreadDispatcher,
         IApplicationLifetime applicationLifetime,
@@ -240,6 +241,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             () => Preferences.Current.RecordingFormat,
             () => Preferences.Current.LiveChunkIntervalSeconds,
             () => WorkspaceRootPath,
+            platformInfo.GetDefaultRecordingFolder,
             ReportErrorAsync);
 
         TranscriptionQueue = new TranscriptionQueueViewModel(

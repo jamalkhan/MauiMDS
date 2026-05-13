@@ -45,11 +45,15 @@ public sealed class MacMarkdownFileAccessService : IMarkdownFileAccessService
             return null;
         }
 
+        // Mac Catalyst runs on macOS so WithSecurityScope is available; suppress the
+        // CA1416 analyzer warning that fires because the attribute targets macOS only.
+#pragma warning disable CA1416
         var bookmarkData = url.CreateBookmarkData(
             NSUrlBookmarkCreationOptions.WithSecurityScope,
             [],
             null,
             out var error);
+#pragma warning restore CA1416
 
         if (error is not null || bookmarkData is null)
         {
@@ -75,12 +79,15 @@ public sealed class MacMarkdownFileAccessService : IMarkdownFileAccessService
         {
             var bookmarkBytes = Convert.FromBase64String(bookmark);
             using var bookmarkData = NSData.FromArray(bookmarkBytes);
+            // Mac Catalyst runs on macOS so WithSecurityScope is available.
+#pragma warning disable CA1416
             var resolvedUrl = NSUrl.FromBookmarkData(
                 bookmarkData,
                 NSUrlBookmarkResolutionOptions.WithSecurityScope,
                 null,
                 out isStale,
                 out var error);
+#pragma warning restore CA1416
 
             if (error is not null || resolvedUrl is null)
             {

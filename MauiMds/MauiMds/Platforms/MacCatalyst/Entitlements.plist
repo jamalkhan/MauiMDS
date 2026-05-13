@@ -18,6 +18,20 @@
         <!-- Required for ScreenCaptureKit audio capture in the sandbox. -->
         <key>com.apple.security.device.camera</key>
         <true/>
+        <!-- FileSystemWatcher: in a sandboxed app, events are only delivered for paths
+             inside the app container or paths covered by a security-scoped bookmark.
+             Watching arbitrary user-selected folders requires the bookmark to remain
+             active (StartAccessingSecurityScopedResource) for the duration of the watch.
+             No additional entitlement is needed beyond files.user-selected.read-write,
+             but the bookmark access scope must be held open. -->
+        <!-- Subprocess execution (afconvert, ffmpeg, whisper-cli, pyannote Python):
+             Spawning arbitrary processes via Process.Start() is NOT permitted in a
+             Mac App Store sandbox. FLAC conversion has been migrated to native
+             ExtAudioFile (no subprocess). MP3 falls back to native AAC/M4A export
+             when ffmpeg is absent. Live WAV chunks (LiveAudioChunkWriter) still use
+             afconvert — replace with ExtAudioFile if App Store distribution is needed.
+             Whisper-cli and pyannote require out-of-process or XPC alternatives for
+             a sandboxed build. -->
     </dict>
 </plist>
 

@@ -102,6 +102,7 @@ internal sealed class FakePlatformInfo : IPlatformInfo
 {
     public bool IsMacCatalyst { get; set; }
     public bool IsWindows { get; set; }
+    public string GetDefaultRecordingFolder() => Path.GetTempPath();
 }
 
 internal sealed class FakeEditorPreferencesService : IEditorPreferencesService
