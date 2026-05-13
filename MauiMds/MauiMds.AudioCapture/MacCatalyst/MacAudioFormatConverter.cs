@@ -9,12 +9,10 @@ namespace MauiMds.AudioCapture.MacCatalyst;
 
 public sealed class MacAudioFormatConverter : IAudioFormatConverter
 {
-    private readonly IProcessRunner _processRunner;
     private readonly ILogger<MacAudioFormatConverter> _logger;
 
-    public MacAudioFormatConverter(IProcessRunner processRunner, ILogger<MacAudioFormatConverter> logger)
+    public MacAudioFormatConverter(ILogger<MacAudioFormatConverter> logger)
     {
-        _processRunner = processRunner;
         _logger = logger;
     }
 
@@ -128,34 +126,15 @@ public sealed class MacAudioFormatConverter : IAudioFormatConverter
         return new AudioCaptureResult { Success = true, AudioFilePaths = [targetPath], Duration = duration };
     }
 
-    // ── MP3: ffmpeg when available; native AAC/M4A fallback (App Store safe) ───
+    // ── MP3: native AAC/M4A via AVFoundation (App Store safe) ───────────────────
+    // macOS provides no native MP3 encoder; M4A/AAC is the App Store-safe equivalent.
 
-    private async Task<AudioCaptureResult> ConvertToMp3Async(
+    private Task<AudioCaptureResult> ConvertToMp3Async(
         string sourcePath, string targetPath, TimeSpan duration)
     {
-        var ffmpeg = FindFfmpeg();
-        if (ffmpeg is not null)
-        {
-            var (exitCode, stderr) = await _processRunner.RunAsync(
-                ffmpeg, $"-i \"{sourcePath}\" -q:a 2 -y \"{targetPath}\"");
-
-            if (exitCode != 0 || !File.Exists(targetPath))
-            {
-                _logger.LogError("ffmpeg MP3 failed (code {Code}): {Err}", exitCode, stderr);
-                return Fail($"MP3 conversion failed (ffmpeg exited {exitCode}). {stderr}".Trim());
-            }
-            if (!string.IsNullOrWhiteSpace(stderr))
-                _logger.LogDebug("ffmpeg MP3 stderr: {Stderr}", stderr);
-            return new AudioCaptureResult { Success = true, AudioFilePaths = [targetPath], Duration = duration };
-        }
-
-        // ffmpeg not found (e.g. sandboxed App Store build where subprocess execution
-        // is restricted). Fall back to native AAC/M4A via AVFoundation — macOS does not
-        // provide a native MP3 encoder, so M4A is the App Store-safe equivalent.
-        _logger.LogInformation(
-            "ffmpeg not found — falling back to native AAC export (M4A) instead of MP3.");
+        _logger.LogInformation("MP3 requested — exporting as native AAC/M4A (no MP3 encoder in sandbox).");
         var m4aPath = Path.ChangeExtension(targetPath, ".m4a");
-        return await ExportToM4aAsync(sourcePath, m4aPath, duration);
+        return ExportToM4aAsync(sourcePath, m4aPath, duration);
     }
 
     private async Task<AudioCaptureResult> ExportToM4aAsync(
@@ -178,12 +157,6 @@ public sealed class MacAudioFormatConverter : IAudioFormatConverter
         }
 
         return new AudioCaptureResult { Success = true, AudioFilePaths = [targetPath], Duration = duration };
-    }
-
-    private static string? FindFfmpeg()
-    {
-        string[] candidates = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"];
-        return candidates.FirstOrDefault(File.Exists);
     }
 
     private static AudioCaptureResult Fail(string message) =>

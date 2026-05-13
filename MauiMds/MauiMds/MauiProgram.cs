@@ -98,10 +98,10 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ISessionRestoreCoordinator, SessionRestoreCoordinator>();
 		builder.Services.AddSingleton<IPdfSaveDialogService, PdfSaveDialogService>();
 		builder.Services.AddSingleton<IPdfExportService, PdfExportService>();
-		builder.Services.AddSingleton<IProcessRunner, SystemProcessRunner>();
 #if MACCATALYST
 		builder.Services.AddSingleton<IAudioFormatConverter, MacAudioFormatConverter>();
 #elif WINDOWS
+		builder.Services.AddSingleton<IProcessRunner, SystemProcessRunner>();
 		builder.Services.AddSingleton<IAudioFormatConverter, WindowsAudioFormatConverter>();
 #endif
 		builder.Services.AddSingleton<IAudioCaptureService, AudioCaptureService>();

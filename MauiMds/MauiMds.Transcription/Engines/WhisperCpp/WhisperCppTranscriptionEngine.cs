@@ -4,6 +4,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+#if MACCATALYST
+using AudioToolbox;
+using AudioUnit;
+using Foundation;
+using System.Runtime.InteropServices;
+#endif
 
 namespace MauiMds.Transcription.Engines.WhisperCpp;
 
@@ -64,6 +70,12 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
             var inputPath = audioFilePath;
             if (!SupportedExtensions.Contains(Path.GetExtension(audioFilePath)))
             {
+#if MACCATALYST
+                tempConvertedPath = Path.Combine(Path.GetTempPath(), $"mauimds_wav_{Guid.NewGuid():N}.wav");
+                _logger.LogInformation("WhisperCpp: converting {Ext} → WAV (native ExtAudioFile).",
+                    Path.GetExtension(audioFilePath));
+                await ConvertToWavNativeAsync(audioFilePath, tempConvertedPath, cancellationToken);
+#else
                 // Prefer MP3 (via ffmpeg) — smaller than WAV. Fall back to WAV via afconvert.
                 var ffmpeg = FindFfmpeg();
                 if (ffmpeg is not null)
@@ -80,6 +92,7 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
                         Path.GetExtension(audioFilePath));
                     await ConvertToWavAsync(audioFilePath, tempConvertedPath, cancellationToken);
                 }
+#endif
                 inputPath = tempConvertedPath;
                 progress?.Report(0.20);
             }
@@ -108,6 +121,66 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
         }
     }
 
+#if MACCATALYST
+    // Native M4A→WAV via ExtAudioFile — no subprocess, App Store safe.
+    // Decodes to 16 kHz mono 16-bit PCM WAV, the format whisper-cli prefers.
+    private static Task ConvertToWavNativeAsync(string inputPath, string outputPath, CancellationToken _)
+        => Task.Run(() =>
+        {
+            using var src = ExtAudioFile.OpenUrl(NSUrl.FromFilename(inputPath), out var openErr);
+            if (src is null || openErr != ExtAudioFileError.OK)
+                throw new InvalidOperationException($"Cannot open source audio for WAV conversion ({openErr}).");
+
+            var pcm16k = new AudioStreamBasicDescription
+            {
+                SampleRate       = 16000,
+                Format           = AudioFormatType.LinearPCM,
+                FormatFlags      = AudioFormatFlags.IsSignedInteger | AudioFormatFlags.IsPacked,
+                FramesPerPacket  = 1,
+                ChannelsPerFrame = 1,
+                BitsPerChannel   = 16,
+                BytesPerFrame    = 2,
+                BytesPerPacket   = 2,
+            };
+            src.ClientDataFormat = pcm16k;
+
+            using var dst = ExtAudioFile.CreateWithUrl(
+                NSUrl.FromFilename(outputPath), AudioFileType.WAVE, pcm16k, AudioFileFlags.EraseFile, out var createErr);
+            if (dst is null || createErr != ExtAudioFileError.OK)
+                throw new InvalidOperationException($"Cannot create WAV output ({createErr}).");
+            dst.ClientDataFormat = pcm16k;
+
+            const int kFrames = 8192;
+            const int bufSize  = kFrames * 2;
+            var bufPtr = Marshal.AllocHGlobal(bufSize);
+            try
+            {
+                using var abList = new AudioBuffers(1);
+                while (true)
+                {
+                    abList[0] = new AudioBuffer
+                    {
+                        NumberChannels = 1,
+                        DataByteSize   = bufSize,
+                        Data           = bufPtr,
+                    };
+                    var framesRead = src.Read((uint)kFrames, abList, out var readErr);
+                    if (framesRead == 0) break;
+                    if (readErr != ExtAudioFileError.OK) break;
+                    var writeErr = dst.Write(framesRead, abList);
+                    if (writeErr != ExtAudioFileError.OK)
+                        throw new InvalidOperationException($"WAV write error ({writeErr}).");
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(bufPtr);
+            }
+
+            if (!File.Exists(outputPath))
+                throw new InvalidOperationException("WAV output file was not created.");
+        });
+#else
     private static string? FindFfmpeg()
     {
         string[] candidates = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"];
@@ -184,6 +257,7 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
             throw;
         }
     }
+#endif
 
     // Matches: "whisper_print_progress_callback: progress = 25%"
     private static readonly Regex WhisperProgressRegex =

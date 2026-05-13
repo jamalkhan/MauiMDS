@@ -1,9 +1,10 @@
 using AVFoundation;
 using AudioToolbox;
+using AudioUnit;
 using CoreMedia;
 using Foundation;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace MauiMds.AudioCapture.MacCatalyst;
 
@@ -186,21 +187,60 @@ internal sealed class LiveAudioChunkWriter : IDisposable
         _writer.AddInput(_input);
     }
 
-    private static async Task<bool> ConvertToWavAsync(string m4aPath, string wavPath)
+    private static Task<bool> ConvertToWavAsync(string m4aPath, string wavPath)
+        => Task.Run(() => DoConvertToWav(m4aPath, wavPath));
+
+    // Native ExtAudioFile conversion: M4A/AAC → 16 kHz mono 16-bit PCM WAV.
+    // No subprocess — safe in Mac App Store sandbox.
+    private static bool DoConvertToWav(string m4aPath, string wavPath)
     {
-        // 16 kHz mono signed 16-bit little-endian WAV — ideal for whisper-cli and Apple Speech.
-        var psi = new ProcessStartInfo
+        using var src = ExtAudioFile.OpenUrl(NSUrl.FromFilename(m4aPath), out var openErr);
+        if (src is null || openErr != ExtAudioFileError.OK) return false;
+
+        var pcm16k = new AudioStreamBasicDescription
         {
-            FileName = "/usr/bin/afconvert",
-            Arguments = $"-f WAVE -d LEI16@16000 -c 1 \"{m4aPath}\" \"{wavPath}\"",
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
+            SampleRate       = 16000,
+            Format           = AudioFormatType.LinearPCM,
+            FormatFlags      = AudioFormatFlags.IsSignedInteger | AudioFormatFlags.IsPacked,
+            FramesPerPacket  = 1,
+            ChannelsPerFrame = 1,
+            BitsPerChannel   = 16,
+            BytesPerFrame    = 2,
+            BytesPerPacket   = 2,
         };
-        using var proc = new Process { StartInfo = psi };
-        proc.Start();
-        await proc.WaitForExitAsync();
-        return proc.ExitCode == 0 && File.Exists(wavPath);
+        src.ClientDataFormat = pcm16k;
+
+        using var dst = ExtAudioFile.CreateWithUrl(
+            NSUrl.FromFilename(wavPath), AudioFileType.WAVE, pcm16k, AudioFileFlags.EraseFile, out var createErr);
+        if (dst is null || createErr != ExtAudioFileError.OK) return false;
+        dst.ClientDataFormat = pcm16k;
+
+        const int kFrames = 8192;
+        const int bufSize  = kFrames * 2;
+        var bufPtr = Marshal.AllocHGlobal(bufSize);
+        try
+        {
+            using var abList = new AudioBuffers(1);
+            while (true)
+            {
+                abList[0] = new AudioBuffer
+                {
+                    NumberChannels = 1,
+                    DataByteSize   = bufSize,
+                    Data           = bufPtr,
+                };
+                var framesRead = src.Read((uint)kFrames, abList, out var readErr);
+                if (framesRead == 0) break;
+                if (readErr != ExtAudioFileError.OK) break;
+                if (dst.Write(framesRead, abList) != ExtAudioFileError.OK) return false;
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(bufPtr);
+        }
+
+        return File.Exists(wavPath);
     }
 
     private static void TryDelete(string path)

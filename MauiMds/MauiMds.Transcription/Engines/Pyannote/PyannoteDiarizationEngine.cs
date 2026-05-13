@@ -2,6 +2,11 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
+#if MACCATALYST
+using AudioToolbox;
+using AudioUnit;
+using Foundation;
+#endif
 
 namespace MauiMds.Transcription.Engines.Pyannote;
 
@@ -86,42 +91,87 @@ public sealed class PyannoteDiarizationEngine : IDiarizationEngine
 
     private async Task ConvertToWavAsync(string inputPath, string outputPath, CancellationToken ct)
     {
-        ProcessStartInfo psi;
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+#if MACCATALYST
+        await ConvertToWavNativeAsync(inputPath, outputPath);
+#elif WINDOWS
+        // Windows: requires ffmpeg in PATH or installed.
+        var psi = new ProcessStartInfo
         {
-            // Windows: requires ffmpeg in PATH or installed.
-            psi = new ProcessStartInfo
-            {
-                FileName = "ffmpeg",
-                Arguments = $"-y -i \"{inputPath}\" -ar 16000 -ac 1 -f wav \"{outputPath}\"",
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-        }
-        else
-        {
-            // macOS: afconvert is always present.
-            psi = new ProcessStartInfo
-            {
-                FileName = "/usr/bin/afconvert",
-                Arguments = $"-f WAVE -d LEI16@16000 -c 1 \"{inputPath}\" \"{outputPath}\"",
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-        }
-
+            FileName = "ffmpeg",
+            Arguments = $"-y -i \"{inputPath}\" -ar 16000 -ac 1 -f wav \"{outputPath}\"",
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
         using var process = new Process { StartInfo = psi };
         process.Start();
         var stderr = await process.StandardError.ReadToEndAsync(ct);
         await process.WaitForExitAsync(ct);
-
         if (process.ExitCode != 0)
-            throw new InvalidOperationException(
-                $"Audio conversion failed (exit {process.ExitCode}): {stderr}");
+            throw new InvalidOperationException($"Audio conversion failed (exit {process.ExitCode}): {stderr}");
+#endif
     }
+
+#if MACCATALYST
+    // Native M4A→WAV via ExtAudioFile — no subprocess, App Store safe.
+    // Decodes to 16 kHz mono 16-bit PCM WAV, the format pyannote/torchaudio prefers.
+    private static Task ConvertToWavNativeAsync(string inputPath, string outputPath)
+        => Task.Run(() =>
+        {
+            using var src = ExtAudioFile.OpenUrl(NSUrl.FromFilename(inputPath), out var openErr);
+            if (src is null || openErr != ExtAudioFileError.OK)
+                throw new InvalidOperationException($"Cannot open source audio for WAV conversion ({openErr}).");
+
+            var pcm16k = new AudioStreamBasicDescription
+            {
+                SampleRate       = 16000,
+                Format           = AudioFormatType.LinearPCM,
+                FormatFlags      = AudioFormatFlags.IsSignedInteger | AudioFormatFlags.IsPacked,
+                FramesPerPacket  = 1,
+                ChannelsPerFrame = 1,
+                BitsPerChannel   = 16,
+                BytesPerFrame    = 2,
+                BytesPerPacket   = 2,
+            };
+            src.ClientDataFormat = pcm16k;
+
+            using var dst = ExtAudioFile.CreateWithUrl(
+                NSUrl.FromFilename(outputPath), AudioFileType.WAVE, pcm16k, AudioFileFlags.EraseFile, out var createErr);
+            if (dst is null || createErr != ExtAudioFileError.OK)
+                throw new InvalidOperationException($"Cannot create WAV output ({createErr}).");
+            dst.ClientDataFormat = pcm16k;
+
+            const int kFrames = 8192;
+            const int bufSize  = kFrames * 2;
+            var bufPtr = Marshal.AllocHGlobal(bufSize);
+            try
+            {
+                using var abList = new AudioBuffers(1);
+                while (true)
+                {
+                    abList[0] = new AudioBuffer
+                    {
+                        NumberChannels = 1,
+                        DataByteSize   = bufSize,
+                        Data           = bufPtr,
+                    };
+                    var framesRead = src.Read((uint)kFrames, abList, out var readErr);
+                    if (framesRead == 0) break;
+                    if (readErr != ExtAudioFileError.OK) break;
+                    var writeErr = dst.Write(framesRead, abList);
+                    if (writeErr != ExtAudioFileError.OK)
+                        throw new InvalidOperationException($"WAV write error ({writeErr}).");
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(bufPtr);
+            }
+
+            if (!File.Exists(outputPath))
+                throw new InvalidOperationException("WAV output file was not created.");
+        });
+#endif
 
     private async Task<string> RunPythonAsync(
         string scriptPath,
