@@ -2,6 +2,7 @@ using MauiMds.AudioCapture;
 using MauiMds.Models;
 #if MACCATALYST
 using MauiMds.Transcription.Engines.AppleSpeech;
+using MauiMds.Transcription.Engines.WhisperNet;
 #endif
 using MauiMds.Transcription.Engines.NoOp;
 using MauiMds.Transcription.Engines.Pyannote;
@@ -33,6 +34,9 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
 #if MACCATALYST
         new AppleSpeechTranscriptionEngine(
             _loggerFactory.CreateLogger<AppleSpeechTranscriptionEngine>()),
+        new WhisperNetTranscriptionEngine(
+            string.Empty,
+            _loggerFactory.CreateLogger<WhisperNetTranscriptionEngine>()),
 #endif
         new WhisperCppTranscriptionEngine(
             string.Empty, string.Empty,
@@ -62,6 +66,10 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
             TranscriptionEngineType.AppleSpeech =>
                 (ITranscriptionEngine)new AppleSpeechTranscriptionEngine(
                     _loggerFactory.CreateLogger<AppleSpeechTranscriptionEngine>()),
+            TranscriptionEngineType.WhisperNet =>
+                new WhisperNetTranscriptionEngine(
+                    whisperModelPath,
+                    _loggerFactory.CreateLogger<WhisperNetTranscriptionEngine>()),
 #endif
             TranscriptionEngineType.WhisperCpp =>
                 new WhisperCppTranscriptionEngine(
@@ -108,6 +116,7 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
                     _loggerFactory.CreateLogger<AppleSpeechTranscriptionEngine>())
                 .CreateLiveSession(nativeMicSource),
 #endif
+            // WhisperNet live session not yet implemented; live transcription falls back to silence.
             _ => null
         };
     }

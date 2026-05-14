@@ -156,6 +156,8 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
             _preferencesTranscriptionEngine = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsWhisperCppSelected));
+            OnPropertyChanged(nameof(IsWhisperNetSelected));
+            OnPropertyChanged(nameof(IsWhisperModelPathVisible));
         }
     }
 
@@ -195,8 +197,10 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         set { if (_preferencesPyannoteHfToken != value) { _preferencesPyannoteHfToken = value; OnPropertyChanged(); } }
     }
 
-    public bool IsWhisperCppSelected => _preferencesTranscriptionEngine == TranscriptionEngineType.WhisperCpp;
-    public bool IsPyannoteSelected   => _preferencesDiarizationEngine   == DiarizationEngineType.Pyannote;
+    public bool IsWhisperCppSelected      => _preferencesTranscriptionEngine == TranscriptionEngineType.WhisperCpp;
+    public bool IsWhisperNetSelected      => _preferencesTranscriptionEngine == TranscriptionEngineType.WhisperNet;
+    public bool IsWhisperModelPathVisible => IsWhisperCppSelected || IsWhisperNetSelected;
+    public bool IsPyannoteSelected        => _preferencesDiarizationEngine   == DiarizationEngineType.Pyannote;
 
     public RecordingFormat PreferencesRecordingFormat
     {
@@ -318,6 +322,8 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PreferencesPyannoteHfToken));
         OnPropertyChanged(nameof(PreferencesRecordingFormat));
         OnPropertyChanged(nameof(IsWhisperCppSelected));
+        OnPropertyChanged(nameof(IsWhisperNetSelected));
+        OnPropertyChanged(nameof(IsWhisperModelPathVisible));
         OnPropertyChanged(nameof(IsPyannoteSelected));
     }
 

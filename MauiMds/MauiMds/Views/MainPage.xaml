@@ -496,14 +496,22 @@
                             <VerticalStackLayout Spacing="6">
                                 <HorizontalStackLayout Spacing="8"
                                                        IsVisible="{Binding IsAppleSpeechAvailable}">
-                                    <RadioButton Content="Apple Speech Framework"
+                                    <RadioButton Content="Apple Speech  (on-device, no setup required)"
                                                  GroupName="TranscriptionEngine"
                                                  IsChecked="{Binding PreferencesTranscriptionEngine,
                                                      Converter={StaticResource EnumToBoolConverter},
                                                      ConverterParameter=AppleSpeech}" />
                                 </HorizontalStackLayout>
+                                <HorizontalStackLayout Spacing="8"
+                                                       IsVisible="{Binding IsAppleSpeechAvailable}">
+                                    <RadioButton Content="Whisper.net  (on-device, high accuracy, requires GGML model)"
+                                                 GroupName="TranscriptionEngine"
+                                                 IsChecked="{Binding PreferencesTranscriptionEngine,
+                                                     Converter={StaticResource EnumToBoolConverter},
+                                                     ConverterParameter=WhisperNet}" />
+                                </HorizontalStackLayout>
                                 <HorizontalStackLayout Spacing="8">
-                                    <RadioButton Content="Whisper.cpp"
+                                    <RadioButton Content="Whisper.cpp  (requires whisper-cli binary + GGML model)"
                                                  GroupName="TranscriptionEngine"
                                                  IsChecked="{Binding PreferencesTranscriptionEngine,
                                                      Converter={StaticResource EnumToBoolConverter},
@@ -511,22 +519,27 @@
                                 </HorizontalStackLayout>
                             </VerticalStackLayout>
 
-                            <VerticalStackLayout Spacing="8"
+                            <!-- whisper-cli binary path: only for Whisper.cpp -->
+                            <VerticalStackLayout Spacing="4"
                                                  IsVisible="{Binding IsWhisperCppSelected}">
-                                <VerticalStackLayout Spacing="4">
-                                    <Label Text="whisper-cli Binary"
-                                           FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
-                                    <Entry Placeholder="/opt/homebrew/bin/whisper-cli"
-                                           Text="{Binding PreferencesWhisperBinaryPath}" />
-                                </VerticalStackLayout>
-                                <VerticalStackLayout Spacing="4">
-                                    <Label Text="Whisper Model File (.bin)"
-                                           FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
-                                    <Entry Placeholder="/path/to/ggml-model.bin"
-                                           Text="{Binding PreferencesWhisperModelPath}" />
-                                </VerticalStackLayout>
+                                <Label Text="whisper-cli Binary"
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                <Entry Placeholder="/opt/homebrew/bin/whisper-cli"
+                                       Text="{Binding PreferencesWhisperBinaryPath}" />
+                            </VerticalStackLayout>
+
+                            <!-- GGML model path: shared by Whisper.net and Whisper.cpp -->
+                            <VerticalStackLayout Spacing="4"
+                                                 IsVisible="{Binding IsWhisperModelPathVisible}">
+                                <Label Text="Whisper GGML Model File (.bin)"
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                <Entry Placeholder="/path/to/ggml-model.bin"
+                                       Text="{Binding PreferencesWhisperModelPath}" />
+                                <Label Text="gguf/ggml models from huggingface.co/ggerganov/whisper.cpp — same file for both engines."
+                                       FontSize="11"
+                                       TextColor="{AppThemeBinding Light=#8A8A90, Dark=#909098}" />
                             </VerticalStackLayout>
 
                             <Label Text="Speaker Diarization Engine"

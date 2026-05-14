@@ -41,6 +41,13 @@
 		<CodesignEntitlements>Platforms\MacCatalyst\Entitlements.Debug.plist</CodesignEntitlements>
 	</PropertyGroup>
 
+	<!-- Whisper.net's managed P/Invoke declarations reference OpenVINO symbols that are absent
+	     from the CoreML Mac Catalyst static library (libwhisper.a). OpenVINO is never called
+	     at runtime on Mac — suppress the linker error with dynamic_lookup. -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+		<MtouchExtraArgs>--gcc_flags="-undefined dynamic_lookup"</MtouchExtraArgs>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<!-- App Icon -->
 		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
@@ -76,6 +83,13 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+	</ItemGroup>
+
+	<!-- Whisper.net native runtime: must be in the app project so the static libs
+	     are included in the link step (NativeReference does not propagate through
+	     project references from class libraries). -->
+	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+		<PackageReference Include="Whisper.net.Runtime.CoreML" Version="1.9.0" />
 	</ItemGroup>
 
 </Project>

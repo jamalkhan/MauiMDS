@@ -21,9 +21,16 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
   </PropertyGroup>
 
-  <!-- AppleSpeech engine uses Foundation/Speech frameworks — Mac Catalyst only -->
+  <!-- AppleSpeech and WhisperNet engines use Mac Catalyst frameworks — excluded on other platforms -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'maccatalyst'">
     <Compile Remove="Engines\AppleSpeech\**\*.cs" />
+    <Compile Remove="Engines\WhisperNet\**\*.cs" />
+  </ItemGroup>
+
+  <!-- Whisper.net: in-process ML transcription (Mac Catalyst only; CoreML-accelerated) -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <PackageReference Include="Whisper.net" Version="1.9.0" />
+    <PackageReference Include="Whisper.net.Runtime.CoreML" Version="1.9.0" />
   </ItemGroup>
 
   <ItemGroup>
