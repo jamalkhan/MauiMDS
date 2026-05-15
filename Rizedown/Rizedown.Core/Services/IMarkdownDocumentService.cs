@@ -1,0 +1,16 @@
+using Rizedown.Models;
+
+namespace Rizedown.Services;
+
+public interface IMarkdownDocumentService
+{
+    Task<MarkdownDocument?> LoadInitialDocumentAsync();
+    Task<MarkdownDocument> LoadDocumentAsync(string filePath, CancellationToken cancellationToken = default);
+    Task<string?> PickDocumentPathAsync();
+    Task<MarkdownDocument?> PickDocumentAsync();
+    Task<MarkdownDocument> CreateUntitledDocumentAsync(string? suggestedName = null);
+    Task<SaveDocumentResult> SaveAsync(EditorDocumentState document, CancellationToken cancellationToken = default);
+    Task<SaveDocumentResult?> SaveAsAsync(EditorDocumentState document, CancellationToken cancellationToken = default);
+    string? TryCreatePersistentAccessBookmark(string filePath);
+    bool TryRestorePersistentAccessFromBookmark(string bookmark, out string? restoredPath, out bool isStale);
+}
