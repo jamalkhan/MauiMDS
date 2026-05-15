@@ -15,7 +15,7 @@
 		<ApplicationTitle>Rizedown</ApplicationTitle>
 
 		<!-- App Identifier -->
-		<ApplicationId>lk.jama.rizedown</ApplicationId>
+		<ApplicationId>com.rizedown.app</ApplicationId>
 
 		<!-- Versions -->
 		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
