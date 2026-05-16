@@ -20,7 +20,7 @@ public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
         get
         {
             var recognizer = new SFSpeechRecognizer();
-            return recognizer.Available && recognizer.SupportsOnDeviceRecognition;
+            return recognizer.Available;
         }
     }
 
@@ -61,9 +61,8 @@ public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
         var fileUrl = NSUrl.FromFilename(audioFilePath);
         var request = new SFSpeechUrlRecognitionRequest(fileUrl)
         {
-            RequiresOnDeviceRecognition = true,
+            RequiresOnDeviceRecognition = recognizer.SupportsOnDeviceRecognition,
             ShouldReportPartialResults = false,
-            // Add punctuation if the engine supports it (macOS 13+).
             AddsPunctuation = true
         };
 

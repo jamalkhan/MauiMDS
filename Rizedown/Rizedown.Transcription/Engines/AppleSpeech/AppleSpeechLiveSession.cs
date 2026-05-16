@@ -43,7 +43,7 @@ internal sealed class AppleSpeechLiveSession : ILiveTranscriptionSession
             var fileUrl = NSUrl.FromFilename(wavChunkPath);
             var request = new SFSpeechUrlRecognitionRequest(fileUrl)
             {
-                RequiresOnDeviceRecognition = true,
+                RequiresOnDeviceRecognition = _recognizer.SupportsOnDeviceRecognition,
                 ShouldReportPartialResults = false,
                 AddsPunctuation = true
             };
@@ -73,7 +73,7 @@ internal sealed class AppleSpeechLiveSession : ILiveTranscriptionSession
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "AppleSpeechLiveSession: chunk recognition failed");
+            _logger.LogError(ex, "AppleSpeechLiveSession: chunk recognition failed");
         }
         finally
         {
