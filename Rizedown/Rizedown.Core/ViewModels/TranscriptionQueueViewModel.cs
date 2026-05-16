@@ -224,21 +224,22 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         try
         {
             _logger.LogInformation("Finalizing live transcript for {Name}.", group.BaseName);
+            // FlushAsync waits for all in-flight chunk recognitions before returning,
+            // so the snapshot below captures every segment.
             await session.FlushAsync(_cts.Token);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "FinalizeRecordingAsync: FlushAsync failed for {Name}", group.BaseName);
         }
-        finally
-        {
-            session.SegmentsReady -= OnLiveSegmentsReady;
-            await session.DisposeAsync();
-        }
 
-        // Snapshot the accumulated segments.
+        // Snapshot before unsubscribing so any segment that fires synchronously
+        // during FlushAsync continuation is still captured.
         List<TranscriptSegment> segments;
         lock (_liveLock) { segments = [.. _liveSegments]; }
+
+        session.SegmentsReady -= OnLiveSegmentsReady;
+        await session.DisposeAsync();
 
         var transcriptPath = _storage.GetTranscriptPath(group);
         try

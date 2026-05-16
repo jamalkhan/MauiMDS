@@ -15,6 +15,8 @@ internal sealed class AppleSpeechLiveSession : ILiveTranscriptionSession
 {
     private readonly SFSpeechRecognizer _recognizer;
     private readonly ILogger _logger;
+    private readonly List<Task> _pendingChunks = [];
+    private readonly object _pendingLock = new();
     private bool _disposed;
 
     public event EventHandler<IReadOnlyList<TranscriptSegment>>? SegmentsReady;
@@ -30,15 +32,57 @@ internal sealed class AppleSpeechLiveSession : ILiveTranscriptionSession
 
     // ── Chunk path ────────────────────────────────────────────────────────────
 
-    public async Task FeedChunkAsync(string wavChunkPath, TimeSpan chunkStartOffset, CancellationToken ct = default)
+    public Task FeedChunkAsync(string wavChunkPath, TimeSpan chunkStartOffset, CancellationToken ct = default)
     {
-        if (_disposed) return;
+        if (_disposed) return Task.CompletedTask;
+        if (!File.Exists(wavChunkPath)) return Task.CompletedTask;
 
-        if (!File.Exists(wavChunkPath)) return;
+        var chunkTask = RecognizeChunkAsync(wavChunkPath, chunkStartOffset, ct);
 
+        lock (_pendingLock)
+            _pendingChunks.Add(chunkTask);
+
+        // Remove from pending list when done (success or failure).
+        _ = chunkTask.ContinueWith(_ =>
+        {
+            lock (_pendingLock)
+                _pendingChunks.Remove(chunkTask);
+        }, TaskContinuationOptions.ExecuteSynchronously);
+
+        return chunkTask;
+    }
+
+    // FlushAsync waits for all in-flight chunk recognitions to complete so that
+    // FinalizeRecordingAsync captures every segment before snapshotting _liveSegments.
+    public async Task FlushAsync(CancellationToken ct = default)
+    {
+        Task[] pending;
+        lock (_pendingLock)
+            pending = [.. _pendingChunks];
+
+        if (pending.Length == 0) return;
+
+        _logger.LogInformation("AppleSpeechLiveSession: waiting for {Count} in-flight chunk(s) to complete.", pending.Length);
         try
         {
-            _logger.LogDebug("AppleSpeechLiveSession: processing chunk at offset {Offset}", chunkStartOffset);
+            await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(30), ct);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("AppleSpeechLiveSession: FlushAsync timed out waiting for chunks.");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AppleSpeechLiveSession: a chunk failed during flush.");
+        }
+    }
+
+    private async Task RecognizeChunkAsync(string wavChunkPath, TimeSpan chunkStartOffset, CancellationToken ct)
+    {
+        try
+        {
+            _logger.LogInformation("AppleSpeechLiveSession: processing chunk at offset {Offset}", chunkStartOffset);
 
             var fileUrl = NSUrl.FromFilename(wavChunkPath);
             var request = new SFSpeechUrlRecognitionRequest(fileUrl)
@@ -65,24 +109,20 @@ internal sealed class AppleSpeechLiveSession : ILiveTranscriptionSession
 
             using var reg = ct.Register(() => tcs.TrySetCanceled(ct));
             var segments = await tcs.Task;
+            _logger.LogInformation("AppleSpeechLiveSession: chunk at {Offset} → {Count} segments.", chunkStartOffset, segments.Count);
             if (segments.Count > 0)
                 SegmentsReady?.Invoke(this, segments);
         }
-        catch (OperationCanceledException)
-        {
-        }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "AppleSpeechLiveSession: chunk recognition failed");
+            _logger.LogError(ex, "AppleSpeechLiveSession: chunk recognition failed at offset {Offset}", chunkStartOffset);
         }
         finally
         {
             try { if (File.Exists(wavChunkPath)) File.Delete(wavChunkPath); } catch { }
         }
     }
-
-    public Task FlushAsync(CancellationToken ct = default)
-        => Task.CompletedTask;
 
     public ValueTask DisposeAsync()
     {
