@@ -33,6 +33,8 @@ internal sealed class FakeAudioCaptureService : IAudioCaptureService
             ? AudioPermissionStatus.Granted
             : MicrophonePermission);
 
+    public Task RequestScreenRecordingPermissionAsync() => Task.CompletedTask;
+
     public Task StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default)
     {
         if (ShouldThrowOnStart)
