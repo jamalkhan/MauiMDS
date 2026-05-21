@@ -121,6 +121,7 @@ jobs:
         run: |
           dotnet publish Rizedown/Rizedown/Rizedown.csproj \
             -f net10.0-maccatalyst \
+            -r maccatalyst-arm64 \
             -c Release \
             /p:ApplicationDisplayVersion=${{ env.VERSION }} \
             /p:ApplicationVersion=${{ github.run_number }} \
