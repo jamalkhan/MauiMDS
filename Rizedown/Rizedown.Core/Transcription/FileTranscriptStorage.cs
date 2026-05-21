@@ -23,6 +23,9 @@ public sealed class FileTranscriptStorage : ITranscriptStorage
         }
     }
 
+    public Task<string> ReadAsync(string path)
+        => File.ReadAllTextAsync(path);
+
     public Task WriteAsync(string path, string content)
         => File.WriteAllTextAsync(path, content);
 

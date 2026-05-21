@@ -26,7 +26,9 @@ public interface ITranscriptionPipelineFactory
         string whisperBinaryPath = "",
         string whisperModelPath = "",
         string pyannotePythonPath = "",
-        string pyannoteHfToken = "");
+        string pyannoteHfToken = "",
+        string sherpaSegmentationModelPath = "",
+        string sherpaEmbeddingModelPath = "");
 
     /// <summary>
     /// Creates a live transcription session for the given engine, or returns <see langword="null"/>
@@ -40,9 +42,26 @@ public interface ITranscriptionPipelineFactory
         string whisperModelPath = "",
         INativeMicrophoneSource? nativeMicSource = null);
 
+    /// <summary>
+    /// Prompts for any OS permissions required by transcription engines (e.g. Speech Recognition).
+    /// Safe to call at startup — no-op if already granted or on platforms that don't need it.
+    /// </summary>
+    Task RequestPermissionsAsync();
+
     /// <summary>All transcription engines registered in this factory instance.</summary>
     IReadOnlyList<ITranscriptionEngine> AvailableTranscriptionEngines { get; }
 
     /// <summary>All diarization engines registered in this factory instance.</summary>
     IReadOnlyList<IDiarizationEngine> AvailableDiarizationEngines { get; }
+
+    /// <summary>
+    /// Creates a standalone diarization engine for applying speaker labels to an existing
+    /// transcript without running speech-to-text again.
+    /// </summary>
+    IDiarizationEngine CreateDiarizationEngine(
+        DiarizationEngineType diarization,
+        string pyannotePythonPath = "",
+        string pyannoteHfToken = "",
+        string sherpaSegmentationModelPath = "",
+        string sherpaEmbeddingModelPath = "");
 }

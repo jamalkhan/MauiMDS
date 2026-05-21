@@ -28,7 +28,7 @@
 		<ValidateXcodeVersion>false</ValidateXcodeVersion>
 
 		<!-- Supported OS versions -->
-		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">18.2</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">26.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 	</PropertyGroup>
@@ -90,6 +90,32 @@
 	     project references from class libraries). -->
 	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
 		<PackageReference Include="Whisper.net.Runtime.CoreML" Version="1.9.0" />
+	</ItemGroup>
+
+	<!-- Sherpa-ONNX native runtime for Mac Catalyst.
+	     The managed wrapper (org.k2fsa.sherpa.onnx) is referenced from Rizedown.Transcription,
+	     but native assets don't propagate through project references, so the runtime package
+	     must be here. The package ships osx-arm64 dylibs only — no maccatalyst-arm64 package
+	     exists, and maccatalyst-arm64 is not in the osx-arm64 RID fallback graph, so .NET
+	     would never pick them up automatically. We resolve them explicitly via NativeReference. -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+		<SherpaOnnxNativeDir>$(NuGetPackageRoot)org.k2fsa.sherpa.onnx.runtime.osx-arm64/1.13.2/runtimes/osx-arm64/native</SherpaOnnxNativeDir>
+	</PropertyGroup>
+
+	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+		<PackageReference Include="org.k2fsa.sherpa.onnx.runtime.osx-arm64" Version="1.13.2" />
+		<NativeReference Include="$(SherpaOnnxNativeDir)/libsherpa-onnx-c-api.dylib">
+			<Kind>Dynamic</Kind>
+			<ForceLoad>false</ForceLoad>
+		</NativeReference>
+		<NativeReference Include="$(SherpaOnnxNativeDir)/libonnxruntime.dylib">
+			<Kind>Dynamic</Kind>
+			<ForceLoad>false</ForceLoad>
+		</NativeReference>
+		<NativeReference Include="$(SherpaOnnxNativeDir)/libonnxruntime.1.24.4.dylib">
+			<Kind>Dynamic</Kind>
+			<ForceLoad>false</ForceLoad>
+		</NativeReference>
 	</ItemGroup>
 
 </Project>

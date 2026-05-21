@@ -70,6 +70,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     private readonly IMainThreadDispatcher _mainThreadDispatcher;
     private readonly IApplicationLifetime _applicationLifetime;
     private readonly IAudioCaptureService _audioCaptureService;
+    private readonly ITranscriptionPipelineFactory _transcriptionPipelineFactory;
     private readonly IFileSystem _fileSystem;
 
     public RecordingSessionViewModel Recording { get; }
@@ -156,6 +157,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         _mainThreadDispatcher = mainThreadDispatcher;
         _applicationLifetime = applicationLifetime;
         _audioCaptureService = audioCaptureService;
+        _transcriptionPipelineFactory = transcriptionPipelineFactory;
         _fileSystem = fileSystem;
         _logger = logger;
         _sessionState = _sessionRestoreCoordinator.Load();
@@ -251,7 +253,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             () => new TranscriptionConfig(
                 Preferences.Current.TranscriptionEngine, Preferences.Current.DiarizationEngine,
                 Preferences.Current.WhisperBinaryPath, Preferences.Current.WhisperModelPath,
-                Preferences.Current.PyannotePythonPath, Preferences.Current.PyannoteHfToken),
+                Preferences.Current.PyannotePythonPath, Preferences.Current.PyannoteHfToken,
+                Preferences.Current.SherpaSegmentationModelPath, Preferences.Current.SherpaEmbeddingModelPath),
             () => Recording.SelectedRecordingGroup,
             group => Recording.SelectedRecordingGroup = group,
             ReportErrorAsync,
@@ -298,7 +301,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         TranscriptionQueue.EditorProgressUpdated += (_, args) =>
         {
-            if (ReferenceEquals(Recording.SelectedRecordingGroup, args.Group) && _document.IsUntitled)
+            if (string.Equals(Recording.SelectedRecordingGroup?.BaseName, args.Group.BaseName, StringComparison.OrdinalIgnoreCase) && _document.IsUntitled)
                 _mainThreadDispatcher.BeginInvokeOnMainThread(() => EditorText = args.Content);
         };
 
@@ -588,6 +591,8 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
         _isInitialized = true;
         _ = Recording.RequestMicrophonePermissionAsync();
+        _ = Recording.RequestScreenRecordingPermissionAsync();
+        _ = _transcriptionPipelineFactory.RequestPermissionsAsync();
         await RestoreSessionAsync();
     }
 
@@ -1650,20 +1655,42 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
             if (group.HasTranscript && group.TranscriptPath is { } transcriptPath)
             {
-                _logger.LogInformation(
-                    "Recording group selected: {Name}. Transcript already exists at {Path} — not regenerating.",
-                    group.DisplayName, transcriptPath);
-                await OpenDocumentAsync(
-                    () => Task.FromResult<string?>(transcriptPath),
-                    "Failed to open transcript.",
-                    "The transcript could not be opened.");
+                // Transcript exists — open it (unless diarization is actively rewriting it)
+                if (item.IsActivelyDiarizing)
+                {
+                    _logger.LogInformation("Recording group selected: {Name}. Diarization in progress.", group.DisplayName);
+                    await TranscriptionQueue.ShowDiarizationProgressForGroupAsync(group);
+                }
+                else
+                {
+                    _logger.LogInformation("Recording group selected: {Name}. Opening existing transcript.", group.DisplayName);
+                    await OpenDocumentAsync(
+                        () => Task.FromResult<string?>(transcriptPath),
+                        "Failed to open transcript.",
+                        "The transcript could not be opened.");
+                }
+            }
+            else if (item.IsActivelyTranscribing)
+            {
+                _logger.LogInformation("Recording group selected: {Name}. Transcription in progress — showing live progress.", group.DisplayName);
+                TranscriptionQueue.ShowProgressForGroup(group);
+            }
+            else if (item.IsScheduledTranscription)
+            {
+                _logger.LogInformation("Recording group selected: {Name}. Transcription scheduled.", group.DisplayName);
+                TranscriptionQueue.ShowScheduledPlaceholder(group, isDiarization: false);
+            }
+            else if (item.IsScheduledDiarization)
+            {
+                _logger.LogInformation("Recording group selected: {Name}. Diarization scheduled.", group.DisplayName);
+                TranscriptionQueue.ShowScheduledPlaceholder(group, isDiarization: true);
             }
             else if (group.AudioFilePaths.Count > 0)
             {
-                _logger.LogInformation(
-                    "Recording group selected: {Name}. No transcript found — queuing for transcription.",
-                    group.DisplayName);
-                TranscriptionQueue.EnqueueWithProgressDocument(group);
+                // No transcript and not in any queue — silently enqueue, then show scheduled placeholder
+                _logger.LogInformation("Recording group selected: {Name}. No transcript — queuing for transcription.", group.DisplayName);
+                TranscriptionQueue.Enqueue(group);
+                TranscriptionQueue.ShowScheduledPlaceholder(group, isDiarization: false);
             }
 
             return;

@@ -1,5 +1,6 @@
 using AVFoundation;
 using Microsoft.Extensions.Logging;
+using ScreenCaptureKit;
 
 namespace Rizedown.AudioCapture.MacCatalyst;
 
@@ -13,6 +14,8 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase, INativeMicrop
     private LiveAudioChunkWriter? _liveChunkWriter;
     private AudioCaptureOptions? _activeOptions;
     private bool _micPermissionGrantedThisSession;
+    // null = not yet checked; true/false = result of the startup check (cached to avoid re-prompting)
+    private bool? _screenRecordingGranted;
 
     // When the mic target format is not M4A, we record to temp M4A and convert after stop.
     private string? _desiredMicOutputPath;
@@ -27,6 +30,21 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase, INativeMicrop
     }
 
     // ── Permissions ───────────────────────────────────────────────────────────
+
+    public override async Task RequestScreenRecordingPermissionAsync()
+    {
+        try
+        {
+#pragma warning disable CA1416 // ScreenCaptureKit is available on Mac Catalyst; binding only annotates macOS
+            await SCShareableContent.GetShareableContentAsync();
+#pragma warning restore CA1416
+            _screenRecordingGranted = true;
+        }
+        catch
+        {
+            _screenRecordingGranted = false;
+        }
+    }
 
     public override Task<AudioPermissionStatus> CheckMicrophonePermissionAsync()
     {
@@ -83,18 +101,28 @@ public sealed class AudioCaptureService : AudioCaptureServiceBase, INativeMicrop
         var sysActive = false;
         if (options.CaptureSystemAudio)
         {
-            _systemAudio = new SystemAudioOutput(Logger);
-            try
+            if (_screenRecordingGranted == false)
             {
-                await _systemAudio.StartAsync(options.SampleRate, options.ChannelCount);
-                sysActive = true;
-            }
-            catch (InvalidOperationException ex) when (options.CaptureMicrophone)
-            {
-                Logger.LogWarning(ex, "AudioCaptureService: system audio unavailable, falling back to microphone-only.");
-                _systemAudio.Dispose();
-                _systemAudio = null;
+                // Already denied this session — skip without re-prompting.
                 LastStartWarning = AudioCaptureWarnings.ScreenRecordingDenied;
+            }
+            else
+            {
+                _systemAudio = new SystemAudioOutput(Logger);
+                try
+                {
+                    await _systemAudio.StartAsync(options.SampleRate, options.ChannelCount);
+                    sysActive = true;
+                    _screenRecordingGranted = true;
+                }
+                catch (InvalidOperationException ex) when (options.CaptureMicrophone)
+                {
+                    Logger.LogWarning(ex, "AudioCaptureService: system audio unavailable, falling back to microphone-only.");
+                    _systemAudio.Dispose();
+                    _systemAudio = null;
+                    LastStartWarning = AudioCaptureWarnings.ScreenRecordingDenied;
+                    _screenRecordingGranted = false;
+                }
             }
         }
 

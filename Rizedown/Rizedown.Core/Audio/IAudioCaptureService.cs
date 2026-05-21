@@ -24,6 +24,7 @@ public interface IAudioCaptureService
     string? LastStartWarning { get; }
     Task<AudioPermissionStatus> CheckMicrophonePermissionAsync();
     Task<AudioPermissionStatus> RequestMicrophonePermissionAsync();
+    Task RequestScreenRecordingPermissionAsync();
     Task StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default);
     Task<AudioCaptureResult> StopAsync();
 }

@@ -36,6 +36,8 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
     private string _preferencesWhisperModelPath = string.Empty;
     private string _preferencesPyannotePythonPath = string.Empty;
     private string _preferencesPyannoteHfToken = string.Empty;
+    private string _preferencesSherpaSegmentationModelPath = string.Empty;
+    private string _preferencesSherpaEmbeddingModelPath = string.Empty;
     private RecordingFormat _preferencesRecordingFormat = RecordingFormat.M4A;
     private int _preferencesLiveChunkIntervalSeconds = 8;
     private string _shortcutKeyHeader1 = "1";
@@ -170,6 +172,7 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
             _preferencesDiarizationEngine = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsPyannoteSelected));
+            OnPropertyChanged(nameof(IsSherpaSelected));
         }
     }
 
@@ -197,10 +200,23 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         set { if (_preferencesPyannoteHfToken != value) { _preferencesPyannoteHfToken = value; OnPropertyChanged(); } }
     }
 
+    public string PreferencesSherpaSegmentationModelPath
+    {
+        get => _preferencesSherpaSegmentationModelPath;
+        set { if (_preferencesSherpaSegmentationModelPath != value) { _preferencesSherpaSegmentationModelPath = value; OnPropertyChanged(); } }
+    }
+
+    public string PreferencesSherpaEmbeddingModelPath
+    {
+        get => _preferencesSherpaEmbeddingModelPath;
+        set { if (_preferencesSherpaEmbeddingModelPath != value) { _preferencesSherpaEmbeddingModelPath = value; OnPropertyChanged(); } }
+    }
+
     public bool IsWhisperCppSelected      => _preferencesTranscriptionEngine == TranscriptionEngineType.WhisperCpp;
     public bool IsWhisperNetSelected      => _preferencesTranscriptionEngine == TranscriptionEngineType.WhisperNet;
     public bool IsWhisperModelPathVisible => IsWhisperCppSelected || IsWhisperNetSelected;
     public bool IsPyannoteSelected        => _preferencesDiarizationEngine   == DiarizationEngineType.Pyannote;
+    public bool IsSherpaSelected          => _preferencesDiarizationEngine   == DiarizationEngineType.Sherpa;
 
     public RecordingFormat PreferencesRecordingFormat
     {
@@ -312,6 +328,8 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         _preferencesWhisperModelPath    = Current.WhisperModelPath;
         _preferencesPyannotePythonPath  = Current.PyannotePythonPath;
         _preferencesPyannoteHfToken     = Current.PyannoteHfToken;
+        _preferencesSherpaSegmentationModelPath = Current.SherpaSegmentationModelPath;
+        _preferencesSherpaEmbeddingModelPath    = Current.SherpaEmbeddingModelPath;
         _preferencesRecordingFormat          = Current.RecordingFormat;
         _preferencesLiveChunkIntervalSeconds = Current.LiveChunkIntervalSeconds;
         OnPropertyChanged(nameof(PreferencesTranscriptionEngine));
@@ -320,11 +338,14 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PreferencesWhisperModelPath));
         OnPropertyChanged(nameof(PreferencesPyannotePythonPath));
         OnPropertyChanged(nameof(PreferencesPyannoteHfToken));
+        OnPropertyChanged(nameof(PreferencesSherpaSegmentationModelPath));
+        OnPropertyChanged(nameof(PreferencesSherpaEmbeddingModelPath));
         OnPropertyChanged(nameof(PreferencesRecordingFormat));
         OnPropertyChanged(nameof(IsWhisperCppSelected));
         OnPropertyChanged(nameof(IsWhisperNetSelected));
         OnPropertyChanged(nameof(IsWhisperModelPathVisible));
         OnPropertyChanged(nameof(IsPyannoteSelected));
+        OnPropertyChanged(nameof(IsSherpaSelected));
     }
 
     private string GetShortcutKey(EditorActionType action) =>
@@ -371,6 +392,8 @@ public sealed class PreferencesViewModel : INotifyPropertyChanged
             WhisperModelPath = _preferencesWhisperModelPath,
             PyannotePythonPath = _preferencesPyannotePythonPath,
             PyannoteHfToken = _preferencesPyannoteHfToken,
+            SherpaSegmentationModelPath = _preferencesSherpaSegmentationModelPath,
+            SherpaEmbeddingModelPath    = _preferencesSherpaEmbeddingModelPath,
             RecordingFormat = _preferencesRecordingFormat,
             LiveChunkIntervalSeconds = Math.Max(5, _preferencesLiveChunkIntervalSeconds),
             WorkspaceRefreshIntervalSeconds = Math.Max(0, _preferencesWorkspaceRefreshIntervalSeconds)

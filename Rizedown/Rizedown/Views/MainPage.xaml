@@ -557,12 +557,40 @@
                                                      ConverterParameter=None}" />
                                 </HorizontalStackLayout>
                                 <HorizontalStackLayout Spacing="8">
+                                    <RadioButton Content="Sherpa-ONNX  (bundled, in-process)"
+                                                 GroupName="DiarizationEngine"
+                                                 IsChecked="{Binding PreferencesDiarizationEngine,
+                                                     Converter={StaticResource EnumToBoolConverter},
+                                                     ConverterParameter=Sherpa}" />
+                                </HorizontalStackLayout>
+                                <HorizontalStackLayout Spacing="8">
                                     <RadioButton Content="pyannote.audio 3.1"
                                                  GroupName="DiarizationEngine"
                                                  IsChecked="{Binding PreferencesDiarizationEngine,
                                                      Converter={StaticResource EnumToBoolConverter},
                                                      ConverterParameter=Pyannote}" />
                                 </HorizontalStackLayout>
+                            </VerticalStackLayout>
+
+                            <VerticalStackLayout Spacing="8"
+                                                 IsVisible="{Binding IsSherpaSelected}">
+                                <Label Text="Models are bundled with the app. Leave paths empty to use them automatically, or override with your own files."
+                                       FontSize="11"
+                                       TextColor="{AppThemeBinding Light=#8A8A90, Dark=#909098}" />
+                                <VerticalStackLayout Spacing="4">
+                                    <Label Text="Segmentation Model Path  (optional override)"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                    <Entry Placeholder="Leave empty to use bundled model"
+                                           Text="{Binding PreferencesSherpaSegmentationModelPath}" />
+                                </VerticalStackLayout>
+                                <VerticalStackLayout Spacing="4">
+                                    <Label Text="Embedding Model Path  (optional override)"
+                                           FontSize="12"
+                                           TextColor="{AppThemeBinding Light=#6A6A70, Dark=#A0A0A8}" />
+                                    <Entry Placeholder="Leave empty to use bundled model"
+                                           Text="{Binding PreferencesSherpaEmbeddingModelPath}" />
+                                </VerticalStackLayout>
                             </VerticalStackLayout>
 
                             <VerticalStackLayout Spacing="8"

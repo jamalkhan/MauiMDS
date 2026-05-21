@@ -52,7 +52,7 @@ public sealed class TranscriptionQueueViewModelTests
             () => new TranscriptionConfig(
                 TranscriptionEngineType.WhisperCpp,
                 DiarizationEngineType.None,
-                "", "", "", ""),
+                "", "", "", "", "", ""),
             () => _selectedGroup,
             g => _selectedGroup = g,
             (title, ex, msg) => { _errors.Add((title, ex, msg)); return Task.CompletedTask; },

@@ -144,6 +144,9 @@ public sealed class RecordingSessionViewModel : INotifyPropertyChanged, IDisposa
     public Task RequestMicrophonePermissionAsync()
         => _audioCaptureService.RequestMicrophonePermissionAsync();
 
+    public Task RequestScreenRecordingPermissionAsync()
+        => _audioCaptureService.RequestScreenRecordingPermissionAsync();
+
     public async Task StopRecordingAsync()
     {
         if (!_isRecording) return;

@@ -6,6 +6,7 @@ public interface ITranscriptStorage
 {
     string GetTranscriptPath(RecordingGroup group);
     string GetRotatedPath(string existingPath);
+    Task<string> ReadAsync(string path);
     Task WriteAsync(string path, string content);
     bool Exists(string path);
     void Move(string sourcePath, string destPath);

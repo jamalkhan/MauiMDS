@@ -124,6 +124,7 @@
                                     </DataTrigger>
                                 </Border.Triggers>
 
+                                <VerticalStackLayout Spacing="0">
                                 <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto"
                                       ColumnSpacing="6">
                                     <controls:WorkspaceItemIconView Grid.Column="0"
@@ -216,6 +217,21 @@
                                     </Border>
 
                                     <Border Grid.Column="4"
+                                            BackgroundColor="#444444"
+                                            StrokeThickness="0"
+                                            StrokeShape="RoundRectangle 4"
+                                            Padding="5,2"
+                                            VerticalOptions="Center"
+                                            HorizontalOptions="End"
+                                            IsVisible="{Binding IsScheduledTranscription}">
+                                        <Label Text="Transcribe ↓"
+                                               FontSize="10"
+                                               FontAttributes="Bold"
+                                               TextColor="#CCCCCC"
+                                               VerticalTextAlignment="Center" />
+                                    </Border>
+
+                                    <Border Grid.Column="4"
                                             BackgroundColor="#5533AA"
                                             StrokeThickness="0"
                                             StrokeShape="RoundRectangle 4"
@@ -227,6 +243,21 @@
                                                FontSize="10"
                                                FontAttributes="Bold"
                                                TextColor="White"
+                                               VerticalTextAlignment="Center" />
+                                    </Border>
+
+                                    <Border Grid.Column="4"
+                                            BackgroundColor="#3A2277"
+                                            StrokeThickness="0"
+                                            StrokeShape="RoundRectangle 4"
+                                            Padding="5,2"
+                                            VerticalOptions="Center"
+                                            HorizontalOptions="End"
+                                            IsVisible="{Binding IsScheduledDiarization}">
+                                        <Label Text="Diarize ↓"
+                                               FontSize="10"
+                                               FontAttributes="Bold"
+                                               TextColor="#B8A0E8"
                                                VerticalTextAlignment="Center" />
                                     </Border>
 
@@ -252,6 +283,14 @@
                                     </Border>
 
                                 </Grid>
+
+                                <!-- Progress bar — visible only while actively transcribing -->
+                                <ProgressBar Progress="{Binding TranscriptionProgress}"
+                                             ProgressColor="{AppThemeBinding Light=#888480, Dark=#A09C98}"
+                                             BackgroundColor="{AppThemeBinding Light=#D8D4CE, Dark=#3A3835}"
+                                             Margin="0,5,0,0"
+                                             IsVisible="{Binding IsActivelyTranscribing}" />
+                                </VerticalStackLayout>
 
                                 <Border.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference RootExplorerView}, Path=BindingContext.SelectWorkspaceItemCommand}"

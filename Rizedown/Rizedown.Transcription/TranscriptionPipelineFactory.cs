@@ -1,8 +1,11 @@
 using Rizedown.AudioCapture;
 using Rizedown.Models;
 #if MACCATALYST
+using Foundation;
 using Rizedown.Transcription.Engines.AppleSpeech;
+using Rizedown.Transcription.Engines.SherpaDiarization;
 using Rizedown.Transcription.Engines.WhisperNet;
+using Speech;
 #endif
 using Rizedown.Transcription.Engines.NoOp;
 using Rizedown.Transcription.Engines.Pyannote;
@@ -26,6 +29,17 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
         _mergeStrategy = mergeStrategy;
     }
 
+    public Task RequestPermissionsAsync()
+    {
+#if MACCATALYST
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Speech.SFSpeechRecognizer.RequestAuthorization(_ => tcs.TrySetResult(true));
+        return tcs.Task;
+#else
+        return Task.CompletedTask;
+#endif
+    }
+
     // Used by the Preferences UI to enumerate engine names and availability.
     // Engines are constructed with empty paths here — IsAvailable reflects
     // whether the binary/model exist once the user has configured them.
@@ -47,7 +61,12 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
     public IReadOnlyList<IDiarizationEngine> AvailableDiarizationEngines =>
     [
         new NoDiarizationEngine(),
-#if !MACCATALYST
+#if MACCATALYST
+        new SherpaDiarizationEngine(
+            BundledSherpaPath("segmentation.onnx"),
+            BundledSherpaPath("embedding.onnx"),
+            _loggerFactory.CreateLogger<SherpaDiarizationEngine>()),
+#else
         new PyannoteDiarizationEngine(
             string.Empty,
             string.Empty,
@@ -61,7 +80,9 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
         string whisperBinaryPath = "",
         string whisperModelPath = "",
         string pyannotePythonPath = "",
-        string pyannoteHfToken = "")
+        string pyannoteHfToken = "",
+        string sherpaSegmentationModelPath = "",
+        string sherpaEmbeddingModelPath = "")
     {
         var transcriptionEngine = engine switch
         {
@@ -91,16 +112,24 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
             DiarizationEngineType.None =>
                 (IDiarizationEngine)new NoDiarizationEngine(),
 #if MACCATALYST
+            DiarizationEngineType.Sherpa =>
+                new SherpaDiarizationEngine(
+                    ResolveOrBundled(sherpaSegmentationModelPath, "segmentation.onnx"),
+                    ResolveOrBundled(sherpaEmbeddingModelPath, "embedding.onnx"),
+                    _loggerFactory.CreateLogger<SherpaDiarizationEngine>()),
             DiarizationEngineType.Pyannote =>
                 throw new PlatformNotSupportedException(
                     "pyannote.audio requires a Python subprocess and cannot run in the Mac App Store sandbox. " +
-                    "Speaker diarization is unavailable on this platform."),
+                    "Use Sherpa-ONNX for in-process speaker diarization instead."),
 #else
             DiarizationEngineType.Pyannote =>
                 new PyannoteDiarizationEngine(
                     pyannotePythonPath,
                     pyannoteHfToken,
                     _loggerFactory.CreateLogger<PyannoteDiarizationEngine>()),
+            DiarizationEngineType.Sherpa =>
+                throw new PlatformNotSupportedException(
+                    "Sherpa-ONNX diarization is only available on Mac Catalyst."),
 #endif
             _ => throw new ArgumentOutOfRangeException(nameof(diarization), diarization, null)
         };
@@ -111,6 +140,54 @@ public sealed class TranscriptionPipelineFactory : ITranscriptionPipelineFactory
             _mergeStrategy,
             _loggerFactory.CreateLogger<StandardTranscriptionPipeline>());
     }
+
+    public IDiarizationEngine CreateDiarizationEngine(
+        DiarizationEngineType diarization,
+        string pyannotePythonPath = "",
+        string pyannoteHfToken = "",
+        string sherpaSegmentationModelPath = "",
+        string sherpaEmbeddingModelPath = "")
+    {
+        return diarization switch
+        {
+            DiarizationEngineType.None =>
+                (IDiarizationEngine)new NoDiarizationEngine(),
+#if MACCATALYST
+            DiarizationEngineType.Sherpa =>
+                new SherpaDiarizationEngine(
+                    ResolveOrBundled(sherpaSegmentationModelPath, "segmentation.onnx"),
+                    ResolveOrBundled(sherpaEmbeddingModelPath, "embedding.onnx"),
+                    _loggerFactory.CreateLogger<SherpaDiarizationEngine>()),
+            DiarizationEngineType.Pyannote =>
+                throw new PlatformNotSupportedException(
+                    "pyannote.audio requires a Python subprocess and cannot run in the Mac App Store sandbox."),
+#else
+            DiarizationEngineType.Pyannote =>
+                new PyannoteDiarizationEngine(
+                    pyannotePythonPath,
+                    pyannoteHfToken,
+                    _loggerFactory.CreateLogger<PyannoteDiarizationEngine>()),
+            DiarizationEngineType.Sherpa =>
+                throw new PlatformNotSupportedException(
+                    "Sherpa-ONNX diarization is only available on Mac Catalyst."),
+#endif
+            _ => throw new ArgumentOutOfRangeException(nameof(diarization), diarization, null)
+        };
+    }
+
+#if MACCATALYST
+    // Returns the user-configured path when non-empty; otherwise falls back to the
+    // model bundled under Resources/Raw/Models/Sherpa/ inside the app bundle.
+    private static string ResolveOrBundled(string userPath, string bundledFilename)
+    {
+        if (!string.IsNullOrWhiteSpace(userPath))
+            return userPath;
+        return BundledSherpaPath(bundledFilename);
+    }
+
+    private static string BundledSherpaPath(string filename) =>
+        Path.Combine(NSBundle.MainBundle.ResourcePath, "Models", "Sherpa", filename);
+#endif
 
     public ILiveTranscriptionSession? CreateLiveSession(
         TranscriptionEngineType engine,

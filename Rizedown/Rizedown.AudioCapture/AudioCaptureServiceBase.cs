@@ -25,6 +25,7 @@ public abstract class AudioCaptureServiceBase : IAudioCaptureService, IDisposabl
 
     public abstract Task<AudioPermissionStatus> CheckMicrophonePermissionAsync();
     public abstract Task<AudioPermissionStatus> RequestMicrophonePermissionAsync();
+    public virtual Task RequestScreenRecordingPermissionAsync() => Task.CompletedTask;
 
     // ── State machine ─────────────────────────────────────────────────────────
 

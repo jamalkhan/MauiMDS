@@ -17,7 +17,7 @@ namespace Rizedown.Transcription.Engines.WhisperCpp;
 /// Transcription adapter that shells out to the whisper-cli binary from whisper.cpp.
 /// Output is captured via --output-json and parsed into timestamped segments.
 /// </summary>
-public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
+public sealed partial class WhisperCppTranscriptionEngine : ITranscriptionEngine
 {
     private readonly string _binaryPath;
     private readonly string _modelPath;
@@ -339,7 +339,7 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
         WhisperOutput? doc;
         try
         {
-            doc = JsonSerializer.Deserialize<WhisperOutput>(json);
+            doc = JsonSerializer.Deserialize(json, WhisperJsonContext.Default.WhisperOutput);
         }
         catch (JsonException ex)
         {
@@ -393,4 +393,7 @@ public sealed class WhisperCppTranscriptionEngine : ITranscriptionEngine
         [JsonPropertyName("to")]
         public long To { get; set; }
     }
+
+    [JsonSerializable(typeof(WhisperOutput))]
+    private sealed partial class WhisperJsonContext : JsonSerializerContext { }
 }

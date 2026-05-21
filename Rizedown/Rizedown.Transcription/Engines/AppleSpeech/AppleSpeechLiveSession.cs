@@ -99,7 +99,10 @@ internal sealed class AppleSpeechLiveSession : ILiveTranscriptionSession
             {
                 if (error is not null)
                 {
-                    tcs.TrySetException(new NSErrorException(error));
+                    if (error.Code == 1110) // No speech detected — normal for silent chunks
+                        tcs.TrySetResult([]);
+                    else
+                        tcs.TrySetException(new NSErrorException(error));
                     return;
                 }
                 if (result is null || !result.Final) return;
@@ -116,7 +119,7 @@ internal sealed class AppleSpeechLiveSession : ILiveTranscriptionSession
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "AppleSpeechLiveSession: chunk recognition failed at offset {Offset}", chunkStartOffset);
+            _logger.LogWarning(ex, "AppleSpeechLiveSession: chunk recognition failed at offset {Offset}", chunkStartOffset);
         }
         finally
         {

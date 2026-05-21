@@ -11,9 +11,11 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
     private bool _isRenaming;
     private bool _isPendingDelete;
     private bool _isActivelyRecording;
-    private bool _isInTranscriptionQueue;
+    private bool _isScheduledTranscription;
+    private bool _isScheduledDiarization;
     private bool _isActivelyTranscribing;
     private bool _isActivelyDiarizing;
+    private double _transcriptionProgress;
     private string _renameText;
 
     public WorkspaceTreeItem(string fullPath, bool isDirectory, int depth, WorkspaceTreeItem? parent = null,
@@ -51,7 +53,7 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         {
             if (IsRecordingGroup)
             {
-                if (_isInTranscriptionQueue) return WorkspaceItemIconKind.AudioQueued;
+                if (_isScheduledTranscription || _isScheduledDiarization) return WorkspaceItemIconKind.AudioQueued;
                 return RecordingGroup!.HasTranscript
                     ? WorkspaceItemIconKind.AudioTranscribed
                     : WorkspaceItemIconKind.Audio;
@@ -155,13 +157,25 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         }
     }
 
-    public bool IsInTranscriptionQueue
+    public bool IsScheduledTranscription
     {
-        get => _isInTranscriptionQueue;
+        get => _isScheduledTranscription;
         set
         {
-            if (_isInTranscriptionQueue == value) return;
-            _isInTranscriptionQueue = value;
+            if (_isScheduledTranscription == value) return;
+            _isScheduledTranscription = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ItemIconKind));
+        }
+    }
+
+    public bool IsScheduledDiarization
+    {
+        get => _isScheduledDiarization;
+        set
+        {
+            if (_isScheduledDiarization == value) return;
+            _isScheduledDiarization = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ItemIconKind));
         }
@@ -185,6 +199,18 @@ public sealed class WorkspaceTreeItem : INotifyPropertyChanged
         {
             if (_isActivelyDiarizing == value) return;
             _isActivelyDiarizing = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double TranscriptionProgress
+    {
+        get => _transcriptionProgress;
+        set
+        {
+            var clamped = Math.Clamp(value, 0.0, 1.0);
+            if (Math.Abs(_transcriptionProgress - clamped) < 0.001) return;
+            _transcriptionProgress = clamped;
             OnPropertyChanged();
         }
     }

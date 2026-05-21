@@ -111,6 +111,9 @@ jobs:
       - name: Install workloads
         run: dotnet workload restore Rizedown/Rizedown/Rizedown.csproj
 
+      - name: Download Sherpa-ONNX models
+        run: bash Scripts/download-sherpa-models.sh
+
       - name: Set version
         run: echo "VERSION=1.0.${{ github.run_number }}" >> $GITHUB_ENV
 

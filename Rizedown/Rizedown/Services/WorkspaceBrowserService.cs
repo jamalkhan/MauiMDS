@@ -212,7 +212,9 @@ public sealed class WorkspaceBrowserService : IWorkspaceBrowserService
                 {
                     "mic"        => entry with { Mic = file.FullName },
                     "sys"        => entry with { Sys = file.FullName },
-                    "transcript" => entry with { Transcript = file.FullName },
+                    // Only accept the canonical _transcript.md — not rotated backups like _transcript.old.md
+                    "transcript" when file.Name.EndsWith("_transcript.md", StringComparison.OrdinalIgnoreCase)
+                                 => entry with { Transcript = file.FullName },
                     _            => entry
                 };
                 groups[baseName] = entry;

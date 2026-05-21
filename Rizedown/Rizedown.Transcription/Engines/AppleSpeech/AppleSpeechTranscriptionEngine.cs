@@ -1,5 +1,6 @@
 using Foundation;
 using Rizedown.AudioCapture;
+using Rizedown.AudioCapture.MacCatalyst;
 using Speech;
 using Microsoft.Extensions.Logging;
 
@@ -12,6 +13,9 @@ namespace Rizedown.Transcription.Engines.AppleSpeech;
 public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
 {
     private readonly ILogger _logger;
+
+    // Apple Speech has an ~1-minute per-request limit; keep chunks well under it.
+    private const int ChunkSeconds = 55;
 
     public string Name => "Apple Speech Framework";
 
@@ -58,23 +62,71 @@ public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
                 "SFSpeechRecognizer is not available on this device.");
         }
 
-        var fileUrl = NSUrl.FromFilename(audioFilePath);
-        var request = new SFSpeechUrlRecognitionRequest(fileUrl)
+        _logger.LogInformation("AppleSpeech: starting chunked batch transcription on {File}.", audioFilePath);
+        progress?.Report(0.02);
+
+        var allSegments = new List<TranscriptSegment>();
+        int chunkIndex  = 0;
+
+        // Wrap progress: AudioFileChunker reports [0,1]; we map to [0.02, 1.0].
+        var innerProgress = progress is null ? null : new Progress<double>(
+            p => progress.Report(0.02 + 0.98 * p));
+
+        await AudioFileChunker.ProcessChunksAsync(
+            audioFilePath,
+            ChunkSeconds,
+            async (wavPath, chunkStart, ct) =>
+            {
+                chunkIndex++;
+                _logger.LogInformation("AppleSpeech batch: chunk {I} at {Offset}.", chunkIndex, chunkStart);
+                var segments = await RecognizeWavChunkAsync(recognizer, wavPath, chunkStart, ct);
+                _logger.LogInformation("AppleSpeech batch: chunk {I} → {Count} segments.", chunkIndex, segments.Count);
+                allSegments.AddRange(segments);
+            },
+            innerProgress,
+            cancellationToken);
+
+        _logger.LogInformation("AppleSpeech: recognition complete — {Count} segments.", allSegments.Count);
+        return allSegments;
+    }
+
+    // ── Chunk recognition ─────────────────────────────────────────────────────
+
+    private async Task<IReadOnlyList<TranscriptSegment>> RecognizeWavChunkAsync(
+        SFSpeechRecognizer recognizer,
+        string wavPath,
+        TimeSpan chunkStartOffset,
+        CancellationToken cancellationToken)
+    {
+        var request = new SFSpeechUrlRecognitionRequest(NSUrl.FromFilename(wavPath))
         {
             RequiresOnDeviceRecognition = recognizer.SupportsOnDeviceRecognition,
-            ShouldReportPartialResults = false,
-            AddsPunctuation = true
+            ShouldReportPartialResults  = false,
+            AddsPunctuation             = true
         };
 
-        _logger.LogInformation("AppleSpeech: starting recognition on {File}.", audioFilePath);
-        progress?.Report(0.05);
+        var tcs = new TaskCompletionSource<IReadOnlyList<TranscriptSegment>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var segments = await RecognizeAsync(recognizer, request, cancellationToken);
+        recognizer.GetRecognitionTask(request, (result, error) =>
+        {
+            if (error is not null)
+            {
+                if (error.Code == 1110) // No speech detected — not a real error
+                    tcs.TrySetResult([]);
+                else
+                    tcs.TrySetException(new NSErrorException(error));
+                return;
+            }
+            if (result is null || !result.Final) return;
+            tcs.TrySetResult(ConvertSegmentsPublic(result, chunkStartOffset));
+        });
 
-        progress?.Report(1.0);
-        _logger.LogInformation("AppleSpeech: recognition complete — {Count} segments.", segments.Count);
-        return segments;
+        using var reg = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
+        return await tcs.Task;
     }
+
+    // ── Auth ─────────────────────────────────────────────────────────────────
 
     private static Task<SFSpeechRecognizerAuthorizationStatus> RequestAuthorizationAsync()
     {
@@ -85,44 +137,9 @@ public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
         return tcs.Task;
     }
 
-    private Task<IReadOnlyList<TranscriptSegment>> RecognizeAsync(
-        SFSpeechRecognizer recognizer,
-        SFSpeechUrlRecognitionRequest request,
-        CancellationToken cancellationToken)
-    {
-        var tcs = new TaskCompletionSource<IReadOnlyList<TranscriptSegment>>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
+    // ── Segment conversion ────────────────────────────────────────────────────
 
-        SFSpeechRecognitionTask? task = null;
-
-        task = recognizer.GetRecognitionTask(request, (result, error) =>
-        {
-            if (error is not null)
-            {
-                _logger.LogError("AppleSpeech recognition error: {Error}", error.LocalizedDescription);
-                tcs.TrySetException(new NSErrorException(error));
-                return;
-            }
-
-            if (result is null || !result.Final)
-            {
-                return;
-            }
-
-            var segments = ConvertSegments(result);
-            tcs.TrySetResult(segments);
-        });
-
-        cancellationToken.Register(() =>
-        {
-            task?.Cancel();
-            tcs.TrySetCanceled(cancellationToken);
-        });
-
-        return tcs.Task;
-    }
-
-    // Called from AppleSpeechLiveSession for both native streaming results and chunk results.
+    // Called from AppleSpeechLiveSession for chunk results.
     internal static IReadOnlyList<TranscriptSegment> ConvertSegmentsPublic(
         SFSpeechRecognitionResult result,
         TimeSpan startOffset = default)
@@ -138,53 +155,56 @@ public sealed class AppleSpeechTranscriptionEngine : ITranscriptionEngine
         // chunks by merging words that are close together (gap < 1.5 s).
         const double maxGapSeconds = 1.5;
         var grouped = new List<TranscriptSegment>();
-        var buffer = new System.Text.StringBuilder();
-        var groupStart = TimeSpan.Zero;
-        var prevEnd = TimeSpan.Zero;
+        var buffer  = new System.Text.StringBuilder();
+        var groupStart   = TimeSpan.Zero;
+        var prevEnd      = TimeSpan.Zero;
         float minConfidence = 1f;
 
         foreach (var seg in rawSegments)
         {
+            var word = seg.Substring?.Trim() ?? string.Empty;
+            if (word.Length == 0) continue;
+
             var start = TimeSpan.FromSeconds(seg.Timestamp);
-            var end = start + TimeSpan.FromSeconds(seg.Duration);
+            var end   = start + TimeSpan.FromSeconds(seg.Duration);
 
             if (buffer.Length > 0 && (start - prevEnd).TotalSeconds > maxGapSeconds)
             {
-                grouped.Add(new TranscriptSegment
-                {
-                    Text = buffer.ToString().Trim(),
-                    Start = groupStart + startOffset,
-                    End = prevEnd + startOffset,
-                    Confidence = minConfidence
-                });
+                var text = buffer.ToString().Trim();
+                if (text.Length > 0)
+                    grouped.Add(new TranscriptSegment
+                    {
+                        Text       = text,
+                        Start      = groupStart + startOffset,
+                        End        = prevEnd + startOffset,
+                        Confidence = minConfidence
+                    });
                 buffer.Clear();
                 minConfidence = 1f;
-                groupStart = start;
+                groupStart    = start;
             }
 
             if (buffer.Length == 0)
-            {
                 groupStart = start;
-            }
 
-            buffer.Append(seg.Substring);
+            buffer.Append(word);
             buffer.Append(' ');
             prevEnd = end;
             if (seg.Confidence < minConfidence)
-            {
                 minConfidence = seg.Confidence;
-            }
         }
 
         if (buffer.Length > 0)
         {
-            grouped.Add(new TranscriptSegment
-            {
-                Text = buffer.ToString().Trim(),
-                Start = groupStart + startOffset,
-                End = prevEnd + startOffset,
-                Confidence = minConfidence
-            });
+            var text = buffer.ToString().Trim();
+            if (text.Length > 0)
+                grouped.Add(new TranscriptSegment
+                {
+                    Text       = text,
+                    Start      = groupStart + startOffset,
+                    End        = prevEnd + startOffset,
+                    Confidence = minConfidence
+                });
         }
 
         return grouped;

@@ -38,10 +38,11 @@ public class AppDelegate : MauiUIApplicationDelegate
         {
             var shouldQuit = await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                var page = Microsoft.Maui.Controls.Application.Current?.MainPage;
+                var windows = Microsoft.Maui.Controls.Application.Current?.Windows;
+                var page = windows?.Count > 0 ? windows[0].Page : null;
                 if (page is null) return true;
 
-                return await page.DisplayAlert(
+                return await page.DisplayAlertAsync(
                     "Recording in Progress",
                     "A recording is currently active. Stop the recording and quit?",
                     "Stop & Quit",

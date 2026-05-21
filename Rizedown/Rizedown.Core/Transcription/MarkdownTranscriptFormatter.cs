@@ -1,5 +1,6 @@
 using Rizedown.AudioCapture;
 using Rizedown.Models;
+using System.Text.RegularExpressions;
 
 namespace Rizedown.Transcription;
 
@@ -116,6 +117,55 @@ public sealed class MarkdownTranscriptFormatter : ITranscriptFormatter
                 s.Text)),
             startTime);
         return sb.ToString();
+    }
+
+    // Matches:  > *[HH:mm:ss – HH:mm:ss]* text
+    // The separator is an en-dash (U+2013) with surrounding spaces.
+    private static readonly Regex SegmentLinePattern = new(
+        @"^> \*\[(\d{2}:\d{2}:\d{2}) – (\d{2}:\d{2}:\d{2})\]\* (.+)$",
+        RegexOptions.Compiled);
+
+    public IReadOnlyList<TranscriptSegment> ParseSegments(string markdownContent, DateTime? recordingStart)
+    {
+        var result = new List<TranscriptSegment>();
+        var currentSpeaker = "Unknown Speaker";
+
+        foreach (var line in markdownContent.AsSpan().EnumerateLines())
+        {
+            var lineStr = line.ToString();
+
+            // Speaker header: ### Speaker Name
+            if (lineStr.StartsWith("### ", StringComparison.Ordinal))
+            {
+                currentSpeaker = lineStr[4..].Trim();
+                continue;
+            }
+
+            var match = SegmentLinePattern.Match(lineStr);
+            if (!match.Success) continue;
+
+            var t0 = TimeSpan.Parse(match.Groups[1].Value);
+            var t1 = TimeSpan.Parse(match.Groups[2].Value);
+            var text = match.Groups[3].Value.Trim();
+
+            // Wall-clock → relative conversion when recording start is known.
+            if (recordingStart is { } rs)
+            {
+                var startOfDay = rs.TimeOfDay;
+                t0 = t0 >= startOfDay ? t0 - startOfDay : t0 + (TimeSpan.FromDays(1) - startOfDay);
+                t1 = t1 >= startOfDay ? t1 - startOfDay : t1 + (TimeSpan.FromDays(1) - startOfDay);
+            }
+
+            result.Add(new TranscriptSegment
+            {
+                SpeakerLabel = currentSpeaker,
+                Text         = text,
+                Start        = t0,
+                End          = t1,
+            });
+        }
+
+        return result;
     }
 
     private static void AppendSpeakerGroupedSegments(

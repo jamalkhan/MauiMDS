@@ -266,6 +266,7 @@ internal sealed class FakeAudioCaptureService : IAudioCaptureService
     public Task<AudioPermissionStatus> CheckMicrophonePermissionAsync() => Task.FromResult(PermissionToReturn);
     public Task<AudioPermissionStatus> RequestMicrophonePermissionAsync()
         => Task.FromResult(RequestPermissionToReturn ?? PermissionToReturn);
+    public Task RequestScreenRecordingPermissionAsync() => Task.CompletedTask;
 
     public Task StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default)
     {
@@ -313,12 +314,20 @@ internal sealed class FakeTranscriptionPipelineFactory : ITranscriptionPipelineF
     public IReadOnlyList<IDiarizationEngine> AvailableDiarizationEngines { get; } = [];
     public ILiveTranscriptionSession? SessionToReturn { get; set; }
     public ITranscriptionPipeline? PipelineToReturn { get; set; }
+    public IDiarizationEngine? DiarizationEngineToReturn { get; set; }
 
     public ITranscriptionPipeline Create(
         TranscriptionEngineType engine, DiarizationEngineType diarization,
         string whisperBinaryPath = "", string whisperModelPath = "",
-        string pyannotePythonPath = "", string pyannoteHfToken = "")
+        string pyannotePythonPath = "", string pyannoteHfToken = "",
+        string sherpaSegmentationModelPath = "", string sherpaEmbeddingModelPath = "")
         => PipelineToReturn ?? throw new NotSupportedException("Transcription not expected in unit tests.");
+
+    public IDiarizationEngine CreateDiarizationEngine(
+        DiarizationEngineType diarization,
+        string pyannotePythonPath = "", string pyannoteHfToken = "",
+        string sherpaSegmentationModelPath = "", string sherpaEmbeddingModelPath = "")
+        => DiarizationEngineToReturn ?? throw new NotSupportedException("Diarization not expected in unit tests.");
 
     public ILiveTranscriptionSession? CreateLiveSession(
         TranscriptionEngineType engine,
@@ -326,6 +335,8 @@ internal sealed class FakeTranscriptionPipelineFactory : ITranscriptionPipelineF
         string whisperModelPath = "",
         INativeMicrophoneSource? nativeMicSource = null)
         => SessionToReturn;
+
+    public Task RequestPermissionsAsync() => Task.CompletedTask;
 }
 
 internal sealed class FakeLiveTranscriptionSession : ILiveTranscriptionSession
@@ -406,6 +417,11 @@ internal sealed class FakeTranscriptStorage : ITranscriptStorage
         Moves.Add((sourcePath, destPath));
         return Task.CompletedTask;
     }
+
+    public string? ContentToRead { get; set; }
+
+    public Task<string> ReadAsync(string path)
+        => Task.FromResult(ContentToRead ?? string.Empty);
 }
 
 internal sealed class FakeTranscriptFormatter : ITranscriptFormatter
@@ -427,6 +443,9 @@ internal sealed class FakeTranscriptFormatter : ITranscriptFormatter
 
     public string FormatSingleFileTranscript(TranscriptDocument doc, string audioPath)
         => $"[single-file:{Path.GetFileName(audioPath)}:{string.Join(",", doc.Segments.Select(s => s.Text))}]";
+
+    public IReadOnlyList<TranscriptSegment> ParseSegments(string markdownContent, DateTime? recordingStart)
+        => [];
 }
 
 internal sealed class FakeSpeakerMergeStrategy : ISpeakerMergeStrategy

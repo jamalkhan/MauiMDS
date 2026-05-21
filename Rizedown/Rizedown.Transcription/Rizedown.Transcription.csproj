@@ -13,7 +13,7 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
-    <SupportedOSPlatformVersion>18.2</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
@@ -31,6 +31,15 @@
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
     <PackageReference Include="Whisper.net" Version="1.9.0" />
     <PackageReference Include="Whisper.net.Runtime.CoreML" Version="1.9.0" />
+    <!-- Sherpa-ONNX: in-process speaker diarization via ONNX models; no subprocess required.
+         No maccatalyst-specific native package exists — ships osx-arm64 dylib which loads
+         under Mac Catalyst on Apple Silicon. Sandbox-compatible (no JIT, no fork). -->
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.2" />
+  </ItemGroup>
+
+  <!-- Exclude Sherpa engine on platforms that have no native runtime package -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'maccatalyst'">
+    <Compile Remove="Engines\SherpaDiarization\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -39,6 +48,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Rizedown.Core\Rizedown.Core.csproj" />
+    <ProjectReference Include="..\Rizedown.AudioCapture\Rizedown.AudioCapture.csproj" />
   </ItemGroup>
 
 </Project>

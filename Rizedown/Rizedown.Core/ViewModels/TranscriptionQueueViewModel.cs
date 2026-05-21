@@ -5,6 +5,7 @@ using Rizedown.Transcription;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Windows.Input;
 
 namespace Rizedown.ViewModels;
@@ -15,7 +16,9 @@ public sealed record TranscriptionConfig(
     string WhisperBinaryPath,
     string WhisperModelPath,
     string PyannotePythonPath,
-    string PyannoteHfToken);
+    string PyannoteHfToken,
+    string SherpaSegmentationModelPath,
+    string SherpaEmbeddingModelPath);
 
 /// <summary>
 /// Coordinates three concurrent transcription workstreams:
@@ -91,6 +94,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
     private readonly List<DiarizationJob> _diarizationJobs = [];
     private bool _isDiarizing;
 
+    // ── In-progress content cache (keyed by BaseName) ─────────────────────────
+    private readonly Dictionary<string, string> _currentProgressContent = new(StringComparer.OrdinalIgnoreCase);
+
     public TranscriptionQueueViewModel(
         ITranscriptionPipelineFactory pipelineFactory,
         ITranscriptStorage storage,
@@ -123,20 +129,45 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         _setStatus = setStatus;
 
         ReTranscribeGroupCommand = new RelayCommand(async () => await ReTranscribeGroupAsync());
+        DiarizeGroupCommand = new RelayCommand(async () => await DiarizeGroupOnlyAsync());
         TranscribeAudioCommand = new RelayCommand<WorkspaceTreeItem>(async item => await TranscribeAudioAsync(item));
 
         AppDomain.CurrentDomain.ProcessExit += (_, _) => _cts.Cancel();
+        _workspace.PropertyChanged += OnWorkspaceStateChanged;
+    }
+
+    private void OnWorkspaceStateChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(WorkspaceExplorerState.WorkspaceRootPath))
+            _ = ResumeQueueAsync();
     }
 
     public ICommand ReTranscribeGroupCommand { get; }
+    public ICommand DiarizeGroupCommand { get; }
     public ICommand TranscribeAudioCommand { get; }
 
     public bool CanReTranscribeGroup =>
         _getSelectedGroup() is { HasTranscript: true } group &&
         !_jobs.Any(j => string.Equals(j.Group.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase));
 
+    public bool CanDiarizeGroup
+    {
+        get
+        {
+            var group = _getSelectedGroup();
+            return group is { HasTranscript: true } &&
+                   (group.MicFilePath is not null || group.SysFilePath is not null) &&
+                   _getConfig().Diarization != DiarizationEngineType.None &&
+                   !_diarizationJobs.Any(j => string.Equals(j.Group.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase)) &&
+                   !_jobs.Any(j => string.Equals(j.Group.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     public void NotifyCanReTranscribeGroupChanged()
-        => OnPropertyChanged(nameof(CanReTranscribeGroup));
+    {
+        OnPropertyChanged(nameof(CanReTranscribeGroup));
+        OnPropertyChanged(nameof(CanDiarizeGroup));
+    }
 
     // ── Live transcription ────────────────────────────────────────────────────
 
@@ -319,19 +350,30 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         _isDiarizing = true;
         try
         {
-            while (_diarizationJobs.Count > 0)
+            while (true)
             {
-                var job = _diarizationJobs[0];
+                var job = _diarizationJobs.FirstOrDefault(j => j.Status == DiarizationJobStatus.Queued);
+                if (job is null) break;
+
                 job.Status = DiarizationJobStatus.Active;
                 ApplyHighlights(_workspace.WorkspaceItems);
                 try
                 {
-                    await DiarizeGroupAsync(job);
+                    if (job.IsStandalone)
+                        await DiarizeGroupStandaloneAsync(job.Group);
+                    else
+                        await DiarizeGroupAsync(job);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Diarization job failed for {Name}", job.Group.BaseName);
                 }
                 finally
                 {
                     _diarizationJobs.Remove(job);
+                    OnPropertyChanged(nameof(CanDiarizeGroup));
                     ApplyHighlights(_workspace.WorkspaceItems);
+                    _ = SaveQueueAsync();
                 }
             }
         }
@@ -352,7 +394,8 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
             var pipeline = _pipelineFactory.Create(
                 config.Engine, config.Diarization,
                 config.WhisperBinaryPath, config.WhisperModelPath,
-                config.PyannotePythonPath, config.PyannoteHfToken);
+                config.PyannotePythonPath, config.PyannoteHfToken,
+                config.SherpaSegmentationModelPath, config.SherpaEmbeddingModelPath);
 
             // Run diarization on the mic file (primary speaker identification source).
             var audioPath = group.MicFilePath ?? group.SysFilePath;
@@ -392,7 +435,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
             WorkspaceRefreshNeeded?.Invoke(this, EventArgs.Empty);
 
-            if (ReferenceEquals(_getSelectedGroup()?.BaseName, group.BaseName))
+            if (string.Equals(_getSelectedGroup()?.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase))
                 OpenDocumentRequested?.Invoke(this, transcriptPath);
         }
         catch (Exception ex)
@@ -428,7 +471,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         _logger.LogInformation("Group {Name} added to transcription queue (depth: {Depth}).",
             group.BaseName, _jobs.Count);
         OnPropertyChanged(nameof(CanReTranscribeGroup));
+        OnPropertyChanged(nameof(CanDiarizeGroup));
         ApplyHighlights(_workspace.WorkspaceItems);
+        _ = SaveQueueAsync();
 
         if (!_isProcessing)
             _ = ProcessQueueAsync();
@@ -445,10 +490,15 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         {
             if (!item.IsRecordingGroup) continue;
             var baseName = item.RecordingGroup!.BaseName;
+            var wasTranscribing = item.IsActivelyTranscribing;
             item.IsActivelyTranscribing = string.Equals(baseName, activeTranscribeBaseName, StringComparison.OrdinalIgnoreCase);
-            item.IsInTranscriptionQueue = _jobs.Any(j => j.Status == TranscriptionJobStatus.Queued &&
+            if (wasTranscribing && !item.IsActivelyTranscribing)
+                item.TranscriptionProgress = 0;
+            item.IsScheduledTranscription = _jobs.Any(j => j.Status == TranscriptionJobStatus.Queued &&
                 string.Equals(j.Group.BaseName, baseName, StringComparison.OrdinalIgnoreCase));
             item.IsActivelyDiarizing = string.Equals(baseName, activeDiarizeBaseName, StringComparison.OrdinalIgnoreCase);
+            item.IsScheduledDiarization = _diarizationJobs.Any(j => j.Status == DiarizationJobStatus.Queued &&
+                string.Equals(j.Group.BaseName, baseName, StringComparison.OrdinalIgnoreCase));
         }
     }
 
@@ -474,7 +524,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
                 {
                     _jobs.Remove(job);
                     OnPropertyChanged(nameof(CanReTranscribeGroup));
+                    OnPropertyChanged(nameof(CanDiarizeGroup));
                     ApplyHighlights(_workspace.WorkspaceItems);
+                    _ = SaveQueueAsync();
                     _logger.LogInformation("Group {Name} removed from queue (remaining: {N}).",
                         job.Group.BaseName, _jobs.Count);
                 }
@@ -493,11 +545,19 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         var startedAt = DateTime.Now;
         var progressRows = new List<string>();
         double lastReportedPercent = -0.06;
+        _currentProgressContent[group.BaseName] = _formatter.FormatBatchProgress(startedAt, progressRows);
 
-        void PushProgressRow(string row)
+        void PushProgressRow(string row, double pct)
         {
-            progressRows.Add(row);
+            if (progressRows.Count >= MaxProgressRows)
+                progressRows[^1] = row;
+            else
+                progressRows.Add(row);
+            foreach (var item in _workspace.WorkspaceItems)
+                if (item.IsRecordingGroup && string.Equals(item.RecordingGroup!.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase))
+                    item.TranscriptionProgress = pct;
             var content = _formatter.FormatBatchProgress(startedAt, progressRows);
+            _currentProgressContent[group.BaseName] = content;
             EditorProgressUpdated?.Invoke(this, new TranscriptionProgressEventArgs
             {
                 Group = group,
@@ -507,10 +567,9 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
         var progress = new Progress<double>(pct =>
         {
-            if (progressRows.Count >= MaxProgressRows) return;
             if (pct - lastReportedPercent < 0.05) return;
             lastReportedPercent = pct;
-            PushProgressRow($"* {DateTime.Now:yyyy-MM-dd HH:mm:ss} ... {pct:P0}");
+            PushProgressRow($"* {DateTime.Now:yyyy-MM-dd HH:mm:ss} ... {pct:P0}", pct);
         });
 
         try
@@ -519,7 +578,8 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
             var pipeline = _pipelineFactory.Create(
                 config.Engine, config.Diarization,
                 config.WhisperBinaryPath, config.WhisperModelPath,
-                config.PyannotePythonPath, config.PyannoteHfToken);
+                config.PyannotePythonPath, config.PyannoteHfToken,
+                config.SherpaSegmentationModelPath, config.SherpaEmbeddingModelPath);
 
             var allSegments = new List<TranscriptSegment>();
 
@@ -555,7 +615,7 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
 
             WorkspaceRefreshNeeded?.Invoke(this, EventArgs.Empty);
 
-            if (ReferenceEquals(_getSelectedGroup(), group))
+            if (string.Equals(_getSelectedGroup()?.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase))
                 OpenDocumentRequested?.Invoke(this, transcriptPath);
 
             _logger.LogInformation("Group transcription complete: {Path}", transcriptPath);
@@ -563,6 +623,10 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             await _reportError("Transcription failed.", ex, ex.Message);
+        }
+        finally
+        {
+            _currentProgressContent.Remove(group.BaseName);
         }
     }
 
@@ -600,6 +664,214 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
         Enqueue(freshGroup);
     }
 
+    private Task DiarizeGroupOnlyAsync()
+    {
+        if (_getSelectedGroup() is not { } group) return Task.CompletedTask;
+        if (group.MicFilePath is null && group.SysFilePath is null) return Task.CompletedTask;
+
+        _logger.LogInformation("Diarize-only queued: {Name}", group.DisplayName);
+        _diarizationJobs.Add(new DiarizationJob(group));
+        OnPropertyChanged(nameof(CanDiarizeGroup));
+        ApplyHighlights(_workspace.WorkspaceItems);
+        _ = SaveQueueAsync();
+
+        if (!_isDiarizing)
+            _ = ProcessDiarizationQueueAsync();
+
+        return Task.CompletedTask;
+    }
+
+    private async Task DiarizeGroupStandaloneAsync(RecordingGroup group)
+    {
+        _logger.LogInformation("Diarize-only: starting {Name}", group.DisplayName);
+
+        var transcriptPath = group.TranscriptPath ?? _storage.GetTranscriptPath(group);
+        var audioPath = group.MicFilePath ?? group.SysFilePath;
+        if (audioPath is null) return;
+
+        var content = await _storage.ReadAsync(transcriptPath);
+        RecordingPathBuilder.TryParseRecordingStart(group.BaseName, out var recordingStart);
+        var existingSegments = _formatter.ParseSegments(
+            content, recordingStart == default ? null : recordingStart);
+
+        if (existingSegments.Count == 0)
+        {
+            _logger.LogWarning("Diarize-only: no segments parsed from {Path}", transcriptPath);
+            return;
+        }
+
+        var config = _getConfig();
+        var engine = _pipelineFactory.CreateDiarizationEngine(
+            config.Diarization,
+            config.PyannotePythonPath, config.PyannoteHfToken,
+            config.SherpaSegmentationModelPath, config.SherpaEmbeddingModelPath);
+
+        var speakerSegments = await engine.DiarizeAsync(audioPath, progress: null, _cts.Token);
+        if (speakerSegments.Count == 0)
+        {
+            _logger.LogInformation("Diarize-only: engine returned no speaker segments for {Name}", group.BaseName);
+            return;
+        }
+
+        var merged = _mergeStrategy.Merge(existingSegments, speakerSegments);
+        var doc = new TranscriptDocument
+        {
+            TranscriptionEngineName = "— (existing)",
+            DiarizationEngineName   = engine.Name,
+        };
+        var updated = _formatter.FormatDiarizedTranscript(group, merged, doc);
+        await _storage.WriteAsync(transcriptPath, updated);
+        _logger.LogInformation("Diarize-only complete — {Speakers} speaker segments applied to {Name}.",
+            speakerSegments.Count, group.DisplayName);
+
+        WorkspaceRefreshNeeded?.Invoke(this, EventArgs.Empty);
+
+        if (string.Equals(_getSelectedGroup()?.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase))
+            OpenDocumentRequested?.Invoke(this, transcriptPath);
+    }
+
+    // ── Explorer in-progress display helpers ─────────────────────────────────
+
+    /// <summary>Shows the current transcription progress doc for a group that is actively transcribing.</summary>
+    public void ShowProgressForGroup(RecordingGroup group)
+    {
+        var content = _currentProgressContent.TryGetValue(group.BaseName, out var cached)
+            ? cached
+            : _formatter.FormatBatchProgress(DateTime.Now, []);
+        LoadDocumentRequested?.Invoke(this, new MarkdownDocument
+        {
+            FilePath = string.Empty,
+            Content = content,
+            IsUntitled = true,
+            FileName = group.DisplayName
+        });
+    }
+
+    /// <summary>Shows the existing transcript with a diarization-in-progress banner prepended.</summary>
+    public async Task ShowDiarizationProgressForGroupAsync(RecordingGroup group)
+    {
+        string content;
+        var transcriptPath = group.TranscriptPath ?? _storage.GetTranscriptPath(group);
+        if (File.Exists(transcriptPath))
+        {
+            var transcript = await _storage.ReadAsync(transcriptPath);
+            content = $"> **Diarization in progress…**\n\n---\n\n{transcript}";
+        }
+        else
+        {
+            content = $"# {group.DisplayName}\n\n> **Diarization in progress…**";
+        }
+        LoadDocumentRequested?.Invoke(this, new MarkdownDocument
+        {
+            FilePath = string.Empty,
+            Content = content,
+            IsUntitled = true,
+            FileName = group.DisplayName
+        });
+    }
+
+    /// <summary>Shows a placeholder doc for a group scheduled but not yet started.</summary>
+    public void ShowScheduledPlaceholder(RecordingGroup group, bool isDiarization)
+    {
+        var verb = isDiarization ? "Diarization" : "Transcription";
+        LoadDocumentRequested?.Invoke(this, new MarkdownDocument
+        {
+            FilePath = string.Empty,
+            Content = $"# {group.DisplayName}\n\n> **{verb} scheduled…**\n\nThis job is queued and will begin when the current job completes.",
+            IsUntitled = true,
+            FileName = group.DisplayName
+        });
+    }
+
+    // ── Queue persistence ─────────────────────────────────────────────────────
+
+    private async Task SaveQueueAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_workspace.WorkspaceRootPath)) return;
+        var path = Path.Combine(_workspace.WorkspaceRootPath, ".rizedown-queue.json");
+        try
+        {
+            var dto = new PersistedQueueDto
+            {
+                TranscriptionJobs = _jobs
+                    .Select(j => new PersistedJobDto
+                    {
+                        BaseName = j.Group.BaseName,
+                        DirectoryPath = j.Group.DirectoryPath,
+                        MicFilePath = j.Group.MicFilePath,
+                        SysFilePath = j.Group.SysFilePath
+                    }).ToList(),
+                DiarizationJobs = _diarizationJobs
+                    .Where(j => j.IsStandalone)
+                    .Select(j => new PersistedJobDto
+                    {
+                        BaseName = j.Group.BaseName,
+                        DirectoryPath = j.Group.DirectoryPath,
+                        MicFilePath = j.Group.MicFilePath,
+                        SysFilePath = j.Group.SysFilePath
+                    }).ToList()
+            };
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(dto));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save job queue to {Path}", path);
+        }
+    }
+
+    private async Task ResumeQueueAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_workspace.WorkspaceRootPath)) return;
+        var path = Path.Combine(_workspace.WorkspaceRootPath, ".rizedown-queue.json");
+        if (!File.Exists(path)) return;
+        try
+        {
+            var json = await File.ReadAllTextAsync(path);
+            var dto = JsonSerializer.Deserialize<PersistedQueueDto>(json);
+            if (dto is null) return;
+
+            var restored = 0;
+            foreach (var job in dto.TranscriptionJobs)
+            {
+                var group = new RecordingGroup
+                {
+                    BaseName = job.BaseName, DirectoryPath = job.DirectoryPath,
+                    MicFilePath = job.MicFilePath, SysFilePath = job.SysFilePath
+                };
+                if (File.Exists(_storage.GetTranscriptPath(group))) continue;
+                if (_jobs.Any(j => string.Equals(j.Group.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase))) continue;
+                _jobs.Add(new TranscriptionJob(group));
+                restored++;
+            }
+
+            foreach (var job in dto.DiarizationJobs)
+            {
+                var group = new RecordingGroup
+                {
+                    BaseName = job.BaseName, DirectoryPath = job.DirectoryPath,
+                    MicFilePath = job.MicFilePath, SysFilePath = job.SysFilePath
+                };
+                if (_diarizationJobs.Any(j => string.Equals(j.Group.BaseName, group.BaseName, StringComparison.OrdinalIgnoreCase))) continue;
+                _diarizationJobs.Add(new DiarizationJob(group));
+                restored++;
+            }
+
+            if (restored > 0)
+            {
+                _logger.LogInformation("Restored {N} job(s) from queue file.", restored);
+                OnPropertyChanged(nameof(CanReTranscribeGroup));
+                OnPropertyChanged(nameof(CanDiarizeGroup));
+                ApplyHighlights(_workspace.WorkspaceItems);
+                if (!_isProcessing && _jobs.Count > 0) _ = ProcessQueueAsync();
+                if (!_isDiarizing && _diarizationJobs.Any(j => j.Status == DiarizationJobStatus.Queued)) _ = ProcessDiarizationQueueAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to restore job queue from {Path}", path);
+        }
+    }
+
     private async Task TranscribeAudioAsync(WorkspaceTreeItem? item)
     {
         if (item is null) return;
@@ -616,7 +888,8 @@ public sealed class TranscriptionQueueViewModel : INotifyPropertyChanged
             var pipeline = _pipelineFactory.Create(
                 config.Engine, config.Diarization,
                 config.WhisperBinaryPath, config.WhisperModelPath,
-                config.PyannotePythonPath, config.PyannoteHfToken);
+                config.PyannotePythonPath, config.PyannoteHfToken,
+                config.SherpaSegmentationModelPath, config.SherpaEmbeddingModelPath);
 
             var progress = new Progress<double>(v =>
                 _mainThreadDispatcher.BeginInvokeOnMainThread(() => _setStatus($"Transcribing… {v:P0}")));
@@ -668,10 +941,36 @@ internal sealed class DiarizationJob
     public RecordingGroup Group { get; }
     public IReadOnlyList<TranscriptSegment> LiveSegments { get; }
     public DiarizationJobStatus Status { get; set; }
+    public bool IsStandalone { get; }
+
     public DiarizationJob(RecordingGroup group, IReadOnlyList<TranscriptSegment> liveSegments)
     {
         Group = group;
         LiveSegments = liveSegments;
         Status = DiarizationJobStatus.Queued;
+        IsStandalone = false;
     }
+
+    // Standalone diarization (Diarize button — no live segments, reads from existing transcript)
+    public DiarizationJob(RecordingGroup group)
+    {
+        Group = group;
+        LiveSegments = [];
+        Status = DiarizationJobStatus.Queued;
+        IsStandalone = true;
+    }
+}
+
+internal sealed class PersistedQueueDto
+{
+    public List<PersistedJobDto> TranscriptionJobs { get; set; } = [];
+    public List<PersistedJobDto> DiarizationJobs { get; set; } = [];
+}
+
+internal sealed class PersistedJobDto
+{
+    public string BaseName { get; set; } = string.Empty;
+    public string DirectoryPath { get; set; } = string.Empty;
+    public string? MicFilePath { get; set; }
+    public string? SysFilePath { get; set; }
 }

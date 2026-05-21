@@ -11,17 +11,26 @@
             Margin="0,-13,0,0"
             StrokeShape="RoundRectangle 0,0,18,18">
         <Grid>
-            <Button Text="⟳ Re-transcribe"
-                    Command="{Binding TranscriptionQueue.ReTranscribeGroupCommand}"
-                    IsVisible="{Binding TranscriptionQueue.CanReTranscribeGroup}"
-                    VerticalOptions="Start"
-                    HorizontalOptions="End"
-                    ZIndex="10"
-                    Padding="14,8"
-                    FontSize="13"
-                    BackgroundColor="{AppThemeBinding Light=#5A4E42CC, Dark=#4A4340CC}"
-                    TextColor="White"
-                    Margin="0,8,8,0" />
+            <HorizontalStackLayout VerticalOptions="Start"
+                                   HorizontalOptions="End"
+                                   ZIndex="10"
+                                   Spacing="6"
+                                   Margin="0,8,8,0">
+                <Button Text="◈ Diarize"
+                        Command="{Binding TranscriptionQueue.DiarizeGroupCommand}"
+                        IsVisible="{Binding TranscriptionQueue.CanDiarizeGroup}"
+                        Padding="14,8"
+                        FontSize="13"
+                        BackgroundColor="{AppThemeBinding Light=#3D5A4ACC, Dark=#2D4A3ACC}"
+                        TextColor="White" />
+                <Button Text="⟳ Re-transcribe"
+                        Command="{Binding TranscriptionQueue.ReTranscribeGroupCommand}"
+                        IsVisible="{Binding TranscriptionQueue.CanReTranscribeGroup}"
+                        Padding="14,8"
+                        FontSize="13"
+                        BackgroundColor="{AppThemeBinding Light=#5A4E42CC, Dark=#4A4340CC}"
+                        TextColor="White" />
+            </HorizontalStackLayout>
 
             <markdown:MarkdownView x:Name="ReaderView"
                                    IsVisible="{Binding IsReaderMode}"

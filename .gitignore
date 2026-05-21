@@ -79,3 +79,6 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Sherpa-ONNX bundled models (large binaries; download via Scripts/download-sherpa-models.sh)
+Rizedown/Rizedown/Resources/Raw/Models/Sherpa/*.onnx

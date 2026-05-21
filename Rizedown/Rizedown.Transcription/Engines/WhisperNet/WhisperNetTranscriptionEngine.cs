@@ -63,6 +63,10 @@ public sealed class WhisperNetTranscriptionEngine : ITranscriptionEngine
                 .WithLanguage("auto")
                 .Build();
 
+            // Linear PCM 16-bit mono 16 kHz: duration = (fileSize − 44) / (2 × 16000)
+            double totalSeconds = 0;
+            try { totalSeconds = (new FileInfo(inputPath).Length - 44.0) / 32000.0; } catch { }
+
             var segments = new List<TranscriptSegment>();
             await using var stream = File.OpenRead(inputPath);
             progress?.Report(0.20);
@@ -78,6 +82,12 @@ public sealed class WhisperNetTranscriptionEngine : ITranscriptionEngine
                         Start = seg.Start,
                         End   = seg.End,
                     });
+                }
+
+                if (totalSeconds > 0 && progress is not null)
+                {
+                    var pct = 0.20 + (seg.End.TotalSeconds / totalSeconds) * 0.79;
+                    progress.Report(Math.Min(pct, 0.99));
                 }
             }
 
